@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*" />
+    <title>Frontier Proxy</title>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"><span></span><span></span><span></span></div>
+          <div><strong>Frontier</strong><small>LOCAL AGENT ROUTER</small></div>
+        </div>
+
+        <nav>
+          <button class="nav-item active" data-view="tasks"><span>⌁</span> Tasks</button>
+          <button class="nav-item" data-view="providers"><span>◫</span> Providers</button>
+          <button class="nav-item" data-view="settings"><span>⌘</span> Settings</button>
+        </nav>
+
+        <div class="provider-rail">
+          <p class="eyebrow">AVAILABLE CAPACITY</p>
+          <div id="provider-mini-list"></div>
+        </div>
+
+        <div class="privacy-note">
+          <span class="pulse-dot"></span>
+          <div><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
+        </div>
+        <div class="app-version">FRONTIER PROXY · v0.2.0</div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div><p class="eyebrow">ORCHESTRATION CONSOLE</p><h1 id="view-title">Tasks</h1></div>
+          <div class="header-actions">
+            <button id="health-check" class="secondary-button">↻ Check providers</button>
+            <button id="new-task-button" class="primary-button">＋ New task</button>
+          </div>
+        </header>
+
+        <section id="tasks-view" class="view active">
+          <div class="metrics" id="metrics"></div>
+          <div class="content-grid">
+            <section class="panel task-panel">
+              <div class="panel-header"><div><p class="eyebrow">WORK QUEUE</p><h2>Agent tasks</h2></div><button id="clear-finished" class="text-button">Clear finished</button></div>
+              <div id="task-list" class="task-list"></div>
+            </section>
+            <section class="panel output-panel">
+              <div class="panel-header"><div><p class="eyebrow">LIVE OUTPUT</p><h2 id="output-title">Select a task</h2></div><span id="output-status" class="status-pill muted">Idle</span></div>
+              <pre id="output-content" class="output-content">Choose a task from the queue to inspect its routed provider, attempts, and output.</pre>
+            </section>
+          </div>
+        </section>
+
+        <section id="providers-view" class="view">
+          <div class="section-intro"><div><p class="eyebrow">LOCAL EXECUTABLES</p><h2>Provider registry</h2><p>Use authenticated CLI sessions already installed on this machine.</p></div><button id="add-provider" class="primary-button">＋ Add custom CLI</button></div>
+          <div class="setup-guide">
+            <div><span>01</span><strong>Hosted coding agents</strong><p>Codex, Claude Code, and GitHub Copilot are included. Install and sign in to each local CLI, then select Check providers.</p></div>
+            <div><span>02</span><strong>Local models</strong><p>Start Ollama, pull the configured model, then enable either Codex + Ollama or direct Ollama.</p></div>
+            <div><span>03</span><strong>Other agent CLIs</strong><p>Select Add custom CLI, enter its executable and arguments, save it, and confirm its status becomes Ready.</p></div>
+          </div>
+          <div id="provider-grid" class="provider-grid"></div>
+        </section>
+
+        <section id="settings-view" class="view">
+          <div class="settings-grid">
+            <section class="panel settings-card">
+              <p class="eyebrow">SCHEDULER</p><h2>Concurrency & failover</h2>
+              <label>Maximum parallel tasks<input id="max-parallel" type="number" min="1" max="8" /></label>
+              <label>Usage-limit cooldown (minutes)<input id="cooldown-minutes" type="number" min="1" max="1440" /></label>
+              <button id="save-settings" class="primary-button">Save settings</button>
+            </section>
+            <section class="panel explainer-card">
+              <p class="eyebrow">ROUTING POLICIES</p><h2>How selection works</h2>
+              <div class="policy"><strong>Balanced</strong><span>Matches task type, spreads subscription usage, then considers local models.</span></div>
+              <div class="policy"><strong>Quality first</strong><span>Prefers Codex or Claude Code and only falls back when unavailable.</span></div>
+              <div class="policy"><strong>Token saver</strong><span>Strongly favors Ollama-backed agents to preserve hosted usage.</span></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="task-dialog">
+      <form id="task-form" method="dialog">
+        <div class="dialog-header"><div><p class="eyebrow">DISTRIBUTE WORK</p><h2>New agent task</h2></div><button type="button" class="icon-button" id="close-dialog">×</button></div>
+        <label>What should the agent do?<textarea id="prompt" rows="7" required placeholder="Implement the authentication flow, add tests, and explain the tradeoffs…"></textarea></label>
+        <label>Working directory<div class="path-control"><input id="cwd" required placeholder="/path/to/project" /><button type="button" id="choose-directory" class="secondary-button">Choose folder…</button></div></label>
+        <p class="field-help">Agents inherit your normal user access. Full Disk Access is only needed for protected macOS locations.</p>
+        <div class="form-row">
+          <label>Routing policy<select id="routing-mode"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></label>
+          <label>Provider override<select id="provider-override"><option value="">Automatic</option></select></label>
+        </div>
+        <p id="form-error" class="form-error"></p>
+        <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Route task</button></div>
+      </form>
+    </dialog>
+
+    <div id="toast" role="status"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -3,7 +3,11 @@
   "version": "0.2.0",
   "private": true,
   "description": "A local-first desktop router for Codex, Claude Code, and open-source coding agents.",
-  "author": "Frontier Proxy contributors",
+  "author": {
+    "name": "Frontier Proxy contributors",
+    "email": "thisapramuditha@gmail.com"
+  },
+  "desktopName": "frontier-proxy.desktop",
   "license": "MIT",
   "main": "out/main/index.js",
   "type": "module",
@@ -35,7 +39,8 @@
     },
     "linux": {
       "target": ["AppImage", "deb"],
-      "category": "Development"
+      "category": "Development",
+      "syncDesktopName": true
     }
   },
   "dependencies": {

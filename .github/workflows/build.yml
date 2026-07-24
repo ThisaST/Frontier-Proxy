@@ -54,7 +54,7 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            command: pnpm exec electron-builder --win --x64
+            command: pnpm exec electron-builder --win --x64 --publish never
             artifact: Frontier-Proxy-Windows-x64
             cache: |
               ~/AppData/Local/electron/Cache
@@ -63,7 +63,7 @@ jobs:
               release/*.exe
           - name: macOS
             os: macos-14
-            command: pnpm exec electron-builder --mac --x64
+            command: pnpm exec electron-builder --mac --x64 --publish never
             artifact: Frontier-Proxy-macOS-x64
             cache: |
               ~/Library/Caches/electron
@@ -73,7 +73,7 @@ jobs:
               release/*.zip
           - name: Linux
             os: ubuntu-latest
-            command: pnpm exec electron-builder --linux --x64
+            command: pnpm exec electron-builder --linux --x64 --publish never
             artifact: Frontier-Proxy-Linux-x64
             cache: |
               ~/.cache/electron

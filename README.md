@@ -35,6 +35,17 @@ pnpm package
 
 Create distributable installers on each target operating system with `pnpm dist`. Electron Builder produces DMG/ZIP on macOS, NSIS/portable on Windows, and AppImage/DEB on Linux. Native installers should normally be built on their target OS or in a CI matrix.
 
+## Download builds
+
+GitHub Actions builds Windows, macOS, and Linux installers after every push to `main`, when a `v*` tag is pushed, or when the workflow is started manually. Open the repository's **Actions** tab, select a successful **Build desktop apps** run, and download the artifact for your platform. Build artifacts are retained for 30 days.
+
+Version tags also create a GitHub Release with the installers attached for permanent public downloads. For example:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
 ## Provider setup
 
 In the app, open **Providers** in the left sidebar:

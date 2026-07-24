@@ -36,6 +36,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
       - name: Check types
         run: pnpm typecheck
@@ -54,12 +56,18 @@ jobs:
             os: windows-latest
             command: pnpm exec electron-builder --win --x64
             artifact: Frontier-Proxy-Windows-x64
+            cache: |
+              ~/AppData/Local/electron/Cache
+              ~/AppData/Local/electron-builder/Cache
             files: |
               release/*.exe
           - name: macOS
             os: macos-14
             command: pnpm exec electron-builder --mac --x64
             artifact: Frontier-Proxy-macOS-x64
+            cache: |
+              ~/Library/Caches/electron
+              ~/Library/Caches/electron-builder
             files: |
               release/*.dmg
               release/*.zip
@@ -67,6 +75,9 @@ jobs:
             os: ubuntu-latest
             command: pnpm exec electron-builder --linux --x64
             artifact: Frontier-Proxy-Linux-x64
+            cache: |
+              ~/.cache/electron
+              ~/.cache/electron-builder
             files: |
               release/*.AppImage
               release/*.deb
@@ -89,12 +100,35 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Restore Electron download cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ matrix.cache }}
+          key: electron-${{ runner.os }}-x64-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            electron-${{ runner.os }}-x64-
 
       - name: Build application
         run: pnpm build
 
       - name: Package application
-        run: ${{ matrix.command }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if ${{ matrix.command }}; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+
+            echo "Packaging attempt $attempt failed; retrying in 20 seconds..."
+            sleep 20
+          done
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 

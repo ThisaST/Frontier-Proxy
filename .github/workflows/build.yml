@@ -148,6 +148,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out release tag
+        uses: actions/checkout@v5
+
       - name: Download packaged applications
         uses: actions/download-artifact@v6
         with:

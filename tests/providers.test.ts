@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProviderCommand, runProvider } from '../src/main/providers'
+import { buildProviderCommand, discoverModels, runProvider } from '../src/main/providers'
 import type { ProviderConfig } from '../src/shared/types'
 
 function custom(args: string[]): ProviderConfig {
@@ -44,5 +44,26 @@ describe('local provider process adapter', () => {
     })
     expect(result.ok).toBe(false)
     expect(result.failureKind).toBe('quota')
+  })
+
+  it('offers a curated known-model set for subscription CLIs', async () => {
+    const claude: ProviderConfig = {
+      id: 'claude', name: 'Claude Code', kind: 'claude', enabled: true, executable: 'claude',
+      priority: 1, maxConcurrent: 1, capabilities: ['coding']
+    }
+    const models = await discoverModels(claude)
+    expect(models).toContain('claude-opus-4-8')
+    expect(models).toContain('claude-sonnet-4-5')
+  })
+
+  it('always includes the provider\'s configured model, de-duplicated', async () => {
+    const claude: ProviderConfig = {
+      id: 'claude', name: 'Claude Code', kind: 'claude', enabled: true, executable: 'claude',
+      model: 'claude-opus-4-8', priority: 1, maxConcurrent: 1, capabilities: ['coding']
+    }
+    const models = await discoverModels(claude)
+    expect(models.filter((m) => m === 'claude-opus-4-8')).toHaveLength(1)
+    // A custom provider with no known set falls back to just its configured model.
+    expect(await discoverModels({ ...custom([]), model: 'my-local-model' })).toEqual(['my-local-model'])
   })
 })

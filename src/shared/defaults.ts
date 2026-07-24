@@ -3,6 +3,15 @@ import type { AppSettings } from './types'
 export const DEFAULT_SETTINGS: AppSettings = {
   maxParallelTasks: 2,
   quotaCooldownMinutes: 20,
+  memory: '',
+  controlPlane: {
+    systemPrompt: '',
+    addDirs: [],
+    allowedTools: [],
+    disallowedTools: [],
+    mcpServers: [],
+    strictMcp: false
+  },
   providers: [
     {
       id: 'codex', name: 'Codex', kind: 'codex', enabled: true, executable: 'codex',

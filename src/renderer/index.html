@@ -17,6 +17,8 @@
         <nav>
           <button class="nav-item active" data-view="tasks"><span>⌁</span> Tasks</button>
           <button class="nav-item" data-view="providers"><span>◫</span> Providers</button>
+          <button class="nav-item" data-view="control"><span>⊹</span> Context & Tools</button>
+          <button class="nav-item" data-view="usage"><span>◔</span> Usage</button>
           <button class="nav-item" data-view="settings"><span>⌘</span> Settings</button>
         </nav>
 
@@ -43,14 +45,30 @@
 
         <section id="tasks-view" class="view active">
           <div class="metrics" id="metrics"></div>
-          <div class="content-grid">
+          <div class="content-grid" id="content-grid">
             <section class="panel task-panel">
-              <div class="panel-header"><div><p class="eyebrow">WORK QUEUE</p><h2>Agent tasks</h2></div><button id="clear-finished" class="text-button">Clear finished</button></div>
+              <div class="panel-header">
+                <div><p class="eyebrow">WORK QUEUE</p><h2>Agent tasks</h2></div>
+                <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search tasks… (⌘K)" /><button id="clear-finished" class="text-button">Clear finished</button></div>
+              </div>
               <div id="task-list" class="task-list"></div>
             </section>
+            <div class="grid-gutter" id="grid-gutter" title="Drag to resize"></div>
             <section class="panel output-panel">
-              <div class="panel-header"><div><p class="eyebrow">LIVE OUTPUT</p><h2 id="output-title">Select a task</h2></div><span id="output-status" class="status-pill muted">Idle</span></div>
-              <pre id="output-content" class="output-content">Choose a task from the queue to inspect its routed provider, attempts, and output.</pre>
+              <div class="panel-header">
+                <div><p class="eyebrow">LIVE OUTPUT</p><h2 id="output-title">Select a task</h2></div>
+                <div class="output-header-right"><span id="output-status" class="status-pill muted">Idle</span><div id="output-actions" class="output-actions"></div></div>
+              </div>
+              <div id="output-meta" class="output-meta"></div>
+              <div id="output-timeline" class="output-timeline"></div>
+              <div id="output-subtasks" class="output-subtasks"></div>
+              <div id="output-files" class="output-files"></div>
+              <div id="output-activity" class="output-activity"></div>
+              <div id="output-content" class="output-content markdown">Choose a task from the queue to inspect its routed provider, attempts, and output.</div>
+              <div id="output-composer" class="output-composer" hidden>
+                <textarea id="composer-input" rows="1" placeholder="Continue the conversation…"></textarea>
+                <button id="composer-send" class="primary-button">Send</button>
+              </div>
             </section>
           </div>
         </section>
@@ -63,6 +81,53 @@
             <div><span>03</span><strong>Other agent CLIs</strong><p>Select Add custom CLI, enter its executable and arguments, save it, and confirm its status becomes Ready.</p></div>
           </div>
           <div id="provider-grid" class="provider-grid"></div>
+        </section>
+
+        <section id="control-view" class="view">
+          <div class="section-intro">
+            <div>
+              <p class="eyebrow">CONTROL PLANE</p><h2>Context &amp; Tools</h2>
+              <p>Configure MCP servers, tool permissions, and context once. Frontier translates them into each CLI's native flags at launch — no per-agent setup.</p>
+            </div>
+            <button id="save-control-plane" class="primary-button">Save configuration</button>
+          </div>
+          <div class="control-grid">
+            <section class="panel control-card">
+              <p class="eyebrow">CONTEXT</p><h3>System prompt &amp; directories</h3>
+              <label>Shared system prompt (appended for every agent)<textarea id="cp-system-prompt" rows="5" placeholder="You are working inside the Frontier monorepo. Prefer pnpm. Never touch generated files…"></textarea></label>
+              <label>Extra context directories (one per line)<textarea id="cp-add-dirs" rows="3" placeholder="C:\path\to\shared-docs"></textarea></label>
+            </section>
+            <section class="panel control-card">
+              <p class="eyebrow">TOOL PERMISSIONS</p><h3>Allow &amp; deny</h3>
+              <label>Allowed tools (one per line)<textarea id="cp-allowed" rows="4" placeholder="Bash(git *)&#10;Edit&#10;Read"></textarea></label>
+              <label>Disallowed tools (one per line)<textarea id="cp-disallowed" rows="3" placeholder="Bash(rm *)&#10;WebFetch"></textarea></label>
+              <label class="checkbox-row"><input type="checkbox" id="cp-strict-mcp" /> Strict MCP — use only these servers (Claude)</label>
+            </section>
+            <section class="panel control-card control-card-wide">
+              <div class="control-card-head">
+                <div><p class="eyebrow">MCP SERVERS</p><h3>Shared servers</h3></div>
+                <div class="header-actions">
+                  <button id="cp-import-mcp" class="secondary-button">Import .mcp.json</button>
+                  <button id="cp-add-server" class="secondary-button">＋ Add server</button>
+                </div>
+              </div>
+              <input id="cp-import-file" type="file" accept=".json,application/json" hidden />
+              <div id="cp-server-list" class="cp-server-list"></div>
+            </section>
+            <section class="panel control-card control-card-wide">
+              <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h3>Launch flags per provider</h3></div>
+                <select id="cp-preview-provider"></select></div>
+              <pre id="cp-preview" class="cp-preview">Select a provider to preview the exact flags Frontier will inject.</pre>
+            </section>
+          </div>
+        </section>
+
+        <section id="usage-view" class="view">
+          <div class="section-intro">
+            <div><p class="eyebrow">CONSUMPTION</p><h2>Usage &amp; sessions</h2><p>Real token usage, cost, and limit-reset times reported by each CLI's stream. Granular 5-hour / weekly percentages live only in Claude's interactive <code>/usage</code> view, not headless mode.</p></div>
+            <button id="usage-refresh" class="secondary-button">↻ Refresh</button>
+          </div>
+          <div id="usage-grid" class="usage-grid"></div>
         </section>
 
         <section id="settings-view" class="view">
@@ -79,6 +144,12 @@
               <div class="policy"><strong>Quality first</strong><span>Prefers Codex or Claude Code and only falls back when unavailable.</span></div>
               <div class="policy"><strong>Token saver</strong><span>Strongly favors Ollama-backed agents to preserve hosted usage.</span></div>
             </section>
+            <section class="panel settings-card memory-card">
+              <p class="eyebrow">FRONTIER MEMORY</p><h2>Persistent memory</h2>
+              <p class="field-help">Injected as shared context into every new task and orchestration, so knowledge carries across tasks and continuations.</p>
+              <label>Notes, conventions, decisions, gotchas<textarea id="memory-input" rows="9" placeholder="e.g. This repo uses pnpm. Auth is delegated to each CLI's own login. Never add API-key fields."></textarea></label>
+              <button id="save-memory" class="primary-button">Save memory</button>
+            </section>
           </div>
         </section>
       </main>
@@ -93,6 +164,10 @@
         <div class="form-row">
           <label>Routing policy<select id="routing-mode"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></label>
           <label>Provider override<select id="provider-override"><option value="">Automatic</option></select></label>
+        </div>
+        <div class="form-row">
+          <label>Model<select id="task-model-select"><option value="">Provider default</option></select><input id="task-model" class="task-model-custom" placeholder="Type a model id…" hidden /></label>
+          <label class="checkbox-row dialog-check"><input type="checkbox" id="task-orchestrate" /> Orchestrate across providers (plan → delegate → merge)</label>
         </div>
         <p id="form-error" class="form-error"></p>
         <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Route task</button></div>

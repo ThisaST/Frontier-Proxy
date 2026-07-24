@@ -8,7 +8,7 @@ function provider(id: string, kind: ProviderKind, tasks = 0, available = true): 
     capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general'],
     runtime: {
       available, running: 0,
-      usage: { date: '2026-07-20', tasks, estimatedInputTokens: 0, estimatedOutputTokens: 0, elapsedMs: 0 }
+      usage: { date: '2026-07-20', tasks, estimatedInputTokens: 0, estimatedOutputTokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, elapsedMs: 0 }
     }
   }
 }

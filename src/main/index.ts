@@ -57,12 +57,15 @@ function registerIpc(): void {
   ipcMain.handle('frontier:create-task', (_event, input: CreateTaskInput) => engine.createTask(input))
   ipcMain.handle('frontier:cancel-task', (_event, taskId: string) => engine.cancelTask(taskId))
   ipcMain.handle('frontier:retry-task', (_event, taskId: string) => engine.retryTask(taskId))
+  ipcMain.handle('frontier:continue-task', (_event, taskId: string, message: string) => engine.continueTask(taskId, message))
   ipcMain.handle('frontier:clear-finished', () => engine.clearFinishedTasks())
   ipcMain.handle('frontier:check-providers', () => engine.checkProviders())
   ipcMain.handle('frontier:update-provider', (_event, patch: ProviderPatch) => engine.updateProvider(patch))
   ipcMain.handle('frontier:add-custom-provider', () => engine.addCustomProvider())
   ipcMain.handle('frontier:remove-provider', (_event, providerId: string) => engine.removeProvider(providerId))
   ipcMain.handle('frontier:update-settings', (_event, changes) => engine.updateSettings(changes))
+  ipcMain.handle('frontier:update-control-plane', (_event, profile) => engine.updateControlPlane(profile))
+  ipcMain.handle('frontier:preview-control-plane', (_event, providerId: string, profile) => engine.previewControlPlane(providerId, profile))
   ipcMain.handle('frontier:choose-directory', (_event, currentPath?: string) => {
     const window = BrowserWindow.getFocusedWindow()
     const options = {

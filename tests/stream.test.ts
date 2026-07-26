@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { parseClaudeLine, type StreamHandlers } from '../src/main/providers'
-import type { ActivityEvent } from '../src/shared/types'
+import { parseClaudeLine, parseCodexLine, type StreamHandlers } from '../src/main/providers'
+import type { ActivityEvent, SessionInfo, UsageSample } from '../src/shared/types'
 
 // Real event shapes captured from `claude -p --output-format stream-json`.
-function collect(lines: object[]): { text: string; model?: string; activity: ActivityEvent[] } {
+function collect(lines: object[]): { text: string; model?: string; activity: ActivityEvent[]; usage?: UsageSample; session?: SessionInfo } {
   let text = ''
   let model: string | undefined
+  let usage: UsageSample | undefined
+  let session: SessionInfo | undefined
   const activity: ActivityEvent[] = []
   const handlers: StreamHandlers = {
     onText: (value) => { text += value },
     onModel: (value) => { model = value },
-    onActivity: (event) => { activity.push(event) }
+    onActivity: (event) => { activity.push(event) },
+    onUsage: (value) => { usage = value },
+    onSession: (value) => { session = value }
   }
   const state = { streamedText: false, thinking: '' }
   for (const line of lines) parseClaudeLine(line as Record<string, unknown>, handlers, state)
-  return { text, model, activity }
+  return { text, model, activity, usage, session }
 }
 
 describe('claude stream parsing', () => {
@@ -54,5 +58,27 @@ describe('claude stream parsing', () => {
     ])
     expect(activity).toHaveLength(1)
     expect(activity[0]).toMatchObject({ kind: 'thinking', label: 'Thinking', detail: 'Let me check the config.' })
+  })
+
+  it('reports context occupancy and normalizes plan-window utilization', () => {
+    const { usage, session } = collect([
+      { type: 'rate_limit_event', rate_limit_info: { resetsAt: 2_000_000_000, rateLimitType: 'five_hour', utilization: 0.26, status: 'allowed' } },
+      { type: 'result', usage: { input_tokens: 700, cache_read_input_tokens: 300, output_tokens: 40 }, modelUsage: { opus: { contextWindow: 200_000 } } }
+    ])
+    expect(usage).toMatchObject({ inputTokens: 1000, outputTokens: 40, contextTokens: 1000, contextWindow: 200_000 })
+    expect(session).toMatchObject({ limitType: 'five hour', utilizationPercent: 26, status: 'allowed' })
+  })
+})
+
+describe('codex stream parsing', () => {
+  it('reports turn token usage for provider and context tracking', () => {
+    let usage: UsageSample | undefined
+    parseCodexLine({ type: 'turn.completed', usage: { input_tokens: 1200, output_tokens: 80 } }, {
+      onText: () => undefined,
+      onModel: () => undefined,
+      onActivity: () => undefined,
+      onUsage: (value) => { usage = value }
+    })
+    expect(usage).toMatchObject({ inputTokens: 1200, outputTokens: 80, contextTokens: 1200 })
   })
 })

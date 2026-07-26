@@ -100,6 +100,17 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
 
 type Dict = Record<string, unknown>
 
+function finiteNumber(value: unknown): number | undefined {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : undefined
+}
+
+function utilizationPercent(info: Dict): number | undefined {
+  const raw = finiteNumber(info.utilization ?? info.utilizationPercent ?? info.utilization_percent ?? info.usedPercent ?? info.used_percent)
+  if (raw === undefined || raw < 0) return undefined
+  return Math.min(100, raw <= 1 ? raw * 100 : raw)
+}
+
 // Model tags can carry suffixes like "[1m]" (1M-context). Show the canonical id.
 function canonicalModel(model: string): string {
   return model.replace(/\[[^\]]*\]\s*$/, '').trim()
@@ -137,6 +148,8 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { 
       overageResetsAt: typeof info.overageResetsAt === 'number' ? new Date(info.overageResetsAt * 1000).toISOString() : undefined,
       usingOverage: typeof info.isUsingOverage === 'boolean' ? info.isUsingOverage : undefined,
       status: typeof info.status === 'string' ? info.status : typeof info.overageStatus === 'string' ? info.overageStatus : undefined,
+      utilizationPercent: utilizationPercent(info),
+      limitType: typeof info.rateLimitType === 'string' ? info.rateLimitType.replaceAll('_', ' ') : undefined,
       updatedAt: new Date().toISOString()
     })
     return
@@ -185,8 +198,22 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { 
 }
 
 // Best-effort parse for Codex `exec --json` events (agent text, shell/file/MCP activity).
-function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
+export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
   if (typeof event.model === 'string') handlers.onModel(canonicalModel(event.model))
+  if (event.type === 'turn.completed') {
+    const usage = event.usage as Dict | undefined
+    if (usage) {
+      const input = Number(usage.input_tokens ?? 0)
+      const contextWindow = finiteNumber(usage.context_window ?? event.context_window ?? event.model_context_window)
+      handlers.onUsage?.({
+        inputTokens: input,
+        outputTokens: Number(usage.output_tokens ?? 0),
+        costUsd: 0,
+        contextTokens: input,
+        contextWindow
+      })
+    }
+  }
   if (event.type === 'item.completed' || event.type === 'item.updated') {
     const item = event.item as Dict | undefined
     const at = new Date().toISOString()

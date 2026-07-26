@@ -13,6 +13,9 @@ export interface ProviderConfig {
   args?: string[]
   priority: number
   dailyTokenBudget?: number
+  // Optional model context limit for CLIs that do not report it themselves.
+  // A value reported by the CLI always takes precedence at runtime.
+  contextWindow?: number
   maxConcurrent: number
   capabilities: TaskType[]
   // When false, this provider ignores the shared control-plane profile.
@@ -65,7 +68,18 @@ export interface SessionInfo {
   overageResetsAt?: string
   usingOverage?: boolean
   status?: string
+  // Plan-window utilization when the CLI exposes it (normalized to 0..100).
+  utilizationPercent?: number
+  // Human-readable window identifier such as "5-hour" or "weekly".
+  limitType?: string
   updatedAt: string
+}
+
+export interface ContextWindowInfo {
+  usedTokens: number
+  windowTokens: number
+  updatedAt: string
+  source: 'reported' | 'configured'
 }
 
 export interface ProviderRuntime {
@@ -76,6 +90,8 @@ export interface ProviderRuntime {
   cooldownUntil?: string
   cooldownReason?: string
   session?: SessionInfo
+  // Latest context occupancy observed for this provider during this app session.
+  context?: ContextWindowInfo
   // Models this provider can run — discovered (`ollama list`) or a curated
   // known set for the subscription CLIs (no headless list command exists).
   models?: string[]

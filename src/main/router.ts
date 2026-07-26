@@ -17,12 +17,19 @@ function isCoolingDown(runtime: ProviderRuntime, now: number): boolean {
   return Boolean(runtime.cooldownUntil && Date.parse(runtime.cooldownUntil) > now)
 }
 
+function sessionLimitReached(runtime: ProviderRuntime, now: number): boolean {
+  if ((runtime.session?.utilizationPercent ?? 0) < 100) return false
+  return !runtime.session?.resetsAt || Date.parse(runtime.session.resetsAt) > now
+}
+
 export function rankProviders(task: ProxyTask, providers: RoutableProvider[], now = Date.now()): RoutableProvider[] {
   return providers
     .filter((provider) => {
       if (!provider.enabled || !provider.runtime.available || isCoolingDown(provider.runtime, now)) return false
       if (!provider.capabilities.includes(task.type) || provider.runtime.running >= provider.maxConcurrent) return false
-      const used = provider.runtime.usage.estimatedInputTokens + provider.runtime.usage.estimatedOutputTokens
+      if (sessionLimitReached(provider.runtime, now)) return false
+      const actual = provider.runtime.usage.inputTokens + provider.runtime.usage.outputTokens
+      const used = actual || provider.runtime.usage.estimatedInputTokens + provider.runtime.usage.estimatedOutputTokens
       return !provider.dailyTokenBudget || used + task.estimatedInputTokens <= provider.dailyTokenBudget
     })
     .map((provider) => {
@@ -34,7 +41,8 @@ export function rankProviders(task: ProxyTask, providers: RoutableProvider[], no
       if (task.preferredProviderId === provider.id) score += 1_000
 
       // Prefer the less-used subscription when otherwise close, stretching both quota windows.
-      const used = provider.runtime.usage.estimatedInputTokens + provider.runtime.usage.estimatedOutputTokens
+      const actual = provider.runtime.usage.inputTokens + provider.runtime.usage.outputTokens
+      const used = actual || provider.runtime.usage.estimatedInputTokens + provider.runtime.usage.estimatedOutputTokens
       const utilization = provider.dailyTokenBudget ? used / provider.dailyTokenBudget : provider.runtime.usage.tasks / 20
       score -= Math.min(25, utilization * 20)
       score -= provider.runtime.running * 30

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, StreamEvent, SubTask, TaskAttempt, UsageSample
+  ActivityEvent, AppSettings, AppSnapshot, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, StreamEvent, SubTask, TaskAttempt, TaskType, UsageSample
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -248,8 +248,9 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       this.emitSnapshot()
 
+      const runPrompt = this.promptWithMemory(task.prompt)
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
-        prompt: this.promptWithMemory(task.prompt),
+        prompt: runPrompt,
         cwd: task.cwd,
         signal: controller.signal,
         controlPlane: this.settings.controlPlane,
@@ -265,7 +266,7 @@ export class OrchestrationEngine extends EventEmitter {
           recordFileChange(task, event)
           this.emitSnapshot()
         },
-        onUsage: (usage) => { this.applyUsage(runtime, usage, task) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, provider) },
         onSession: (session) => { runtime.session = session; this.emitSnapshot() },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
@@ -276,6 +277,7 @@ export class OrchestrationEngine extends EventEmitter {
       runtime.usage.elapsedMs += Date.now() - started
       runtime.usage.estimatedInputTokens += task.estimatedInputTokens
       runtime.usage.estimatedOutputTokens += estimateTokens(result.output)
+      this.applyConfiguredContext(runtime, provider, estimateTokens(runPrompt), task)
       attempt.finishedAt = new Date().toISOString()
 
       if (result.ok) {
@@ -351,38 +353,70 @@ export class OrchestrationEngine extends EventEmitter {
     this.startAssistantTurn(task)
     await this.persistAndEmit()
 
-    // Prefer resuming with the provider that owns the session.
-    const sessionProvider = task.sessionId
-      ? this.settings.providers.find((item) => item.id === task.sessionProviderId)
-      : undefined
-    const resumable = sessionProvider && (this.runtimes.get(sessionProvider.id)?.available ?? false)
-    const provider = resumable ? sessionProvider! : this.pickProvider(task)
-    if (!provider) { this.finishTask(task, 'failed', 'No eligible provider is available to continue.'); this.finalizeAssistantTurn(task); this.controllers.delete(task.id); await this.persistAndEmit(); return structuredClone(task) }
+    // Prefer the provider that owns the resumable session, but only while it is
+    // still routable. Quota/unavailable failures continue on the next platform
+    // with a transcript replay so follow-up turns get the same failover safety
+    // as first-turn tasks.
+    const ranked = rankProviders({ ...task, preferredProviderId: undefined, orchestrated: false }, this.snapshot().providers)
+    const sessionProviderId = task.sessionId ? task.sessionProviderId : undefined
+    const candidateIds = [...new Set([
+      ...(sessionProviderId && ranked.some((item) => item.id === sessionProviderId) ? [sessionProviderId] : []),
+      ...ranked.map((item) => item.id)
+    ])]
+    if (!candidateIds.length) { this.finishTask(task, 'failed', 'No eligible provider is available to continue.'); this.finalizeAssistantTurn(task); this.controllers.delete(task.id); await this.persistAndEmit(); return structuredClone(task) }
 
-    task.selectedProviderId = provider.id
-    const runtime = this.runtimes.get(provider.id)
-    if (runtime) runtime.running += 1
-    const started = Date.now()
-    // When we can't resume the CLI session, replay the conversation as context.
-    const prompt = resumable ? text : `${this.transcript(task)}\n\nContinue. New message:\n${text}`
-    const result = await runProvider(this.withModel(provider, task.modelOverride), {
-      prompt, cwd: task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
-      resumeSessionId: resumable ? task.sessionId : undefined,
-      onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
-      onModel: (model) => { task.model = model; this.emitSnapshot() },
-      onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-      onUsage: (usage) => { if (runtime) this.applyUsage(runtime, usage, task) },
-      onSession: (session) => { if (runtime) { runtime.session = session; this.emitSnapshot() } },
-      onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
-    })
-    if (runtime) {
+    let completed = false
+    let finalError: string | undefined
+    for (const providerId of candidateIds) {
+      const provider = this.settings.providers.find((item) => item.id === providerId)
+      const runtime = this.runtimes.get(providerId)
+      if (!provider || !runtime || controller.signal.aborted) break
+      const resumable = providerId === sessionProviderId && Boolean(task.sessionId)
+      const prompt = resumable ? text : `${this.transcript(task)}\n\nContinue the conversation from the latest user message.`
+      if (!resumable) { task.sessionId = undefined; task.sessionProviderId = undefined }
+      task.selectedProviderId = provider.id
+      runtime.running += 1
+      const attempt: TaskAttempt = { providerId, startedAt: new Date().toISOString(), status: 'running' }
+      task.attempts.push(attempt)
+      const started = Date.now()
+      this.emitSnapshot()
+
+      const result = await runProvider(this.withModel(provider, task.modelOverride), {
+        prompt, cwd: task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
+        resumeSessionId: resumable ? task.sessionId : undefined,
+        onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
+        onModel: (model) => { task.model = model; this.emitSnapshot() },
+        onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, provider) },
+        onSession: (session) => { runtime.session = session; this.emitSnapshot() },
+        onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
+      })
       runtime.running = Math.max(0, runtime.running - 1)
       runtime.usage.tasks += 1
       runtime.usage.elapsedMs += Date.now() - started
       runtime.usage.estimatedInputTokens += estimateTokens(prompt)
       runtime.usage.estimatedOutputTokens += estimateTokens(result.output)
+      this.applyConfiguredContext(runtime, provider, estimateTokens(prompt), task)
+      attempt.finishedAt = new Date().toISOString()
+      attempt.status = result.ok ? 'completed' : result.failureKind === 'cancelled' ? 'cancelled' : 'failed'
+      attempt.error = result.error
+
+      if (result.ok) { completed = true; finalError = undefined; break }
+      finalError = result.error
+      if (result.failureKind === 'quota') {
+        runtime.cooldownUntil = new Date(Date.now() + this.settings.quotaCooldownMinutes * 60_000).toISOString()
+        runtime.cooldownReason = result.error
+        task.output += `\n\n[${provider.name} reached a usage limit; continuing with another platform.]\n\n`
+        continue
+      }
+      if (result.failureKind === 'unavailable') {
+        runtime.available = false
+        task.output += `\n\n[${provider.name} became unavailable; continuing with another platform.]\n\n`
+        continue
+      }
+      break
     }
-    this.finishTask(task, controller.signal.aborted ? 'cancelled' : result.ok ? 'completed' : 'failed', result.ok ? undefined : result.error)
+    this.finishTask(task, controller.signal.aborted ? 'cancelled' : completed ? 'completed' : 'failed', completed ? undefined : controller.signal.aborted ? 'Task cancelled.' : finalError ?? 'No eligible provider could complete this turn.')
     this.finalizeAssistantTurn(task)
     this.controllers.delete(task.id)
     await this.persistAndEmit()
@@ -413,6 +447,7 @@ export class OrchestrationEngine extends EventEmitter {
       task.selectedProviderId = planner.id
       const planResult = await this.runOne(planner, buildPlannerPrompt(this.promptWithMemory(task.prompt)), task, controller)
       if (controller.signal.aborted) { this.finishTask(task, 'cancelled', 'Task cancelled.'); return }
+      if (!planResult.ok) throw new Error(planResult.error ?? 'No provider could plan this task.')
 
       let plan = parsePlan(planResult.output)
       if (!plan.length) plan = [{ title: task.prompt.slice(0, 48), prompt: task.prompt, type: task.type }]
@@ -426,13 +461,15 @@ export class OrchestrationEngine extends EventEmitter {
       task.orchestrationStage = 'synthesizing'
       task.output = ''
       await this.persistAndEmit()
-      const synthesizer = this.pickProvider(task) ?? planner
+      const synthesizer = this.pickProvider(task)
+      if (!synthesizer) throw new Error('No eligible provider is available to synthesize the task results.')
       task.selectedProviderId = synthesizer.id
-      await this.runOne(synthesizer, buildSynthesisPrompt(task.prompt, task.subtasks), task, controller, (text) => {
+      const synthesisResult = await this.runOne(synthesizer, buildSynthesisPrompt(task.prompt, task.subtasks), task, controller, (text) => {
         task.output += text
         task.estimatedOutputTokens = estimateTokens(task.output)
         this.emitSnapshot()
       })
+      if (!synthesisResult.ok) throw new Error(synthesisResult.error ?? 'No provider could synthesize the task results.')
 
       task.orchestrationStage = 'done'
       const allDone = task.subtasks.every((subtask) => subtask.status === 'completed')
@@ -473,8 +510,9 @@ export class OrchestrationEngine extends EventEmitter {
       subtask.status = 'running'; subtask.providerId = provider.id; this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
-        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir)
+        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type)
         if (!subtask.output.trim()) subtask.output = result.output
+        subtask.providerId = result.providerId
         subtask.model = result.model
         subtask.status = controller.signal.aborted ? 'cancelled' : result.ok ? 'completed' : 'failed'
         if (!result.ok) subtask.error = result.error
@@ -495,34 +533,61 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   private async runOne(
-    provider: ProviderConfig,
+    initialProvider: ProviderConfig,
     prompt: string,
     task: ProxyTask,
     controller: AbortController,
     onText?: (text: string) => void,
-    cwd?: string
-  ): Promise<{ output: string; model?: string; ok: boolean; error?: string }> {
-    const runtime = this.runtimes.get(provider.id)
-    if (runtime) runtime.running += 1
-    const started = Date.now()
-    let output = ''
-    const result = await runProvider(this.withModel(provider, task.modelOverride), {
-      prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
-      onOutput: (text) => { output += text; onText?.(text) },
-      onModel: (model) => { if (!task.model) task.model = model; this.emitSnapshot() },
-      onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-      onUsage: (usage) => { if (runtime) this.applyUsage(runtime, usage, task) },
-      onSession: (session) => { if (runtime) { runtime.session = session; this.emitSnapshot() } },
-      onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
-    })
-    if (runtime) {
+    cwd?: string,
+    routingType?: TaskType
+  ): Promise<{ output: string; model?: string; ok: boolean; error?: string; providerId: string }> {
+    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false }
+    const ranked = rankProviders(routingTask, this.snapshot().providers)
+    const candidateIds = [...new Set([initialProvider.id, ...ranked.map((item) => item.id)])]
+    let final: { output: string; model?: string; ok: boolean; error?: string; providerId: string } = {
+      output: '', ok: false, error: 'No eligible provider could complete this run.', providerId: initialProvider.id
+    }
+
+    for (const providerId of candidateIds) {
+      const provider = this.settings.providers.find((item) => item.id === providerId)
+      const runtime = this.runtimes.get(providerId)
+      if (!provider || !runtime || controller.signal.aborted) break
+      if (providerId !== initialProvider.id && !rankProviders(routingTask, [{ ...provider, runtime }]).length) continue
+      runtime.running += 1
+      task.selectedProviderId = provider.id
+      const started = Date.now()
+      let output = ''
+      const result = await runProvider(this.withModel(provider, task.modelOverride), {
+        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
+        onOutput: (text) => { output += text; onText?.(text) },
+        onModel: (model) => { task.model = model; this.emitSnapshot() },
+        onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, provider) },
+        onSession: (session) => { runtime.session = session; this.emitSnapshot() },
+        onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
+      })
       runtime.running = Math.max(0, runtime.running - 1)
       runtime.usage.tasks += 1
       runtime.usage.elapsedMs += Date.now() - started
       runtime.usage.estimatedInputTokens += estimateTokens(prompt)
       runtime.usage.estimatedOutputTokens += estimateTokens(result.output)
+      this.applyConfiguredContext(runtime, provider, estimateTokens(prompt), task)
+      final = { output: result.output || output, model: result.model, ok: result.ok, error: result.error, providerId: provider.id }
+      if (result.ok || result.failureKind === 'cancelled') return final
+
+      const notice: ActivityEvent = { kind: 'notice', label: 'Automatic fallback', at: new Date().toISOString() }
+      if (result.failureKind === 'quota') {
+        runtime.cooldownUntil = new Date(Date.now() + this.settings.quotaCooldownMinutes * 60_000).toISOString()
+        runtime.cooldownReason = result.error
+        notice.detail = `${provider.name} reached its usage limit; trying another platform.`
+      } else if (result.failureKind === 'unavailable') {
+        runtime.available = false
+        notice.detail = `${provider.name} became unavailable; trying another platform.`
+      } else return final
+      task.activity = [...(task.activity ?? []), notice].slice(-100)
+      this.emitSnapshot()
     }
-    return { output: result.output || output, model: result.model, ok: result.ok, error: result.error }
+    return final
   }
 
   private pickProvider(task: ProxyTask): ProviderConfig | undefined {
@@ -534,15 +599,38 @@ export class OrchestrationEngine extends EventEmitter {
     return model ? { ...provider, model } : provider
   }
 
-  private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask): void {
+  private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask, provider?: ProviderConfig): void {
     runtime.usage.inputTokens += usage.inputTokens
     runtime.usage.outputTokens += usage.outputTokens
     runtime.usage.costUsd += usage.costUsd
+    const windowTokens = usage.contextWindow ?? provider?.contextWindow
+    if (windowTokens && usage.contextTokens !== undefined) {
+      runtime.context = {
+        usedTokens: usage.contextTokens,
+        windowTokens,
+        updatedAt: new Date().toISOString(),
+        source: usage.contextWindow ? 'reported' : 'configured'
+      }
+    }
     if (task) {
-      if (usage.contextWindow) task.contextWindow = usage.contextWindow
-      if (usage.contextTokens) task.contextTokens = usage.contextTokens
+      if (windowTokens) task.contextWindow = windowTokens
+      if (usage.contextTokens !== undefined) task.contextTokens = usage.contextTokens
     }
     this.emitSnapshot()
+  }
+
+  private applyConfiguredContext(runtime: ProviderRuntime, provider: ProviderConfig, usedTokens: number, task?: ProxyTask): void {
+    if (!provider.contextWindow || runtime.context?.source === 'reported') return
+    runtime.context = {
+      usedTokens,
+      windowTokens: provider.contextWindow,
+      updatedAt: new Date().toISOString(),
+      source: 'configured'
+    }
+    if (task) {
+      task.contextTokens = usedTokens
+      task.contextWindow = provider.contextWindow
+    }
   }
 
   // Prepend Frontier's persistent memory as context for a fresh task.

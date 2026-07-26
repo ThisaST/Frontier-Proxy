@@ -45,6 +45,7 @@ nav { display: grid; gap: 5px; }
 .provider-dot { width: 6px; height: 6px; border-radius: 100%; background: #535b55; box-shadow: 0 0 0 3px rgba(83,91,85,.1); }
 .provider-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(169,239,114,.1); }
 .provider-dot.busy { background: var(--yellow); }
+.provider-dot.limited { background: var(--red); box-shadow: 0 0 0 3px rgba(251,141,136,.1); }
 .privacy-note { margin-top: auto; display: grid; grid-template-columns: 9px 1fr; gap: 9px; padding: 13px 11px; background: rgba(169,239,114,.04); border: 1px solid rgba(169,239,114,.11); border-radius: 9px; }
 .privacy-note strong { display: block; font-size: 11px; margin-bottom: 4px; }
 .privacy-note small { display: block; color: var(--muted); font-size: 9px; line-height: 1.45; }
@@ -144,18 +145,32 @@ button { border-radius: 7px; border: 1px solid transparent; padding: 9px 13px; f
 .tag-orchestrated { color: var(--green) !important; border-color: rgba(169,239,114,.35) !important; }
 
 /* Usage & sessions */
-.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
 .usage-card { padding: 18px; display: grid; gap: 14px; }
-.usage-card-header { display: flex; align-items: center; gap: 9px; }
+.usage-card.limited { border-color: rgba(251,141,136,.35); }
+.usage-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.usage-card-identity { display: flex; align-items: center; gap: 9px; }
 .usage-card-header h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.capacity-badge { border: 1px solid var(--line); border-radius: 20px; padding: 4px 8px; color: var(--muted); font-size: 8px; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; }
+.capacity-badge.ready { color: var(--green); border-color: rgba(169,239,114,.3); }
+.capacity-badge.busy { color: var(--yellow); border-color: rgba(233,212,122,.3); }
+.capacity-badge.limited, .capacity-badge.offline { color: var(--red); border-color: rgba(251,141,136,.3); }
 .usage-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .usage-stat { display: flex; flex-direction: column; gap: 3px; }
 .usage-stat-label { font-size: 8px; letter-spacing: .7px; text-transform: uppercase; color: var(--muted); }
 .usage-stat strong { font-size: 17px; font-weight: 500; font-family: Georgia, serif; }
-.usage-budget { display: grid; gap: 5px; }
+.usage-budget, .usage-gauge { display: grid; gap: 6px; }
+.usage-gauge { padding: 11px 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(255,255,255,.012); }
+.usage-gauge-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.usage-gauge-head span { color: #cbd2cc; font-size: 12px; }
+.usage-gauge-head strong { font-family: Georgia, serif; font-size: 17px; font-weight: 400; }
 .usage-bar { height: 6px; border-radius: 6px; background: #1c211d; overflow: hidden; }
 .usage-bar-fill { height: 100%; background: var(--green); border-radius: 6px; transition: width .3s; }
 .usage-bar-fill.high { background: var(--yellow); }
+.usage-gauge.high .usage-bar-fill { background: var(--yellow); }
+.usage-gauge.high .usage-gauge-head strong { color: var(--yellow); }
+.usage-card.limited .usage-gauge.high .usage-bar-fill { background: var(--red); }
+.usage-card.limited .usage-gauge.high .usage-gauge-head strong { color: var(--red); }
 .usage-budget-label { font-size: 10px; color: var(--muted); }
 .usage-card-footer { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--line-soft); padding-top: 12px; }
 .usage-session { font-size: 11px; color: #b7c0b9; }

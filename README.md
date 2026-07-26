@@ -12,7 +12,8 @@ Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude
 - Balances recent task/token estimates across subscriptions and respects optional per-provider daily budgets.
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
 - Streams provider output, keeps a local task history, supports cancellation and retries.
-- Detects quota/rate-limit/overload errors, cools that provider down, and fails over to the next eligible provider.
+- Shows per-provider session usage, reset information, and the latest context-window occupancy.
+- Detects quota/rate-limit/overload errors, cools that provider down, and fails over to the next eligible provider across first turns, follow-ups, and orchestrated runs.
 - Runs Codex in `workspace-write`, Claude Code in `acceptEdits`, and every process with `shell: false`.
 - Packages for macOS, Windows, and Linux with Electron Builder.
 
@@ -52,7 +53,7 @@ In the app, open **Providers** in the left sidebar:
 
 1. Codex, Claude Code, and GitHub Copilot are already registered; do not add them again. Leave the executable fields as `codex`, `claude`, and `copilot`, enable the providers you use, and select **Check providers**.
 2. A green **Ready** status confirms that the packaged app can locate the CLI. If it says **Not detected**, run `command -v codex`, `command -v claude`, or `command -v copilot` in Terminal and paste that absolute path into the provider's Executable field.
-3. Configure an optional model and token budget, then select **Save provider**.
+3. Configure an optional model, tracked usage limit, and context-window size, then select **Save provider**. A CLI-reported context limit takes precedence over the configured fallback.
 4. Use **Add custom CLI** only for another locally installed agent executable.
 
 The app version is shown at the bottom of the sidebar. GitHub Copilot support requires v0.2.0 or newer.
@@ -111,7 +112,7 @@ Choose **Add custom CLI** in the provider registry. Configure the executable and
 
 ## Routing
 
-Eligible providers must be enabled, detected, below their concurrency and optional token limits, and outside a cooldown. Frontier then scores:
+Eligible providers must be enabled, detected, below their concurrency and optional token limits, outside a cooldown, and below any plan-window percentage reported by the CLI. Frontier then scores:
 
 1. User provider override.
 2. Routing policy (quality vs. local usage saving).
@@ -119,7 +120,7 @@ Eligible providers must be enabled, detected, below their concurrency and option
 4. User-set priority.
 5. Today's locally estimated usage and current load.
 
-Only quota/unavailable failures automatically fail over. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits.
+Only quota/unavailable failures automatically fail over. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits. When failover happens during a follow-up, Frontier replays the conversation transcript to the replacement provider.
 
 ## Important boundaries
 

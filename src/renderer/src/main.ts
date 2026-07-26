@@ -50,6 +50,40 @@ function providerName(id?: string): string {
   return snapshot.providers.find((provider) => provider.id === id)?.name ?? 'Routing…'
 }
 
+type SnapshotProvider = AppSnapshot['providers'][number]
+
+function activeCooldown(provider: SnapshotProvider): boolean {
+  return Boolean(provider.runtime.cooldownUntil && Date.parse(provider.runtime.cooldownUntil) > Date.now())
+}
+
+function trackedTokens(provider: SnapshotProvider): number {
+  const usage = provider.runtime.usage
+  const actual = usage.inputTokens + usage.outputTokens
+  return actual || usage.estimatedInputTokens + usage.estimatedOutputTokens
+}
+
+function sessionPercent(provider: SnapshotProvider): number | undefined {
+  if (provider.runtime.session?.utilizationPercent !== undefined) {
+    if (provider.runtime.session.resetsAt && Date.parse(provider.runtime.session.resetsAt) <= Date.now()) return 0
+    return provider.runtime.session.utilizationPercent
+  }
+  if (provider.dailyTokenBudget) return Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100)
+  return undefined
+}
+
+function providerLimitReached(provider: SnapshotProvider): boolean {
+  return activeCooldown(provider) || (sessionPercent(provider) ?? 0) >= 100
+}
+
+function providerCapacity(provider: SnapshotProvider): { label: string; tone: string } {
+  if (!provider.enabled) return { label: 'Disabled', tone: 'muted' }
+  if (activeCooldown(provider)) return { label: `Limit reached · ${countdown(provider.runtime.cooldownUntil)}`, tone: 'limited' }
+  if (providerLimitReached(provider)) return { label: 'Usage limit reached', tone: 'limited' }
+  if (!provider.runtime.available) return { label: 'Offline', tone: 'offline' }
+  if (provider.runtime.running) return { label: 'In use', tone: 'busy' }
+  return { label: 'Available', tone: 'ready' }
+}
+
 function renderMetrics(): void {
   const running = snapshot.tasks.filter((task) => task.status === 'running').length
   const queued = snapshot.tasks.filter((task) => task.status === 'queued').length
@@ -78,10 +112,11 @@ function renderMiniProviders(): void {
   const container = byId('provider-mini-list')
   container.replaceChildren(...snapshot.providers.filter((provider) => provider.enabled).map((provider) => {
     const row = document.createElement('div'); row.className = 'mini-provider'
+    const capacity = providerCapacity(provider)
     const dot = document.createElement('span')
-    dot.className = `provider-dot ${provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`
+    dot.className = `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`
     const name = document.createElement('span'); name.textContent = provider.name
-    const status = document.createElement('small'); status.textContent = provider.runtime.running ? 'busy' : provider.runtime.available ? 'ready' : 'offline'
+    const status = document.createElement('small'); status.textContent = capacity.label.toLowerCase()
     row.append(dot, name, status)
     return row
   }))
@@ -334,7 +369,7 @@ function renderOutput(): void {
     metaChip('Elapsed', taskElapsed(task))
   ]
   if (task.model) { const modelChip = metaChip('Model', task.model); modelChip.classList.add('model'); chips.unshift(modelChip) }
-  if (task.contextWindow && task.contextTokens) {
+  if (task.contextWindow && task.contextTokens !== undefined) {
     const pct = Math.round((task.contextTokens / task.contextWindow) * 100)
     const chip = metaChip('Context', `${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)} · ${pct}%`)
     if (pct >= 80) chip.classList.add('context-high')
@@ -361,7 +396,13 @@ function renderOutput(): void {
     controls.append(cancel)
   } else {
     const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry'
-    retry.addEventListener('click', async () => { const created = await window.frontier.retryTask(task.id); selectedTaskId = created.id })
+    retry.addEventListener('click', async () => {
+      try {
+        await persistControlPlaneDraft()
+        const created = await window.frontier.retryTask(task.id)
+        selectedTaskId = created.id
+      } catch (error) { reportError('Could not retry task', error) }
+    })
     controls.append(retry)
   }
   actions.replaceChildren(controls)
@@ -439,8 +480,9 @@ function renderProviders(): void {
     const model = textInput(provider.model ?? '')
     const priority = textInput(String(provider.priority), 'number'); priority.min = '0'; priority.max = '100'
     const budget = textInput(provider.dailyTokenBudget ? String(provider.dailyTokenBudget) : '', 'number'); budget.min = '0'; budget.placeholder = 'Unlimited'
+    const contextWindow = textInput(provider.contextWindow ? String(provider.contextWindow) : '', 'number'); contextWindow.min = '0'; contextWindow.placeholder = 'Auto-detect'
     const args = textInput(formatArguments(provider.args ?? []))
-    form.append(field('Display name', displayName), field('Executable', executable), field('Model (optional)', model), field('Routing priority', priority), field('Daily token budget', budget), field('Extra arguments (quotes supported)', args, true))
+    form.append(field('Display name', displayName), field('Executable', executable), field('Model (optional)', model), field('Routing priority', priority), field('Tracked usage limit', budget), field('Context window (tokens)', contextWindow), field('Extra arguments (quotes supported)', args, true))
 
     const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind)
     let cpToggle: HTMLInputElement | undefined
@@ -465,6 +507,7 @@ function renderProviders(): void {
           model: model.value.trim() || undefined,
           priority: Number(priority.value) || 0,
           dailyTokenBudget: Number(budget.value) > 0 ? Number(budget.value) : undefined,
+          contextWindow: Number(contextWindow.value) > 0 ? Number(contextWindow.value) : undefined,
           args: args.value.trim() ? splitArguments(args.value) : undefined,
           ...(cpToggle ? { useControlPlane: cpToggle.checked } : {})
         } })
@@ -549,6 +592,16 @@ function cloneProfile(profile: ControlPlaneProfile): ControlPlaneProfile {
 function ensureDraft(): ControlPlaneProfile {
   if (!controlPlaneDraft) controlPlaneDraft = cloneProfile(snapshot.settings.controlPlane)
   return controlPlaneDraft
+}
+
+// Task execution happens in the main process and reads the persisted profile.
+// Flush the renderer draft before any action that launches a provider so a
+// server the user just added cannot be left behind in the Context & Tools UI.
+async function persistControlPlaneDraft(showConfirmation = false): Promise<void> {
+  if (!controlPlaneDraft) return
+  const saved = await window.frontier.updateControlPlane(syncDraftFromInputs())
+  controlPlaneDraft = cloneProfile(saved.settings.controlPlane)
+  if (showConfirmation) showToast('Context & Tools configuration saved')
 }
 
 function textLines(value: string): string[] {
@@ -676,6 +729,20 @@ function usageStat(label: string, value: string): HTMLElement {
   stat.append(l, v); return stat
 }
 
+function usageGauge(label: string, percent: number | undefined, detail: string, tone = ''): HTMLElement {
+  const gauge = document.createElement('div'); gauge.className = `usage-gauge ${tone}`.trim()
+  const head = document.createElement('div'); head.className = 'usage-gauge-head'
+  const title = document.createElement('span'); title.textContent = label
+  const value = document.createElement('strong'); value.textContent = percent === undefined ? '—' : `${Math.round(percent)}%`
+  head.append(title, value)
+  const bar = document.createElement('div'); bar.className = 'usage-bar'
+  const fill = document.createElement('div'); fill.className = 'usage-bar-fill'; fill.style.width = `${Math.min(100, Math.max(0, percent ?? 0))}%`
+  bar.append(fill)
+  const description = document.createElement('div'); description.className = 'usage-budget-label'; description.textContent = detail
+  gauge.append(head, bar, description)
+  return gauge
+}
+
 function renderUsage(): void {
   const grid = byId('usage-grid')
   grid.replaceChildren(...snapshot.providers.map((provider) => {
@@ -684,11 +751,15 @@ function renderUsage(): void {
     const estimated = usage.estimatedInputTokens + usage.estimatedOutputTokens
     const hasActual = actual > 0
 
-    const card = document.createElement('article'); card.className = 'panel usage-card'
+    const capacity = providerCapacity(provider)
+    const card = document.createElement('article'); card.className = `panel usage-card ${capacity.tone === 'limited' ? 'limited' : ''}`
     const header = document.createElement('div'); header.className = 'usage-card-header'
-    const dot = document.createElement('span'); dot.className = `provider-dot ${provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`
+    const identity = document.createElement('div'); identity.className = 'usage-card-identity'
+    const dot = document.createElement('span'); dot.className = `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`
     const name = document.createElement('h3'); name.textContent = provider.name
-    header.append(dot, name)
+    identity.append(dot, name)
+    const badge = document.createElement('span'); badge.className = `capacity-badge ${capacity.tone}`; badge.textContent = capacity.label
+    header.append(identity, badge)
 
     const stats = document.createElement('div'); stats.className = 'usage-stats'
     stats.append(
@@ -698,41 +769,39 @@ function renderUsage(): void {
       usageStat('Tasks', String(usage.tasks))
     )
 
-    const footer = document.createElement('div'); footer.className = 'usage-card-footer'
-    const session = provider.runtime.session
-    if (session?.resetsAt || session?.overageResetsAt) {
-      const rows = document.createElement('div'); rows.className = 'usage-session-rows'
-      const line = (label: string, iso: string, badge?: string): HTMLElement => {
-        const row = document.createElement('div'); row.className = 'usage-session-row'
-        const l = document.createElement('span'); l.className = 'usage-session-label'; l.textContent = label
-        const v = document.createElement('span'); v.className = 'usage-session-val'; v.textContent = `resets in ${countdown(iso)}`
-        row.append(l, v)
-        if (badge) { const b = document.createElement('span'); b.className = 'usage-overage'; b.textContent = badge; row.append(b) }
-        return row
-      }
-      if (session.resetsAt) rows.append(line('Limit', session.resetsAt, session.status && session.status !== 'allowed' ? session.status : undefined))
-      if (session.overageResetsAt && session.overageResetsAt !== session.resetsAt) rows.append(line('Overage', session.overageResetsAt, session.usingOverage ? 'in use' : undefined))
-      else if (session.usingOverage) rows.append((() => { const r = document.createElement('div'); r.className = 'usage-session-row'; const b = document.createElement('span'); b.className = 'usage-overage'; b.textContent = 'overage in use'; r.append(b); return r })())
-      footer.append(rows)
-    } else {
-      const none = document.createElement('span'); none.className = 'usage-session muted'; none.textContent = 'No session data reported'
-      footer.append(none)
-    }
+    const context = provider.runtime.context
+    const contextPct = context ? Math.min(100, (context.usedTokens / context.windowTokens) * 100) : provider.contextWindow ? 0 : undefined
+    const contextDetail = context
+      ? `${formatNumber(context.usedTokens)} / ${formatNumber(context.windowTokens)} tokens · ${context.source}`
+      : provider.contextWindow
+        ? `No task context yet · ${formatNumber(provider.contextWindow)} configured`
+        : 'Not reported by this CLI · configure it in Providers'
+    const contextGauge = usageGauge('Context window', contextPct, contextDetail, (contextPct ?? 0) >= 80 ? 'high' : '')
 
-    card.append(header, stats)
-    if (provider.dailyTokenBudget) {
-      const used = hasActual ? actual : estimated
-      const pct = Math.min(100, Math.round((used / provider.dailyTokenBudget) * 100))
-      const budget = document.createElement('div'); budget.className = 'usage-budget'
-      const bar = document.createElement('div'); bar.className = 'usage-bar'
-      const fill = document.createElement('div'); fill.className = 'usage-bar-fill'; fill.style.width = `${pct}%`
-      if (pct >= 90) fill.classList.add('high')
-      bar.append(fill)
-      const label = document.createElement('div'); label.className = 'usage-budget-label'
-      label.textContent = `${pct}% of ${formatNumber(provider.dailyTokenBudget)} daily budget`
-      budget.append(bar, label); card.append(budget)
-    }
-    card.append(footer)
+    const session = provider.runtime.session
+    const trackedPct = sessionPercent(provider)
+    const limitPct = providerLimitReached(provider) ? 100 : trackedPct
+    const sessionLabel = session?.limitType ? `${session.limitType} limit` : 'Session usage'
+    const resetAt = session?.resetsAt ?? session?.overageResetsAt
+    const sessionDetail = providerLimitReached(provider)
+      ? activeCooldown(provider) ? `Automatic fallback active · retries in ${countdown(provider.runtime.cooldownUntil)}` : 'Automatic fallback active · tracked limit reached'
+      : resetAt
+        ? `Resets in ${countdown(resetAt)}${session?.usingOverage ? ' · overage in use' : ''}`
+        : provider.dailyTokenBudget
+          ? `${formatNumber(trackedTokens(provider))} / ${formatNumber(provider.dailyTokenBudget)} tracked tokens`
+          : `${formatNumber(trackedTokens(provider))} tracked tokens · no limit reported`
+    const sessionGauge = usageGauge(sessionLabel, limitPct, sessionDetail, providerLimitReached(provider) || (limitPct ?? 0) >= 90 ? 'high' : '')
+
+    const footer = document.createElement('div'); footer.className = 'usage-card-footer'
+    const note = document.createElement('span'); note.className = 'usage-session'
+    note.textContent = providerLimitReached(provider)
+      ? `Frontier will skip ${provider.name} while this limit is active and route work elsewhere.`
+      : session?.status && session.status !== 'allowed'
+        ? `Provider status: ${session.status}`
+        : 'Limits are detected from CLI events and configured tracked-usage thresholds.'
+    footer.append(note)
+
+    card.append(header, contextGauge, sessionGauge, stats, footer)
     return card
   }))
 }
@@ -816,7 +885,7 @@ async function sendFollowUp(): Promise<void> {
   const text = input.value.trim()
   if (!text || !selectedTaskId) return
   const send = byId<HTMLButtonElement>('composer-send'); send.disabled = true; input.disabled = true
-  try { await window.frontier.continueTask(selectedTaskId, text); input.value = '' }
+  try { await persistControlPlaneDraft(); await window.frontier.continueTask(selectedTaskId, text); input.value = '' }
   catch (error) { reportError('Could not continue the conversation', error) }
   finally { send.disabled = false; input.disabled = false; input.focus() }
 }
@@ -880,9 +949,7 @@ byId<HTMLSelectElement>('cp-preview-provider').addEventListener('change', () => 
 byId('save-control-plane').addEventListener('click', async () => {
   const button = byId<HTMLButtonElement>('save-control-plane'); button.disabled = true
   try {
-    const saved = await window.frontier.updateControlPlane(syncDraftFromInputs())
-    controlPlaneDraft = cloneProfile(saved.settings.controlPlane)
-    showToast('Context & Tools configuration saved')
+    await persistControlPlaneDraft(true)
     void refreshPreview()
   } catch (error) { reportError('Could not save configuration', error) } finally { button.disabled = false }
 })
@@ -920,6 +987,7 @@ byId<HTMLFormElement>('task-form').addEventListener('submit', async (event) => {
   event.preventDefault()
   const errorNode = byId('form-error'); errorNode.textContent = ''
   try {
+    await persistControlPlaneDraft()
     const task = await window.frontier.createTask({
       prompt: byId<HTMLTextAreaElement>('prompt').value,
       cwd: byId<HTMLInputElement>('cwd').value,

@@ -44,19 +44,31 @@ Translation lives in `src/main/controlplane.ts` (`controlPlaneInjection`) — a 
 unit-tested function (`tests/controlplane.test.ts`). Per CLI:
 
 - **Claude Code**: `--mcp-config <inline-json>` (+ `--strict-mcp-config`),
-  `--allowedTools` / `--disallowedTools`, `--add-dir`, `--append-system-prompt`.
+  `--allowedTools` / `--disallowedTools`, `--add-dir`, `--append-system-prompt`. Each
+  enabled MCP server also adds `mcp__<server>__*` to `--allowedTools`, because
+  `acceptEdits` does not approve MCP calls in non-interactive mode.
 - **Copilot**: `--additional-mcp-config <json>`, `--allow-tool=` / `--deny-tool=`,
   `--add-dir`; it has no system-prompt flag, so the shared prompt is folded into the
-  stdin prompt via `promptPrefix`.
-- **Codex**: only the system prompt is portable today (via `promptPrefix`); MCP for
-  Codex lives in `config.toml` and is a future wiring task.
+  stdin prompt via `promptPrefix`. Copilot receives its required `tools: ["*"]` field
+  and each enabled server name is added to `--allow-tool` for headless execution.
+- **Codex / Codex + Ollama**: stdio and Streamable HTTP MCP servers are supplied as
+  per-invocation `-c 'mcp_servers.<name>={...}'` overrides; the shared system prompt
+  is folded into stdin via `promptPrefix`. Legacy SSE servers are not injected because
+  Codex does not support that transport. Names containing characters outside letters,
+  digits, `_`, and `-` receive a stable Codex-only alias because the CLI's dotted
+  override parser cannot address quoted TOML key segments. Enabled servers use Codex's
+  per-server `default_tools_approval_mode = "approve"` so MCP calls work headlessly.
 
 `buildProviderCommand(provider, cwd, prompt, profile?)` splices the injected args in
 before the provider's own `extra` args. A provider can opt out with
 `useControlPlane: false`. The UI previews the exact flags live (unsaved draft included)
-via `engine.previewControlPlane(providerId, profile?)`.
+via `engine.previewControlPlane(providerId, profile?)`. Before creating, retrying, or
+continuing a task, the renderer persists its current control-plane draft so the main
+process always launches the provider with the configuration visible in the UI.
 
-MCP config JSON shape (both CLIs): `{ "mcpServers": { "<name>": { command, args, env } | { type, url, headers } } }`.
+Claude and Copilot receive MCP JSON shaped as `{ "mcpServers": { "<name>": { command,
+args, env } | { type, url, headers } } }`. Codex receives equivalent TOML tables through
+CLI config overrides (`headers` maps to Codex's `http_headers`).
 
 ## Streaming, model detection & activity feed
 
@@ -144,11 +156,18 @@ output panel (Enter to send). This replaces the dead-end where only Retry was av
 ## Usage & sessions
 
 `parseClaudeLine` also emits `onUsage` (from the `result` event: real input/output tokens +
-`total_cost_usd`) and `onSession` (from `rate_limit_event`: `resetsAt`, `isUsingOverage`,
-`overageStatus`). The engine accumulates these into `runtime.usage.{inputTokens,outputTokens,
-costUsd}` and `runtime.session`. The Usage view shows real cost/tokens, session-reset
-countdown, overage badge, and % against the provider's `dailyTokenBudget`. Only Claude
-reports these today; other CLIs show estimated tokens and "no session data".
+`total_cost_usd`) and `onSession` (from `rate_limit_event`: reset, status, and any reported
+utilization). Codex `turn.completed` events contribute real token counts as well. The engine
+accumulates these into `runtime.usage`, keeps the latest provider-level context occupancy in
+`runtime.context`, and stores plan-window state in `runtime.session`. The Usage view shows a
+context gauge, session/plan usage, reset countdown, tracked tokens, and automatic-fallback
+state for every provider. A provider-level context-window value can be configured when its
+CLI does not report one.
+
+Quota/unavailable failures fail over during first turns, follow-up conversations, and every
+orchestration stage. A follow-up that leaves its owning CLI replays the conversation transcript
+to the replacement provider. Reported 100% plan utilization and configured tracked-usage
+limits also remove a provider from routing before launch.
 
 ## Model discovery & per-task model picker
 

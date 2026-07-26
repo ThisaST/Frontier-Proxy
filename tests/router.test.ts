@@ -46,6 +46,19 @@ describe('provider routing', () => {
     expect(rankProviders(task('balanced'), [offline, cooling, busy, budget])).toEqual([])
   })
 
+  it('uses reported tokens when enforcing a tracked usage limit', () => {
+    const limited = provider('limited', 'claude')
+    limited.dailyTokenBudget = 1_000
+    limited.runtime.usage.inputTokens = 995
+    expect(rankProviders(task('balanced'), [limited])).toEqual([])
+  })
+
+  it('skips a provider whose CLI reports a fully used plan window', () => {
+    const limited = provider('limited', 'claude')
+    limited.runtime.session = { utilizationPercent: 100, updatedAt: new Date().toISOString() }
+    expect(rankProviders(task('balanced'), [limited])).toEqual([])
+  })
+
   it('spreads otherwise similar subscription usage', () => {
     const ranked = rankProviders(task('balanced', 'general'), [provider('used', 'codex', 20), provider('fresh', 'codex', 0)])
     expect(ranked[0].id).toBe('fresh')

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildProviderCommand, discoverModels, runProvider } from '../src/main/providers'
-import type { ProviderConfig } from '../src/shared/types'
+import type { ControlPlaneProfile, ProviderConfig } from '../src/shared/types'
 
 function custom(args: string[]): ProviderConfig {
   return {
@@ -25,6 +25,46 @@ describe('local provider process adapter', () => {
     expect(command.args.some((argument) => argument.startsWith('--allow-tool=write'))).toBe(true)
     expect(command.args).not.toContain('--allow-all')
     expect(command.promptInArgs).toBeUndefined()
+  })
+
+  it('includes a shared Supabase MCP server in the launched Codex command', () => {
+    const codex: ProviderConfig = {
+      id: 'codex', name: 'Codex', kind: 'codex', enabled: true, executable: 'codex',
+      priority: 1, maxConcurrent: 1, capabilities: ['coding']
+    }
+    const controlPlane: ControlPlaneProfile = {
+      systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], strictMcp: false,
+      mcpServers: [{
+        id: 'supabase', name: 'supabase', enabled: true, transport: 'http',
+        url: 'https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database'
+      }]
+    }
+
+    const command = buildProviderCommand(codex, '/workspace', 'inspect the database', controlPlane)
+    expect(command.args).toContain('-c')
+    expect(command.args).toContain('mcp_servers.supabase={ url = "https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database", http_headers = { }, env_http_headers = { }, default_tools_approval_mode = "approve", enabled = true }')
+    expect(command.args.at(-1)).toBe('-')
+  })
+
+  it.each(['claude', 'copilot'] as const)('includes and permits a shared Supabase MCP server in the launched %s command', (kind) => {
+    const agent: ProviderConfig = {
+      id: kind, name: kind, kind, enabled: true, executable: kind,
+      priority: 1, maxConcurrent: 1, capabilities: ['coding']
+    }
+    const controlPlane: ControlPlaneProfile = {
+      systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], strictMcp: false,
+      mcpServers: [{ id: 'supabase', name: 'supabase', enabled: true, transport: 'http', url: 'https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database' }]
+    }
+
+    const command = buildProviderCommand(agent, '/workspace', 'inspect the database', controlPlane)
+    const configFlag = kind === 'claude' ? '--mcp-config' : '--additional-mcp-config'
+    const config = JSON.parse(command.args[command.args.indexOf(configFlag) + 1]) as { mcpServers: Record<string, Record<string, unknown>> }
+    expect(config.mcpServers.supabase.url).toBe('https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database')
+    if (kind === 'claude') expect(command.args).toContain('mcp__supabase__*')
+    else {
+      expect(config.mcpServers.supabase.tools).toEqual(['*'])
+      expect(command.args).toContain('--allow-tool=supabase')
+    }
   })
 
   it('sends prompts through stdin without a shell and streams stdout', async () => {

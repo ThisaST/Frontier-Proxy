@@ -11,7 +11,8 @@ Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude
 - Routes with `Balanced`, `Quality first`, or `Token saver` policies.
 - Balances recent task/token estimates across subscriptions and respects optional per-provider daily budgets.
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
-- Streams provider output, keeps a local task history, supports cancellation and retries.
+- Streams provider output, keeps a local task history, supports cancellation, retries, and explicit provider switching between turns.
+- Opens each task in a dedicated workspace with its conversation, task-scoped context meter, route/activity history, and syntax-highlighted source and diff views for recorded file changes.
 - Shows per-provider session usage, reset information, and the latest context-window occupancy.
 - Detects quota/rate-limit/overload errors, cools that provider down, and fails over to the next eligible provider across first turns, follow-ups, and orchestrated runs.
 - Runs Codex in `workspace-write`, Claude Code in `acceptEdits`, and every process with `shell: false`.
@@ -120,7 +121,7 @@ Eligible providers must be enabled, detected, below their concurrency and option
 4. User-set priority.
 5. Today's locally estimated usage and current load.
 
-Only quota/unavailable failures automatically fail over. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits. When failover happens during a follow-up, Frontier replays the conversation transcript to the replacement provider.
+Only quota/unavailable failures automatically fail over. Intentional cancellation never triggers provider switching, and later messages remain pinned to the last provider unless the user changes the **Next provider** selector. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits. When a follow-up moves to another provider, Frontier replays the complete attributed conversation transcript—including partial or cancelled responses—to the replacement provider.
 
 ## Important boundaries
 

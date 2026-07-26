@@ -75,13 +75,6 @@ export interface SessionInfo {
   updatedAt: string
 }
 
-export interface ContextWindowInfo {
-  usedTokens: number
-  windowTokens: number
-  updatedAt: string
-  source: 'reported' | 'configured'
-}
-
 export interface ProviderRuntime {
   available: boolean
   version?: string
@@ -90,8 +83,6 @@ export interface ProviderRuntime {
   cooldownUntil?: string
   cooldownReason?: string
   session?: SessionInfo
-  // Latest context occupancy observed for this provider during this app session.
-  context?: ContextWindowInfo
   // Models this provider can run — discovered (`ollama list`) or a curated
   // known set for the subscription CLIs (no headless list command exists).
   models?: string[]
@@ -130,6 +121,17 @@ export interface FileChange {
   path: string
   action: 'create' | 'edit' | 'delete'
   at: string
+}
+
+export interface TaskFileContent {
+  path: string
+  relativePath: string
+  language: string
+  content: string
+  diff: string
+  exists: boolean
+  binary: boolean
+  truncated: boolean
 }
 
 // One turn in a task's ongoing conversation. Tasks are multi-turn: after the
@@ -198,6 +200,9 @@ export interface ProxyTask {
   // Provider CLI session for in-context continuation (Claude --resume).
   sessionId?: string
   sessionProviderId?: string
+  // User-selected provider for future turns. Unlike selectedProviderId, this
+  // does not rewrite which provider produced the most recent response.
+  continuationProviderId?: string
 }
 
 export interface AppSettings {
@@ -242,7 +247,9 @@ export interface FrontierApi {
   createTask(input: CreateTaskInput): Promise<ProxyTask>
   cancelTask(taskId: string): Promise<void>
   retryTask(taskId: string): Promise<ProxyTask>
+  changeTaskProvider(taskId: string, providerId: string): Promise<ProxyTask>
   continueTask(taskId: string, message: string): Promise<ProxyTask>
+  readTaskFile(taskId: string, path: string): Promise<TaskFileContent>
   clearFinishedTasks(): Promise<void>
   checkProviders(): Promise<AppSnapshot>
   updateProvider(patch: ProviderPatch): Promise<AppSnapshot>

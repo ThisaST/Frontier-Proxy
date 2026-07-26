@@ -86,6 +86,17 @@ describe('local provider process adapter', () => {
     expect(result.failureKind).toBe('quota')
   })
 
+  it('treats an intentional abort as cancellation even when output mentions a limit', async () => {
+    const controller = new AbortController()
+    const resultPromise = runProvider(custom(['-e', "process.stderr.write('usage limit reached');setInterval(()=>{},1000)"]), {
+      prompt: 'work', cwd: process.cwd(), signal: controller.signal, onOutput: () => undefined
+    })
+    setTimeout(() => controller.abort(), 25)
+    const result = await resultPromise
+    expect(result.ok).toBe(false)
+    expect(result.failureKind).toBe('cancelled')
+  })
+
   it('offers a curated known-model set for subscription CLIs', async () => {
     const claude: ProviderConfig = {
       id: 'claude', name: 'Claude Code', kind: 'claude', enabled: true, executable: 'claude',

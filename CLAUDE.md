@@ -138,7 +138,12 @@ appends a follow-up `user` turn and runs again **in-context**:
 - **Other CLIs / no session** — falls back to replaying the transcript (`transcript()`)
   as context before the new message.
 The UI renders the thread as user/assistant turns with a composer at the bottom of the
-output panel (Enter to send). This replaces the dead-end where only Retry was available.
+output panel (Enter to send). When stopped, it also shows a **Next provider** selector backed
+by `engine.changeTaskProvider`; switching clears any provider-private resume session and the
+next turn receives the full attributed transcript, including cancelled/partial turns.
+Intentional cancellation is terminal for the current run and never enters automatic failover.
+Without an explicit change, subsequent turns stay pinned to the most recently selected provider
+even when that CLI has no resumable session id.
 
 ## Layout, context window & memory
 
@@ -148,7 +153,14 @@ output panel (Enter to send). This replaces the dead-end where only Retry was av
   queue and live output resizes the columns (persisted to `localStorage` `fp-wq-width`).
 - **Context window** — `parseClaudeLine` reads `modelUsage[*].contextWindow` (largest wins)
   and the request's input tokens from the `result` event → `task.contextTokens/contextWindow`,
-  shown as a "Context X / Y · Z%" meta chip.
+  shown on the task row, compact output metadata, and dedicated task workspace. It is not a
+  provider-level Usage metric because every conversation has independent occupancy.
+- **Task workspace** — **Open details** (or double-clicking a task) opens the `task-detail`
+  view with a large conversation pane, provider route/work log, task context meter, and a
+  **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
+  `filesChanged`; it enforces workspace containment, caps text at 1 MB, identifies binary
+  files, and returns a Git working-tree diff. The renderer uses `highlight.js` for language-
+  aware source/diff highlighting.
 - **Frontier memory** — `AppSettings.memory` (edited in Settings) is prepended by
   `promptWithMemory` as shared context to every new task's first turn and the planner
   prompt, so knowledge carries across tasks. Continuations inherit it via the resumed session.
@@ -158,11 +170,12 @@ output panel (Enter to send). This replaces the dead-end where only Retry was av
 `parseClaudeLine` also emits `onUsage` (from the `result` event: real input/output tokens +
 `total_cost_usd`) and `onSession` (from `rate_limit_event`: reset, status, and any reported
 utilization). Codex `turn.completed` events contribute real token counts as well. The engine
-accumulates these into `runtime.usage`, keeps the latest provider-level context occupancy in
-`runtime.context`, and stores plan-window state in `runtime.session`. The Usage view shows a
-context gauge, session/plan usage, reset countdown, tracked tokens, and automatic-fallback
-state for every provider. A provider-level context-window value can be configured when its
-CLI does not report one.
+accumulates these into `runtime.usage` and stores plan-window state in `runtime.session`.
+Context occupancy is deliberately task-scoped (`task.contextTokens/contextWindow`), shown on
+the task row and dedicated task workspace—not on provider Usage cards. A provider-level
+context-window value can still be configured as a fallback when its CLI does not report one.
+The Usage view shows session/plan usage, reset countdown, tracked tokens, and automatic-
+fallback state for every provider.
 
 Quota/unavailable failures fail over during first turns, follow-up conversations, and every
 orchestration stage. A follow-up that leaves its owning CLI replays the conversation transcript

@@ -1,12 +1,21 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
-import type { AppSnapshot, ControlPlaneProfile, McpServerConfig, McpTransport, ProviderConfig, ProxyTask, TaskAttempt } from '../../shared/types'
+import { highlightSourceLine, parseUnifiedDiff } from './syntax'
+import type { AppSnapshot, ControlPlaneProfile, ConversationTurn, FileChange, McpServerConfig, McpTransport, ProviderConfig, ProxyTask, TaskAttempt, TaskFileContent } from '../../shared/types'
 
 let snapshot: AppSnapshot
 let selectedTaskId: string | undefined
 let toastTimer: number | undefined
 let controlPlaneDraft: ControlPlaneProfile | undefined
 let taskQuery = ''
+let currentView = 'tasks'
+let detailTaskId: string | undefined
+let detailTab: 'conversation' | 'files' = 'conversation'
+let detailFilePath: string | undefined
+let detailFileMode: 'diff' | 'source' = 'diff'
+let detailFileState: { taskId: string; path: string; version: string; file: TaskFileContent } | undefined
+let detailFileRequest = 0
+let detailFileLoadingKey: string | undefined
 // Avoids re-parsing markdown for a finished task on every unrelated snapshot.
 let lastBodyRender = { id: '', status: '', length: -1 }
 
@@ -84,6 +93,10 @@ function providerCapacity(provider: SnapshotProvider): { label: string; tone: st
   return { label: 'Available', tone: 'ready' }
 }
 
+function providerSelectableForTask(provider: SnapshotProvider, task: ProxyTask): boolean {
+  return provider.enabled && provider.runtime.available && !providerLimitReached(provider) && provider.capabilities.includes(task.type)
+}
+
 function renderMetrics(): void {
   const running = snapshot.tasks.filter((task) => task.status === 'running').length
   const queued = snapshot.tasks.filter((task) => task.status === 'queued').length
@@ -158,11 +171,17 @@ function renderTasks(): void {
     const meta = document.createElement('div'); meta.className = 'task-meta'
     const tags = [task.type, providerName(task.selectedProviderId), task.mode]
     for (const value of tags) { const tag = document.createElement('span'); tag.textContent = value; meta.append(tag) }
+    if (task.contextWindow && task.contextTokens !== undefined) {
+      const context = document.createElement('span'); context.className = 'tag-context'
+      context.textContent = `context ${Math.round((task.contextTokens / task.contextWindow) * 100)}%`
+      meta.append(context)
+    }
     if (task.orchestrated) { const tag = document.createElement('span'); tag.className = 'tag-orchestrated'; tag.textContent = 'orchestrated'; meta.append(tag) }
     body.append(title, meta)
     const time = document.createElement('span'); time.className = 'task-time'; time.textContent = timeAgo(task.createdAt)
     row.append(dot, body, time)
     row.addEventListener('click', () => { selectedTaskId = task.id; renderTasks() })
+    row.addEventListener('dblclick', () => openTaskDetail(task.id))
     return row
   }))
   renderOutput()
@@ -390,11 +409,40 @@ function renderOutput(): void {
   composerInput.placeholder = busy ? 'Working… you can reply when this turn finishes' : 'Continue the conversation…'
 
   const controls = document.createElement('div'); controls.className = 'output-actions-inner'
+  const details = document.createElement('button'); details.className = 'secondary-button'; details.textContent = 'Open details'
+  details.addEventListener('click', () => openTaskDetail(task.id))
+  controls.append(details)
   if (task.status === 'running' || task.status === 'queued') {
     const cancel = document.createElement('button'); cancel.className = 'secondary-button'; cancel.textContent = 'Cancel'
     cancel.addEventListener('click', () => void window.frontier.cancelTask(task.id))
     controls.append(cancel)
   } else {
+    const switcher = document.createElement('label'); switcher.className = 'provider-switch'
+    const switchLabel = document.createElement('span'); switchLabel.textContent = 'Next provider'
+    const select = document.createElement('select'); select.title = 'Choose the provider for the next message'
+    const selectedProviderId = task.continuationProviderId ?? task.selectedProviderId ?? ''
+    for (const provider of snapshot.providers) {
+      const option = document.createElement('option'); option.value = provider.id
+      const selectable = providerSelectableForTask(provider, task)
+      option.textContent = `${provider.name}${selectable ? '' : ' · unavailable'}`
+      option.disabled = !selectable
+      select.append(option)
+    }
+    select.value = selectedProviderId
+    select.addEventListener('change', async () => {
+      const providerId = select.value
+      if (!providerId || providerId === selectedProviderId) return
+      select.disabled = true
+      try {
+        await window.frontier.changeTaskProvider(task.id, providerId)
+        showToast(`${providerName(providerId)} selected for the next message`)
+      } catch (error) {
+        select.value = selectedProviderId
+        reportError('Could not change provider', error)
+      } finally { select.disabled = false }
+    })
+    switcher.append(switchLabel, select)
+
     const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry'
     retry.addEventListener('click', async () => {
       try {
@@ -403,7 +451,7 @@ function renderOutput(): void {
         selectedTaskId = created.id
       } catch (error) { reportError('Could not retry task', error) }
     })
-    controls.append(retry)
+    controls.append(switcher, retry)
   }
   actions.replaceChildren(controls)
 }
@@ -769,15 +817,6 @@ function renderUsage(): void {
       usageStat('Tasks', String(usage.tasks))
     )
 
-    const context = provider.runtime.context
-    const contextPct = context ? Math.min(100, (context.usedTokens / context.windowTokens) * 100) : provider.contextWindow ? 0 : undefined
-    const contextDetail = context
-      ? `${formatNumber(context.usedTokens)} / ${formatNumber(context.windowTokens)} tokens · ${context.source}`
-      : provider.contextWindow
-        ? `No task context yet · ${formatNumber(provider.contextWindow)} configured`
-        : 'Not reported by this CLI · configure it in Providers'
-    const contextGauge = usageGauge('Context window', contextPct, contextDetail, (contextPct ?? 0) >= 80 ? 'high' : '')
-
     const session = provider.runtime.session
     const trackedPct = sessionPercent(provider)
     const limitPct = providerLimitReached(provider) ? 100 : trackedPct
@@ -801,28 +840,297 @@ function renderUsage(): void {
         : 'Limits are detected from CLI events and configured tracked-usage thresholds.'
     footer.append(note)
 
-    card.append(header, contextGauge, sessionGauge, stats, footer)
+    card.append(header, sessionGauge, stats, footer)
     return card
   }))
 }
 
-function render(): void {
-  renderMetrics(); renderMiniProviders(); renderTasks(); renderProviders(); renderTaskProviderOptions(); renderUsage(); renderSettings()
+function detailStat(label: string, value: string, detail?: string): HTMLElement {
+  const stat = document.createElement('div'); stat.className = 'task-detail-stat'
+  const l = document.createElement('span'); l.textContent = label
+  const v = document.createElement('strong'); v.textContent = value
+  stat.append(l, v)
+  if (detail) { const small = document.createElement('small'); small.textContent = detail; stat.append(small) }
+  return stat
 }
 
-const VIEW_TITLES: Record<string, string> = { tasks: 'Tasks', providers: 'Providers', control: 'Context & Tools', usage: 'Usage', settings: 'Settings' }
+function renderTaskDetailSummary(task: ProxyTask): void {
+  const summary = byId('task-detail-summary')
+  const provider = providerName(task.selectedProviderId)
+  const stats: HTMLElement[] = [
+    detailStat('Provider', provider, task.model),
+    detailStat('Task type', task.type, task.mode),
+    detailStat('Tokens', `${formatNumber(task.estimatedInputTokens)} in · ${formatNumber(task.estimatedOutputTokens)} out`),
+    detailStat('Elapsed', taskElapsed(task), task.cwd)
+  ]
+  const context = document.createElement('div'); context.className = 'task-context-card'
+  const head = document.createElement('div'); head.className = 'task-context-head'
+  const label = document.createElement('div')
+  const eyebrow = document.createElement('span'); eyebrow.textContent = 'TASK CONTEXT WINDOW'
+  const detail = document.createElement('small')
+  const value = document.createElement('strong')
+  let percent: number | undefined
+  if (task.contextWindow && task.contextTokens !== undefined) {
+    percent = Math.min(100, (task.contextTokens / task.contextWindow) * 100)
+    value.textContent = `${Math.round(percent)}%`
+    detail.textContent = `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens used in this task`
+  } else {
+    value.textContent = '—'
+    detail.textContent = 'This task’s provider has not reported context occupancy yet.'
+  }
+  label.append(eyebrow, detail); head.append(label, value)
+  const bar = document.createElement('div'); bar.className = 'task-context-bar'
+  const fill = document.createElement('div'); fill.style.width = `${percent ?? 0}%`
+  if ((percent ?? 0) >= 80) fill.classList.add('high')
+  bar.append(fill); context.append(head, bar)
+  summary.replaceChildren(...stats, context)
+}
+
+function renderTaskDetailThread(task: ProxyTask): void {
+  const thread = byId('task-detail-thread')
+  const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 60
+  const streaming = task.status === 'running' || task.status === 'queued'
+  const turns: ConversationTurn[] = task.turns?.length ? task.turns : [
+    { id: 'legacy-user', role: 'user', content: task.prompt, at: task.createdAt },
+    ...(task.output || task.error ? [{ id: 'legacy-assistant', role: 'assistant' as const, content: task.output, providerId: task.selectedProviderId, model: task.model, status: task.status, at: task.finishedAt ?? task.createdAt }] : [])
+  ]
+  const fragment = document.createDocumentFragment()
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index]
+    const live = streaming && turn.role === 'assistant' && index === turns.length - 1
+    const block = document.createElement('article'); block.className = `detail-turn ${turn.role}`
+    const head = document.createElement('div'); head.className = 'detail-turn-head'
+    const identity = document.createElement('strong')
+    identity.textContent = turn.role === 'user' ? 'You' : providerName(turn.providerId)
+    const meta = document.createElement('span')
+    meta.textContent = [turn.model, turn.status, timeAgo(turn.at)].filter(Boolean).join(' · ')
+    head.append(identity, meta)
+    const body = document.createElement('div'); body.className = 'detail-turn-body markdown'
+    const content = live ? task.output : turn.content
+    if (turn.role === 'user' || live) body.textContent = content || (live ? 'Working…' : '')
+    else if (content.trim()) body.appendChild(renderMarkdown(content))
+    else body.textContent = turn.status === 'failed' ? (task.error ?? 'Failed.') : '—'
+    block.append(head, body); fragment.append(block)
+  }
+  if (task.error && !streaming) { const error = document.createElement('div'); error.className = 'output-error'; error.textContent = task.error; fragment.append(error) }
+  thread.replaceChildren(fragment)
+  if (streaming || atBottom) thread.scrollTop = thread.scrollHeight
+
+  const input = byId<HTMLTextAreaElement>('task-detail-composer-input')
+  const send = byId<HTMLButtonElement>('task-detail-composer-send')
+  input.disabled = streaming; send.disabled = streaming
+  input.placeholder = streaming ? 'Working… you can reply when this turn finishes' : 'Continue the conversation…'
+}
+
+function renderTaskDetailInspector(task: ProxyTask): void {
+  const timeline = byId('task-detail-timeline')
+  const attempts = task.attempts.map((attempt) => {
+    const row = document.createElement('div'); row.className = `detail-route-row ${attempt.status}`
+    const dot = document.createElement('span'); dot.className = 'timeline-dot'
+    const body = document.createElement('div')
+    const name = document.createElement('strong'); name.textContent = providerName(attempt.providerId)
+    const timing = document.createElement('small'); timing.textContent = `${attempt.status} · ${timeAgo(attempt.startedAt)}`
+    body.append(name, timing); row.append(dot, body)
+    if (attempt.error) row.title = attempt.error
+    return row
+  })
+  if (!attempts.length) { const empty = document.createElement('p'); empty.className = 'detail-empty'; empty.textContent = 'No provider attempts yet.'; timeline.replaceChildren(empty) }
+  else timeline.replaceChildren(...attempts)
+
+  const activity = byId('task-detail-activity')
+  const events = (task.activity ?? []).map((event) => {
+    const row = document.createElement('div'); row.className = `detail-activity-row ${event.kind}`
+    const icon = document.createElement('span'); icon.textContent = ACTIVITY_ICON[event.kind] ?? '•'
+    const body = document.createElement('div')
+    const label = document.createElement('strong'); label.textContent = event.label
+    body.append(label)
+    if (event.detail) { const detail = document.createElement('small'); detail.textContent = event.detail; body.append(detail) }
+    row.append(icon, body); return row
+  })
+  if (!events.length) { const empty = document.createElement('p'); empty.className = 'detail-empty'; empty.textContent = 'No activity recorded.'; activity.replaceChildren(empty) }
+  else activity.replaceChildren(...events)
+}
+
+function codeLine(oldNumber: number | undefined, newNumber: number | undefined, marker: string, source: string, kind: string, language: string): HTMLElement {
+  const row = document.createElement('div'); row.className = `task-code-line ${kind}`
+  const old = document.createElement('span'); old.className = 'task-code-number'; old.textContent = oldNumber ? String(oldNumber) : ''
+  const next = document.createElement('span'); next.className = 'task-code-number'; next.textContent = newNumber ? String(newNumber) : ''
+  const mark = document.createElement('span'); mark.className = 'task-code-marker'; mark.textContent = marker
+  const code = document.createElement('code')
+  // highlight.js escapes source text and emits only span markup for token classes.
+  code.innerHTML = highlightSourceLine(source, language)
+  row.append(old, next, mark, code); return row
+}
+
+function renderTaskFileViewer(file?: TaskFileContent): void {
+  const title = byId('task-file-title')
+  const language = byId('task-file-language')
+  const notice = byId('task-file-notice')
+  const code = byId('task-file-code')
+  const modes = byId('task-file-mode')
+  modes.hidden = !file
+  modes.querySelectorAll('button').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.fileMode === detailFileMode))
+  if (!file) {
+    title.textContent = 'Select a changed file'; language.textContent = 'SOURCE'
+    notice.hidden = false; notice.textContent = 'Choose a file to inspect its current source and working-tree changes.'
+    code.replaceChildren(); return
+  }
+  title.textContent = file.relativePath; language.textContent = file.language.toUpperCase()
+  if (file.binary) { notice.hidden = false; notice.textContent = 'Binary files cannot be displayed.'; code.replaceChildren(); return }
+  if (!file.exists && detailFileMode === 'source') { notice.hidden = false; notice.textContent = 'This file no longer exists in the task workspace.'; code.replaceChildren(); return }
+  if (file.truncated && detailFileMode === 'source') { notice.hidden = false; notice.textContent = 'Large file: showing the first 1 MB.' } else notice.hidden = true
+
+  if (detailFileMode === 'diff') {
+    if (!file.diff.trim()) { notice.hidden = false; notice.textContent = 'No working-tree diff is available. The change may already be committed or the workspace may have moved.'; code.replaceChildren(); return }
+    const rows = parseUnifiedDiff(file.diff).map((line) => {
+      if (line.kind === 'header' || line.kind === 'hunk') {
+        const row = document.createElement('div'); row.className = `task-code-line ${line.kind}`
+        const text = document.createElement('code'); text.textContent = line.source; row.append(text); return row
+      }
+      return codeLine(line.oldNumber, line.newNumber, line.marker, line.source, line.kind, file.language)
+    })
+    code.replaceChildren(...rows)
+  } else {
+    const rows = file.content.replace(/\r\n/g, '\n').split('\n').map((line, index) => codeLine(undefined, index + 1, '', line, 'source', file.language))
+    code.replaceChildren(...rows)
+  }
+}
+
+async function loadDetailFile(task: ProxyTask, change: FileChange): Promise<void> {
+  const version = change.at
+  const key = `${task.id}:${change.path}:${version}`
+  if (detailFileState?.taskId === task.id && detailFileState.path === change.path && detailFileState.version === version) {
+    renderTaskFileViewer(detailFileState.file); return
+  }
+  if (detailFileLoadingKey === key) return
+  detailFileLoadingKey = key
+  const request = ++detailFileRequest
+  const notice = byId('task-file-notice'); notice.hidden = false; notice.textContent = 'Loading file…'
+  byId('task-file-code').replaceChildren()
+  try {
+    const file = await window.frontier.readTaskFile(task.id, change.path)
+    if (request !== detailFileRequest || detailTaskId !== task.id || detailFilePath !== change.path) return
+    detailFileState = { taskId: task.id, path: change.path, version, file }
+    renderTaskFileViewer(file)
+  } catch (error) {
+    if (request !== detailFileRequest) return
+    notice.hidden = false; notice.textContent = errorMessage(error)
+  } finally { if (detailFileLoadingKey === key) detailFileLoadingKey = undefined }
+}
+
+function renderTaskDetailFiles(task: ProxyTask): void {
+  const changes = task.filesChanged ?? []
+  byId('task-detail-file-count').textContent = String(changes.length)
+  const list = byId('task-detail-file-list')
+  if (!changes.length) {
+    const empty = document.createElement('div'); empty.className = 'detail-empty'; empty.textContent = 'No changed files were recorded for this task.'
+    list.replaceChildren(empty); detailFilePath = undefined; renderTaskFileViewer(); return
+  }
+  if (!detailFilePath || !changes.some((change) => change.path === detailFilePath)) detailFilePath = changes[0].path
+  const rows = changes.map((change) => {
+    const button = document.createElement('button'); button.className = `task-detail-file ${change.path === detailFilePath ? 'active' : ''}`
+    const badge = document.createElement('span'); badge.className = `file-badge ${change.action}`; badge.textContent = change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT'
+    const body = document.createElement('span')
+    const name = document.createElement('strong'); name.textContent = baseName(change.path)
+    const path = document.createElement('small'); path.textContent = change.path
+    body.append(name, path); button.append(badge, body)
+    button.addEventListener('click', () => { detailFilePath = change.path; detailFileState = undefined; renderTaskDetailFiles(task) })
+    return button
+  })
+  list.replaceChildren(...rows)
+  const selected = changes.find((change) => change.path === detailFilePath)
+  if (selected) void loadDetailFile(task, selected)
+}
+
+function renderTaskDetailActions(task: ProxyTask): void {
+  const target = byId('task-detail-actions')
+  const controls = document.createElement('div'); controls.className = 'output-actions-inner'
+  const busy = task.status === 'running' || task.status === 'queued'
+  if (busy) {
+    const cancel = document.createElement('button'); cancel.className = 'secondary-button'; cancel.textContent = 'Cancel task'
+    cancel.addEventListener('click', () => void window.frontier.cancelTask(task.id)); controls.append(cancel)
+  } else {
+    const select = document.createElement('select'); select.className = 'detail-provider-select'; select.title = 'Provider for the next message'
+    const current = task.continuationProviderId ?? task.selectedProviderId ?? ''
+    for (const provider of snapshot.providers) {
+      const option = document.createElement('option'); option.value = provider.id
+      const selectable = providerSelectableForTask(provider, task)
+      option.textContent = `${provider.name}${selectable ? '' : ' · unavailable'}`; option.disabled = !selectable; select.append(option)
+    }
+    select.value = current
+    select.addEventListener('change', async () => {
+      const next = select.value
+      if (!next || next === current) return
+      select.disabled = true
+      try { await window.frontier.changeTaskProvider(task.id, next); showToast(`${providerName(next)} selected for the next message`) }
+      catch (error) { select.value = current; reportError('Could not change provider', error) }
+      finally { select.disabled = false }
+    })
+    const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry as new task'
+    retry.addEventListener('click', async () => {
+      try { const created = await window.frontier.retryTask(task.id); openTaskDetail(created.id) }
+      catch (error) { reportError('Could not retry task', error) }
+    })
+    controls.append(select, retry)
+  }
+  target.replaceChildren(controls)
+}
+
+function renderTaskDetail(): void {
+  if (currentView !== 'task-detail') return
+  const task = snapshot.tasks.find((item) => item.id === detailTaskId)
+  if (!task) { switchView('tasks'); return }
+  byId('task-detail-title').textContent = task.prompt
+  byId('task-detail-prompt').textContent = `${task.type} task · ${task.cwd}`
+  const status = byId('task-detail-status'); status.textContent = task.status; status.className = `status-pill ${task.status}`
+  renderTaskDetailActions(task)
+  renderTaskDetailSummary(task)
+  renderTaskDetailThread(task)
+  renderTaskDetailInspector(task)
+  byId('task-detail-file-count').textContent = String(task.filesChanged?.length ?? 0)
+  if (detailTab === 'files') renderTaskDetailFiles(task)
+  document.querySelectorAll<HTMLElement>('.task-detail-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.detailTab === detailTab))
+  byId('task-detail-conversation-tab').classList.toggle('active', detailTab === 'conversation')
+  byId('task-detail-files-tab').classList.toggle('active', detailTab === 'files')
+}
+
+function openTaskDetail(taskId: string): void {
+  selectedTaskId = taskId
+  if (detailTaskId !== taskId) {
+    detailTaskId = taskId; detailTab = 'conversation'; detailFilePath = undefined; detailFileState = undefined; detailFileRequest += 1
+  }
+  switchView('task-detail')
+}
+
+function render(): void {
+  renderMetrics(); renderMiniProviders(); renderTasks(); renderProviders(); renderTaskProviderOptions(); renderUsage(); renderSettings(); renderTaskDetail()
+}
+
+const VIEW_TITLES: Record<string, string> = { tasks: 'Tasks', 'task-detail': 'Task workspace', providers: 'Providers', control: 'Context & Tools', usage: 'Usage', settings: 'Settings' }
 
 function switchView(view: string): void {
-  document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', (item as HTMLElement).dataset.view === view))
+  currentView = view
+  const navView = view === 'task-detail' ? 'tasks' : view
+  document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', (item as HTMLElement).dataset.view === navView))
   document.querySelectorAll('.view').forEach((item) => item.classList.toggle('active', item.id === `${view}-view`))
   byId('view-title').textContent = VIEW_TITLES[view] ?? view
   byId('new-task-button').style.display = view === 'tasks' ? '' : 'none'
   // Render the control plane from the draft only on entry so streaming snapshots
   // never clobber in-progress edits.
   if (view === 'control') renderControlPlane()
+  if (view === 'task-detail') renderTaskDetail()
 }
 
 document.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => item.addEventListener('click', () => switchView(item.dataset.view ?? 'tasks')))
+byId('task-detail-back').addEventListener('click', () => switchView('tasks'))
+document.querySelectorAll<HTMLElement>('.task-detail-tab').forEach((tab) => tab.addEventListener('click', () => {
+  detailTab = tab.dataset.detailTab === 'files' ? 'files' : 'conversation'
+  renderTaskDetail()
+}))
+byId('task-file-mode').querySelectorAll<HTMLElement>('button').forEach((button) => button.addEventListener('click', () => {
+  detailFileMode = button.dataset.fileMode === 'source' ? 'source' : 'diff'
+  renderTaskFileViewer(detailFileState?.file)
+}))
 byId('new-task-button').addEventListener('click', () => taskDialog.showModal())
 byId('close-dialog').addEventListener('click', () => taskDialog.close())
 byId('cancel-dialog').addEventListener('click', () => taskDialog.close())
@@ -892,6 +1200,19 @@ async function sendFollowUp(): Promise<void> {
 byId('composer-send').addEventListener('click', () => void sendFollowUp())
 byId<HTMLTextAreaElement>('composer-input').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendFollowUp() }
+})
+async function sendTaskDetailFollowUp(): Promise<void> {
+  const input = byId<HTMLTextAreaElement>('task-detail-composer-input')
+  const text = input.value.trim()
+  if (!text || !detailTaskId) return
+  const send = byId<HTMLButtonElement>('task-detail-composer-send'); send.disabled = true; input.disabled = true
+  try { await persistControlPlaneDraft(); await window.frontier.continueTask(detailTaskId, text); input.value = '' }
+  catch (error) { reportError('Could not continue the conversation', error) }
+  finally { send.disabled = false; input.disabled = false; input.focus() }
+}
+byId('task-detail-composer-send').addEventListener('click', () => void sendTaskDetailFollowUp())
+byId<HTMLTextAreaElement>('task-detail-composer-input').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendTaskDetailFollowUp() }
 })
 byId('clear-finished').addEventListener('click', () => void window.frontier.clearFinishedTasks())
 byId('usage-refresh').addEventListener('click', async () => {

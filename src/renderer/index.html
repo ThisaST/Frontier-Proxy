@@ -31,7 +31,7 @@
           <span class="pulse-dot"></span>
           <div><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
         </div>
-        <div class="app-version">FRONTIER PROXY · v0.2.0</div>
+        <div class="app-version">FRONTIER PROXY · v0.4.0</div>
       </aside>
 
       <main>
@@ -70,6 +70,61 @@
                 <button id="composer-send" class="primary-button">Send</button>
               </div>
             </section>
+          </div>
+        </section>
+
+        <section id="task-detail-view" class="view">
+          <div class="task-detail-shell">
+            <header class="task-detail-header">
+              <div class="task-detail-heading">
+                <button id="task-detail-back" class="text-button">← All tasks</button>
+                <p class="eyebrow">TASK WORKSPACE</p>
+                <h2 id="task-detail-title">Task details</h2>
+                <p id="task-detail-prompt" class="task-detail-prompt"></p>
+              </div>
+              <div class="task-detail-header-actions">
+                <span id="task-detail-status" class="status-pill muted">Idle</span>
+                <div id="task-detail-actions"></div>
+              </div>
+            </header>
+
+            <div id="task-detail-summary" class="task-detail-summary"></div>
+            <nav class="task-detail-tabs" aria-label="Task detail sections">
+              <button class="task-detail-tab active" data-detail-tab="conversation">Conversation</button>
+              <button class="task-detail-tab" data-detail-tab="files">Files &amp; changes <span id="task-detail-file-count">0</span></button>
+            </nav>
+
+            <div id="task-detail-conversation-tab" class="task-detail-tab-panel active">
+              <section class="panel task-detail-thread-panel">
+                <div id="task-detail-thread" class="task-detail-thread markdown"></div>
+                <div id="task-detail-composer" class="output-composer">
+                  <textarea id="task-detail-composer-input" rows="2" placeholder="Continue the conversation…"></textarea>
+                  <button id="task-detail-composer-send" class="primary-button">Send</button>
+                </div>
+              </section>
+              <aside class="task-detail-inspector">
+                <section class="panel detail-inspector-card"><p class="eyebrow">ROUTE</p><h3>Provider attempts</h3><div id="task-detail-timeline"></div></section>
+                <section class="panel detail-inspector-card detail-activity-card"><p class="eyebrow">ACTIVITY</p><h3>Work log</h3><div id="task-detail-activity"></div></section>
+              </aside>
+            </div>
+
+            <div id="task-detail-files-tab" class="task-detail-tab-panel">
+              <aside class="panel task-file-sidebar">
+                <div class="task-file-sidebar-head"><p class="eyebrow">CHANGED FILES</p><h3>Task files</h3></div>
+                <div id="task-detail-file-list" class="task-detail-file-list"></div>
+              </aside>
+              <section class="panel task-file-viewer">
+                <header class="task-file-viewer-head">
+                  <div><p class="eyebrow" id="task-file-language">SOURCE</p><h3 id="task-file-title">Select a changed file</h3></div>
+                  <div class="task-file-mode" id="task-file-mode" hidden>
+                    <button data-file-mode="diff" class="active">Changes</button>
+                    <button data-file-mode="source">Current file</button>
+                  </div>
+                </header>
+                <div id="task-file-notice" class="task-file-notice">Choose a file to inspect its current source and working-tree changes.</div>
+                <div id="task-file-code" class="task-file-code"></div>
+              </section>
+            </div>
           </div>
         </section>
 
@@ -124,7 +179,7 @@
 
         <section id="usage-view" class="view">
           <div class="section-intro">
-            <div><p class="eyebrow">CONSUMPTION</p><h2>Usage, limits &amp; context</h2><p>See session usage and context capacity for every platform. Frontier automatically moves work to the next eligible provider when a CLI reports that its limit has been reached.</p></div>
+            <div><p class="eyebrow">CONSUMPTION</p><h2>Usage &amp; limits</h2><p>See plan and session usage for every platform. Context occupancy belongs to each individual task and is shown in its task workspace.</p></div>
             <button id="usage-refresh" class="secondary-button">↻ Refresh</button>
           </div>
           <div id="usage-grid" class="usage-grid"></div>

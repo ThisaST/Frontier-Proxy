@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, StreamEvent } from '../shared/types'
+import type { AppSettings, AppSnapshot, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, StreamEvent, TaskFileContent } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
   createTask: (input: CreateTaskInput) => ipcRenderer.invoke('frontier:create-task', input) as Promise<ProxyTask>,
   cancelTask: (taskId: string) => ipcRenderer.invoke('frontier:cancel-task', taskId) as Promise<void>,
   retryTask: (taskId: string) => ipcRenderer.invoke('frontier:retry-task', taskId) as Promise<ProxyTask>,
+  changeTaskProvider: (taskId: string, providerId: string) => ipcRenderer.invoke('frontier:change-task-provider', taskId, providerId) as Promise<ProxyTask>,
   continueTask: (taskId: string, message: string) => ipcRenderer.invoke('frontier:continue-task', taskId, message) as Promise<ProxyTask>,
+  readTaskFile: (taskId: string, path: string) => ipcRenderer.invoke('frontier:read-task-file', taskId, path) as Promise<TaskFileContent>,
   clearFinishedTasks: () => ipcRenderer.invoke('frontier:clear-finished') as Promise<void>,
   checkProviders: () => ipcRenderer.invoke('frontier:check-providers') as Promise<AppSnapshot>,
   updateProvider: (patch: ProviderPatch) => ipcRenderer.invoke('frontier:update-provider', patch) as Promise<AppSnapshot>,

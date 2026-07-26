@@ -31,7 +31,7 @@
           <span class="pulse-dot"></span>
           <div><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
         </div>
-        <div class="app-version">FRONTIER PROXY · v0.4.0</div>
+        <div class="app-version">FRONTIER PROXY · v0.4.1</div>
       </aside>
 
       <main>
@@ -76,9 +76,8 @@
         <section id="task-detail-view" class="view">
           <div class="task-detail-shell">
             <header class="task-detail-header">
+              <button id="task-detail-back" class="text-button task-detail-back">← Tasks</button>
               <div class="task-detail-heading">
-                <button id="task-detail-back" class="text-button">← All tasks</button>
-                <p class="eyebrow">TASK WORKSPACE</p>
                 <h2 id="task-detail-title">Task details</h2>
                 <p id="task-detail-prompt" class="task-detail-prompt"></p>
               </div>
@@ -92,6 +91,7 @@
             <nav class="task-detail-tabs" aria-label="Task detail sections">
               <button class="task-detail-tab active" data-detail-tab="conversation">Conversation</button>
               <button class="task-detail-tab" data-detail-tab="files">Files &amp; changes <span id="task-detail-file-count">0</span></button>
+              <button id="task-detail-inspector-toggle" class="task-detail-inspector-toggle" type="button" aria-pressed="false">Show activity</button>
             </nav>
 
             <div id="task-detail-conversation-tab" class="task-detail-tab-panel active">

@@ -11,6 +11,7 @@ let taskQuery = ''
 let currentView = 'tasks'
 let detailTaskId: string | undefined
 let detailTab: 'conversation' | 'files' = 'conversation'
+let detailInspectorOpen = false
 let detailFilePath: string | undefined
 let detailFileMode: 'diff' | 'source' = 'diff'
 let detailFileState: { taskId: string; path: string; version: string; file: TaskFileContent } | undefined
@@ -845,45 +846,37 @@ function renderUsage(): void {
   }))
 }
 
-function detailStat(label: string, value: string, detail?: string): HTMLElement {
-  const stat = document.createElement('div'); stat.className = 'task-detail-stat'
-  const l = document.createElement('span'); l.textContent = label
-  const v = document.createElement('strong'); v.textContent = value
-  stat.append(l, v)
-  if (detail) { const small = document.createElement('small'); small.textContent = detail; stat.append(small) }
-  return stat
-}
-
 function renderTaskDetailSummary(task: ProxyTask): void {
   const summary = byId('task-detail-summary')
   const provider = providerName(task.selectedProviderId)
-  const stats: HTMLElement[] = [
-    detailStat('Provider', provider, task.model),
-    detailStat('Task type', task.type, task.mode),
-    detailStat('Tokens', `${formatNumber(task.estimatedInputTokens)} in · ${formatNumber(task.estimatedOutputTokens)} out`),
-    detailStat('Elapsed', taskElapsed(task), task.cwd)
+  const meta = document.createElement('div'); meta.className = 'task-detail-meta'
+  const values = [
+    { label: 'Model', value: task.model ?? provider },
+    { label: 'Tokens', value: `${formatNumber(task.estimatedInputTokens)} in · ${formatNumber(task.estimatedOutputTokens)} out` },
+    { label: 'Elapsed', value: taskElapsed(task) }
   ]
+  for (const item of values) {
+    const value = document.createElement('span'); value.textContent = item.value; value.title = `${item.label}: ${item.value}`
+    meta.append(value)
+  }
   const context = document.createElement('div'); context.className = 'task-context-card'
-  const head = document.createElement('div'); head.className = 'task-context-head'
-  const label = document.createElement('div')
-  const eyebrow = document.createElement('span'); eyebrow.textContent = 'TASK CONTEXT WINDOW'
-  const detail = document.createElement('small')
+  const label = document.createElement('span'); label.className = 'task-context-label'; label.textContent = 'Context'
+  const detail = document.createElement('span'); detail.className = 'task-context-detail'
   const value = document.createElement('strong')
   let percent: number | undefined
   if (task.contextWindow && task.contextTokens !== undefined) {
     percent = Math.min(100, (task.contextTokens / task.contextWindow) * 100)
     value.textContent = `${Math.round(percent)}%`
-    detail.textContent = `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens used in this task`
+    detail.textContent = `${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)}`
   } else {
     value.textContent = '—'
-    detail.textContent = 'This task’s provider has not reported context occupancy yet.'
+    detail.textContent = 'Not reported'
   }
-  label.append(eyebrow, detail); head.append(label, value)
   const bar = document.createElement('div'); bar.className = 'task-context-bar'
   const fill = document.createElement('div'); fill.style.width = `${percent ?? 0}%`
   if ((percent ?? 0) >= 80) fill.classList.add('high')
-  bar.append(fill); context.append(head, bar)
-  summary.replaceChildren(...stats, context)
+  bar.append(fill); context.append(label, detail, bar, value)
+  summary.replaceChildren(meta, context)
 }
 
 function renderTaskDetailThread(task: ProxyTask): void {
@@ -1090,14 +1083,20 @@ function renderTaskDetail(): void {
   byId('task-detail-file-count').textContent = String(task.filesChanged?.length ?? 0)
   if (detailTab === 'files') renderTaskDetailFiles(task)
   document.querySelectorAll<HTMLElement>('.task-detail-tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.detailTab === detailTab))
-  byId('task-detail-conversation-tab').classList.toggle('active', detailTab === 'conversation')
+  const conversation = byId('task-detail-conversation-tab')
+  conversation.classList.toggle('active', detailTab === 'conversation')
+  conversation.classList.toggle('inspector-open', detailInspectorOpen)
   byId('task-detail-files-tab').classList.toggle('active', detailTab === 'files')
+  const inspectorToggle = byId<HTMLButtonElement>('task-detail-inspector-toggle')
+  inspectorToggle.hidden = detailTab !== 'conversation'
+  inspectorToggle.textContent = detailInspectorOpen ? 'Hide activity' : 'Show activity'
+  inspectorToggle.setAttribute('aria-pressed', String(detailInspectorOpen))
 }
 
 function openTaskDetail(taskId: string): void {
   selectedTaskId = taskId
   if (detailTaskId !== taskId) {
-    detailTaskId = taskId; detailTab = 'conversation'; detailFilePath = undefined; detailFileState = undefined; detailFileRequest += 1
+    detailTaskId = taskId; detailTab = 'conversation'; detailInspectorOpen = false; detailFilePath = undefined; detailFileState = undefined; detailFileRequest += 1
   }
   switchView('task-detail')
 }
@@ -1110,6 +1109,7 @@ const VIEW_TITLES: Record<string, string> = { tasks: 'Tasks', 'task-detail': 'Ta
 
 function switchView(view: string): void {
   currentView = view
+  document.querySelector('main')?.classList.toggle('task-detail-active', view === 'task-detail')
   const navView = view === 'task-detail' ? 'tasks' : view
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', (item as HTMLElement).dataset.view === navView))
   document.querySelectorAll('.view').forEach((item) => item.classList.toggle('active', item.id === `${view}-view`))
@@ -1127,6 +1127,10 @@ document.querySelectorAll<HTMLElement>('.task-detail-tab').forEach((tab) => tab.
   detailTab = tab.dataset.detailTab === 'files' ? 'files' : 'conversation'
   renderTaskDetail()
 }))
+byId('task-detail-inspector-toggle').addEventListener('click', () => {
+  detailInspectorOpen = !detailInspectorOpen
+  renderTaskDetail()
+})
 byId('task-file-mode').querySelectorAll<HTMLElement>('button').forEach((button) => button.addEventListener('click', () => {
   detailFileMode = button.dataset.fileMode === 'source' ? 'source' : 'diff'
   renderTaskFileViewer(detailFileState?.file)

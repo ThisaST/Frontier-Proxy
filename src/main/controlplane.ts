@@ -69,6 +69,16 @@ function enabledMcpNames(profile: ControlPlaneProfile): string[] {
   return [...new Set(configuredMcpServers(profile).map((server) => server.name.trim()))]
 }
 
+type McpCapableProvider = Extract<ProviderConfig['kind'], 'claude' | 'copilot' | 'codex' | 'codex-oss'>
+
+function attachedMcpServers(kind: McpCapableProvider, profile: ControlPlaneProfile): McpServerConfig[] {
+  const configured = configuredMcpServers(profile)
+  // Codex supports stdio and Streamable HTTP, but not legacy SSE servers.
+  return kind === 'codex' || kind === 'codex-oss'
+    ? configured.filter((server) => server.transport !== 'sse')
+    : configured
+}
+
 // JSON string literals are also valid TOML basic strings, including the
 // escaping needed for dotted key segments and inline-table values.
 function tomlString(value: string): string {
@@ -94,6 +104,32 @@ function codexServerName(name: string): string {
   for (let index = 0; index < name.length; index += 1) hash = Math.imul(hash ^ name.charCodeAt(index), 16_777_619)
   const stem = name.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'server'
   return `frontier_${stem}_${(hash >>> 0).toString(16)}`
+}
+
+function mcpSessionContext(kind: McpCapableProvider, profile: ControlPlaneProfile): string | undefined {
+  const servers = attachedMcpServers(kind, profile)
+  if (!servers.length) return undefined
+
+  const serverList = servers.map((server) => {
+    const name = server.name.trim()
+    const alias = kind === 'codex' || kind === 'codex-oss' ? codexServerName(name) : name
+    const aliasText = alias === name ? '' : `; session tool namespace: ${JSON.stringify(alias)}`
+    return `- ${JSON.stringify(name)} (${server.transport}${aliasText})`
+  })
+
+  return [
+    'Frontier MCP session context:',
+    'Frontier attached these MCP servers to this provider process for the current task:',
+    ...serverList,
+    'Use their MCP tools directly when they are relevant to the request.',
+    'These servers are injected for this task only. Do not use `codex mcp list`, `claude mcp list`, `copilot mcp list`, or another newly launched CLI process to decide whether they are available; those commands inspect persistent configuration and may not show Frontier\'s per-run injection.',
+    'Do not install or re-register these servers. If a requested MCP tool cannot be called, report the actual tool-discovery, connection, authentication, or invocation error from this provider session.'
+  ].join('\n')
+}
+
+function joinPromptContext(...parts: Array<string | undefined>): string | undefined {
+  const present = parts.filter((part): part is string => Boolean(part))
+  return present.length ? present.join('\n\n') : undefined
 }
 
 // Codex accepts per-invocation config overrides via repeated `-c key=value`
@@ -161,7 +197,8 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       if (allowedWithMcp.length) args.push('--allowedTools', ...allowedWithMcp)
       if (disallowed.length) args.push('--disallowedTools', ...disallowed)
       if (addDirs.length) args.push('--add-dir', ...addDirs)
-      if (systemPrompt) args.push('--append-system-prompt', systemPrompt)
+      const promptContext = joinPromptContext(systemPrompt, mcpSessionContext('claude', profile))
+      if (promptContext) args.push('--append-system-prompt', promptContext)
       return { args }
     }
     case 'copilot': {
@@ -173,13 +210,13 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       if (disallowed.length) args.push(`--deny-tool=${disallowed.join(', ')}`)
       for (const dir of addDirs) args.push('--add-dir', dir)
       // Copilot has no system-prompt flag; fold context into the prompt text.
-      return { args, promptPrefix: systemPrompt || undefined }
+      return { args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile)) }
     }
     case 'codex':
     case 'codex-oss': {
       // Tool scope is governed by Codex's sandbox mode. Shared MCP servers are
       // layered over config.toml for this invocation only.
-      return { args: codexMcpArgs(profile), promptPrefix: systemPrompt || undefined }
+      return { args: codexMcpArgs(profile), promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile)) }
     }
     default:
       // ollama / custom: no agent tool surface to configure centrally.

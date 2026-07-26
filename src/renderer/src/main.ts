@@ -1061,7 +1061,7 @@ function renderTaskDetailActions(task: ProxyTask): void {
     })
     const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry as new task'
     retry.addEventListener('click', async () => {
-      try { const created = await window.frontier.retryTask(task.id); openTaskDetail(created.id) }
+      try { await persistControlPlaneDraft(); const created = await window.frontier.retryTask(task.id); openTaskDetail(created.id) }
       catch (error) { reportError('Could not retry task', error) }
     })
     controls.append(select, retry)

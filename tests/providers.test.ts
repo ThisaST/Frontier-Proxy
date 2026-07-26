@@ -44,6 +44,8 @@ describe('local provider process adapter', () => {
     expect(command.args).toContain('-c')
     expect(command.args).toContain('mcp_servers.supabase={ url = "https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database", http_headers = { }, env_http_headers = { }, default_tools_approval_mode = "approve", enabled = true }')
     expect(command.args.at(-1)).toBe('-')
+    expect(command.promptPrefix).toContain('"supabase" (http)')
+    expect(command.promptPrefix).toContain('Do not install or re-register these servers')
   })
 
   it.each(['claude', 'copilot'] as const)('includes and permits a shared Supabase MCP server in the launched %s command', (kind) => {
@@ -60,10 +62,17 @@ describe('local provider process adapter', () => {
     const configFlag = kind === 'claude' ? '--mcp-config' : '--additional-mcp-config'
     const config = JSON.parse(command.args[command.args.indexOf(configFlag) + 1]) as { mcpServers: Record<string, Record<string, unknown>> }
     expect(config.mcpServers.supabase.url).toBe('https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database')
-    if (kind === 'claude') expect(command.args).toContain('mcp__supabase__*')
+    if (kind === 'claude') {
+      expect(command.args).toContain('mcp__supabase__*')
+      const promptContext = command.args[command.args.indexOf('--append-system-prompt') + 1]
+      expect(promptContext).toContain('"supabase" (http)')
+      expect(promptContext).toContain('Do not install or re-register these servers')
+    }
     else {
       expect(config.mcpServers.supabase.tools).toEqual(['*'])
       expect(command.args).toContain('--allow-tool=supabase')
+      expect(command.promptPrefix).toContain('"supabase" (http)')
+      expect(command.promptPrefix).toContain('Do not install or re-register these servers')
     }
   })
 

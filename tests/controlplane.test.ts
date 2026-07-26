@@ -44,7 +44,12 @@ describe('control plane translation', () => {
     expect(args).toContain('--disallowedTools')
     expect(args).toContain('--add-dir')
     expect(args).toContain('--append-system-prompt')
-    expect(args).toContain('Prefer pnpm.')
+    const promptContext = args[args.indexOf('--append-system-prompt') + 1]
+    expect(promptContext).toContain('Prefer pnpm.')
+    expect(promptContext).toContain('Frontier attached these MCP servers')
+    expect(promptContext).toContain('"files" (stdio)')
+    expect(promptContext).toContain('"remote" (http)')
+    expect(promptContext).toContain('Do not install or re-register these servers')
     // The MCP config is passed as inline JSON.
     const mcpArg = args[args.indexOf('--mcp-config') + 1]
     expect(JSON.parse(mcpArg).mcpServers.files.command).toBe('npx')
@@ -56,7 +61,10 @@ describe('control plane translation', () => {
     expect(injection.args.some((a) => a === '--allow-tool=Edit, Read, files, remote')).toBe(true)
     expect(injection.args.some((a) => a.startsWith('--deny-tool='))).toBe(true)
     expect(injection.args).toContain('--add-dir')
-    expect(injection.promptPrefix).toBe('Prefer pnpm.')
+    expect(injection.promptPrefix).toContain('Prefer pnpm.')
+    expect(injection.promptPrefix).toContain('Frontier attached these MCP servers')
+    expect(injection.promptPrefix).toContain('"files" (stdio)')
+    expect(injection.promptPrefix).toContain('`copilot mcp list`')
   })
 
   it.each(['codex', 'codex-oss'] as const)('translates MCP servers into %s config overrides', (kind) => {
@@ -75,7 +83,29 @@ describe('control plane translation', () => {
       '-c', 'mcp_servers.frontier_local_tools_600ecdd={ command = "npx", args = ["-y", "mcp-files"], env = { "API_KEY" = "secret" }, env_vars = [], cwd = ".", default_tools_approval_mode = "approve", enabled = true }',
       '-c', 'mcp_servers.remote={ url = "https://mcp.example/api", http_headers = { "Authorization" = "Bearer token" }, env_http_headers = { }, default_tools_approval_mode = "approve", enabled = true }'
     ])
-    expect(injection.promptPrefix).toBe('Prefer pnpm.')
+    expect(injection.promptPrefix).toContain('Prefer pnpm.')
+    expect(injection.promptPrefix).toContain('"local.tools" (stdio; session tool namespace: "frontier_local_tools_600ecdd")')
+    expect(injection.promptPrefix).toContain('"remote" (http)')
+    expect(injection.promptPrefix).not.toContain('"legacy"')
+    expect(injection.promptPrefix).toContain('`codex mcp list`')
+  })
+
+  it.each(['claude', 'copilot', 'codex', 'codex-oss'] as const)('adds MCP task context for %s even without a custom system prompt', (kind) => {
+    const injection = controlPlaneInjection(provider(kind), {
+      systemPrompt: '',
+      addDirs: [],
+      allowedTools: [],
+      disallowedTools: [],
+      strictMcp: false,
+      mcpServers: [{ id: 'supabase', name: 'supabase', enabled: true, transport: 'http', url: 'https://mcp.supabase.com/mcp?project_ref=example' }]
+    })
+
+    const promptContext = kind === 'claude'
+      ? injection.args[injection.args.indexOf('--append-system-prompt') + 1]
+      : injection.promptPrefix
+    expect(promptContext).toContain('"supabase" (http)')
+    expect(promptContext).toContain('Use their MCP tools directly')
+    expect(promptContext).toContain('persistent configuration')
   })
 
   it('returns nothing for a provider opted out of the control plane', () => {

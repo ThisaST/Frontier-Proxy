@@ -27,6 +27,32 @@ describe('local provider process adapter', () => {
     expect(command.promptInArgs).toBeUndefined()
   })
 
+  it('adds selected GitHub MCP toolsets and tools to Copilot sessions', () => {
+    const provider: ProviderConfig = {
+      id: 'copilot', name: 'GitHub Copilot', kind: 'copilot', enabled: true,
+      executable: 'copilot', priority: 1, maxConcurrent: 1, capabilities: ['coding'],
+      copilotGithubMcpToolsets: ['actions', ' code_security ', 'actions'],
+      copilotGithubMcpTools: ['get_job_logs', ' get_job_logs ']
+    }
+    const command = buildProviderCommand(provider, '/workspace', 'inspect CI')
+    expect(command.args.filter((argument) => argument === '--add-github-mcp-toolset=actions')).toHaveLength(1)
+    expect(command.args).toContain('--add-github-mcp-toolset=code_security')
+    expect(command.args).toContain('--add-github-mcp-tool=get_job_logs')
+    expect(command.args).not.toContain('--enable-all-github-mcp-tools')
+  })
+
+  it('lets the all-tools Copilot setting override individual GitHub MCP selections', () => {
+    const provider: ProviderConfig = {
+      id: 'copilot', name: 'GitHub Copilot', kind: 'copilot', enabled: true,
+      executable: 'copilot', priority: 1, maxConcurrent: 1, capabilities: ['coding'],
+      copilotGithubMcpToolsets: ['actions'], copilotGithubMcpTools: ['get_job_logs'],
+      copilotEnableAllGithubMcpTools: true
+    }
+    const command = buildProviderCommand(provider, '/workspace', 'inspect CI')
+    expect(command.args).toContain('--enable-all-github-mcp-tools')
+    expect(command.args.some((argument) => argument.startsWith('--add-github-mcp-'))).toBe(false)
+  })
+
   it('includes a shared Supabase MCP server in the launched Codex command', () => {
     const codex: ProviderConfig = {
       id: 'codex', name: 'Codex', kind: 'codex', enabled: true, executable: 'codex',

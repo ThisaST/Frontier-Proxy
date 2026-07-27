@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, UsageSample
+  ActivityEvent, AppSettings, AppSnapshot, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, UsageSample
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -25,6 +25,7 @@ import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestra
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
 import { JsonStore } from './store'
 import { loadTaskFile } from './taskfiles'
+import type { McpAuthManager } from './mcp-auth'
 
 function today(): string {
   return new Date().toLocaleDateString('en-CA')
@@ -38,6 +39,12 @@ function blankRuntime(): ProviderRuntime {
   return { available: false, running: 0, usage: blankUsage() }
 }
 
+export function mergeSessionWindows(windows: SessionInfo[], session: SessionInfo): SessionInfo[] {
+  const key = session.limitType ?? 'reported'
+  return [...windows.filter((item) => (item.limitType ?? 'reported') !== key), session]
+    .sort((left, right) => (left.limitType ?? '').localeCompare(right.limitType ?? ''))
+}
+
 export class OrchestrationEngine extends EventEmitter {
   private settings!: AppSettings
   private tasks: ProxyTask[] = []
@@ -45,13 +52,21 @@ export class OrchestrationEngine extends EventEmitter {
   private readonly controllers = new Map<string, AbortController>()
   private pumping = false
 
-  constructor(private readonly store: JsonStore) { super() }
+  constructor(private readonly store: JsonStore, private readonly mcpAuth?: McpAuthManager) { super() }
 
   async initialize(): Promise<void> {
     const state = await this.store.load()
     this.settings = state.settings
     this.tasks = state.tasks
-    for (const provider of this.settings.providers) this.runtimes.set(provider.id, blankRuntime())
+    await this.mcpAuth?.initialize()
+    await this.mcpAuth?.reconcile(this.settings.controlPlane)
+    for (const provider of this.settings.providers) {
+      const runtime = blankRuntime()
+      const persisted = state.providerRuntime?.[provider.id]
+      if (persisted?.usage?.date === today()) runtime.usage = persisted.usage
+      runtime.sessions = persisted?.sessions ?? (persisted?.session ? [persisted.session] : undefined)
+      this.runtimes.set(provider.id, runtime)
+    }
     await this.checkProviders()
   }
 
@@ -60,7 +75,8 @@ export class OrchestrationEngine extends EventEmitter {
     return structuredClone({
       tasks: this.tasks,
       providers: this.settings.providers.map((provider) => ({ ...provider, runtime: this.runtimes.get(provider.id) ?? blankRuntime() })),
-      settings: this.settings
+      settings: this.settings,
+      mcpAuth: this.mcpAuth?.statuses(this.settings.controlPlane) ?? []
     })
   }
 
@@ -236,7 +252,25 @@ export class OrchestrationEngine extends EventEmitter {
       mcpServers: profile.mcpServers ?? [],
       strictMcp: Boolean(profile.strictMcp)
     }
+    await this.mcpAuth?.reconcile(this.settings.controlPlane)
     await this.persistAndEmit()
+    return this.snapshot()
+  }
+
+  async authenticateMcpServer(serverId: string): Promise<AppSnapshot> {
+    if (!this.mcpAuth) throw new Error('Secure MCP authentication is not available in this build.')
+    const server = this.settings.controlPlane.mcpServers.find((item) => item.id === serverId)
+    if (!server) throw new Error(`Unknown MCP server: ${serverId}`)
+    const authentication = this.mcpAuth.authenticate(server)
+    this.emitSnapshot()
+    try { await authentication } finally { this.emitSnapshot() }
+    return this.snapshot()
+  }
+
+  async disconnectMcpServer(serverId: string): Promise<AppSnapshot> {
+    if (!this.mcpAuth) throw new Error('Secure MCP authentication is not available in this build.')
+    await this.mcpAuth.disconnect(serverId)
+    this.emitSnapshot()
     return this.snapshot()
   }
 
@@ -278,7 +312,7 @@ export class OrchestrationEngine extends EventEmitter {
       const provider = this.settings.providers.find((item) => item.id === providerId)
       const runtime = this.runtimes.get(providerId)
       if (!provider || !runtime || controller.signal.aborted) break
-      task.selectedProviderId = providerId
+      this.selectTaskProvider(task, providerId)
       runtime.running += 1
       const attempt: TaskAttempt = { providerId, startedAt: new Date().toISOString(), status: 'running' }
       task.attempts.push(attempt)
@@ -291,7 +325,7 @@ export class OrchestrationEngine extends EventEmitter {
         prompt: runPrompt,
         cwd: task.cwd,
         signal: controller.signal,
-        controlPlane: this.settings.controlPlane,
+        controlPlane: await this.activeControlPlane(),
         onOutput: (text) => {
           task.output += text
           task.estimatedOutputTokens = estimateTokens(task.output)
@@ -304,8 +338,9 @@ export class OrchestrationEngine extends EventEmitter {
           recordFileChange(task, event)
           this.emitSnapshot()
         },
-        onUsage: (usage) => { if (usage.contextTokens !== undefined) contextReported = true; this.applyUsage(runtime, usage, task, provider) },
-        onSession: (session) => { runtime.session = session; this.emitSnapshot() },
+        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
+        onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
       if (!task.model) task.model = result.model ?? provider.model
@@ -432,7 +467,7 @@ export class OrchestrationEngine extends EventEmitter {
       const resumable = providerId === sessionProviderId && Boolean(task.sessionId)
       const prompt = resumable ? text : `[Full conversation history transferred by Frontier]\n${this.transcript(task)}\n\n[Instruction]\nContinue the conversation from the latest user message. Use the complete history above, including work and partial results from previous providers.`
       if (!resumable) { task.sessionId = undefined; task.sessionProviderId = undefined }
-      task.selectedProviderId = provider.id
+      this.selectTaskProvider(task, provider.id)
       runtime.running += 1
       const attempt: TaskAttempt = { providerId, startedAt: new Date().toISOString(), status: 'running' }
       task.attempts.push(attempt)
@@ -441,13 +476,14 @@ export class OrchestrationEngine extends EventEmitter {
 
       let contextReported = false
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
-        prompt, cwd: task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
+        prompt, cwd: task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
         resumeSessionId: resumable ? task.sessionId : undefined,
         onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { if (usage.contextTokens !== undefined) contextReported = true; this.applyUsage(runtime, usage, task, provider) },
-        onSession: (session) => { runtime.session = session; this.emitSnapshot() },
+        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
+        onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
       runtime.running = Math.max(0, runtime.running - 1)
@@ -509,7 +545,7 @@ export class OrchestrationEngine extends EventEmitter {
     try {
       const planner = this.pickProvider(task)
       if (!planner) { this.finishTask(task, 'failed', 'No eligible provider is available to plan this task.'); return }
-      task.selectedProviderId = planner.id
+      this.selectTaskProvider(task, planner.id)
       const planResult = await this.runOne(planner, buildPlannerPrompt(this.promptWithMemory(task.prompt)), task, controller)
       if (controller.signal.aborted) { this.finishTask(task, 'cancelled', 'Task cancelled.'); return }
       if (!planResult.ok) throw new Error(planResult.error ?? 'No provider could plan this task.')
@@ -528,7 +564,7 @@ export class OrchestrationEngine extends EventEmitter {
       await this.persistAndEmit()
       const synthesizer = this.pickProvider(task)
       if (!synthesizer) throw new Error('No eligible provider is available to synthesize the task results.')
-      task.selectedProviderId = synthesizer.id
+      this.selectTaskProvider(task, synthesizer.id)
       const synthesisResult = await this.runOne(synthesizer, buildSynthesisPrompt(task.prompt, task.subtasks), task, controller, (text) => {
         task.output += text
         task.estimatedOutputTokens = estimateTokens(task.output)
@@ -619,17 +655,18 @@ export class OrchestrationEngine extends EventEmitter {
       if (!provider || !runtime || controller.signal.aborted) break
       if (providerId !== initialProvider.id && !rankProviders(routingTask, [{ ...provider, runtime }]).length) continue
       runtime.running += 1
-      task.selectedProviderId = provider.id
+      this.selectTaskProvider(task, provider.id)
       const started = Date.now()
       let output = ''
       let contextReported = false
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
-        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: this.settings.controlPlane,
+        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { if (usage.contextTokens !== undefined) contextReported = true; this.applyUsage(runtime, usage, task, provider) },
-        onSession: (session) => { runtime.session = session; this.emitSnapshot() },
+        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
+        onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
       runtime.running = Math.max(0, runtime.running - 1)
@@ -665,22 +702,46 @@ export class OrchestrationEngine extends EventEmitter {
     return model ? { ...provider, model } : provider
   }
 
-  private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask, provider?: ProviderConfig): void {
+  private async activeControlPlane(): Promise<ControlPlaneProfile> {
+    return this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
+  }
+
+  private applyUsage(runtime: ProviderRuntime, usage: UsageSample): void {
     runtime.usage.inputTokens += usage.inputTokens
     runtime.usage.outputTokens += usage.outputTokens
     runtime.usage.costUsd += usage.costUsd
-    const windowTokens = usage.contextWindow ?? provider?.contextWindow
-    if (task) {
-      if (windowTokens) task.contextWindow = windowTokens
-      if (usage.contextTokens !== undefined) task.contextTokens = usage.contextTokens
-    }
     this.emitSnapshot()
+  }
+
+  private applyContext(task: ProxyTask, provider: ProviderConfig, context: ContextSample): void {
+    task.contextTokens = Math.max(0, context.tokens)
+    const window = context.window ?? provider.contextWindow
+    if (window) task.contextWindow = window
+    task.contextSource = 'reported'
+    this.emitSnapshot()
+  }
+
+  private applySession(runtime: ProviderRuntime, session: SessionInfo): void {
+    const windows = runtime.sessions ?? (runtime.session ? [runtime.session] : [])
+    runtime.sessions = mergeSessionWindows(windows, session)
+    runtime.session = undefined
+    this.emitSnapshot()
+  }
+
+  private selectTaskProvider(task: ProxyTask, providerId: string): void {
+    if (task.selectedProviderId && task.selectedProviderId !== providerId) {
+      task.contextTokens = undefined
+      task.contextWindow = undefined
+      task.contextSource = undefined
+    }
+    task.selectedProviderId = providerId
   }
 
   private applyConfiguredContext(provider: ProviderConfig, usedTokens: number, task: ProxyTask | undefined, contextReported: boolean): void {
     if (task && provider.contextWindow && !contextReported) {
       task.contextTokens = usedTokens
       task.contextWindow = provider.contextWindow
+      task.contextSource = 'estimated'
     }
   }
 
@@ -710,7 +771,11 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   private async persistAndEmit(): Promise<void> {
-    await this.store.save({ settings: this.settings, tasks: this.tasks.slice(0, 200) })
+    const providerRuntime = Object.fromEntries([...this.runtimes].map(([providerId, runtime]) => [providerId, {
+      usage: runtime.usage,
+      sessions: runtime.sessions ?? (runtime.session ? [runtime.session] : undefined)
+    }]))
+    await this.store.save({ settings: this.settings, tasks: this.tasks.slice(0, 200), providerRuntime })
     this.emitSnapshot()
   }
 

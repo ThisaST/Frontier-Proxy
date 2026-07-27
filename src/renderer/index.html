@@ -8,18 +8,22 @@
   </head>
   <body>
     <div class="shell">
-      <aside class="sidebar">
+      <aside class="sidebar" aria-label="Application navigation">
         <div class="brand">
-          <div class="brand-mark"><span></span><span></span><span></span></div>
-          <div><strong>Frontier</strong><small>LOCAL AGENT ROUTER</small></div>
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="brand-copy"><strong>Frontier</strong><small>LOCAL AGENT ROUTER</small></div>
         </div>
 
-        <nav>
-          <button class="nav-item active" data-view="tasks"><span>⌁</span> Tasks</button>
-          <button class="nav-item" data-view="providers"><span>◫</span> Providers</button>
-          <button class="nav-item" data-view="control"><span>⊹</span> Context & Tools</button>
-          <button class="nav-item" data-view="usage"><span>◔</span> Usage</button>
-          <button class="nav-item" data-view="settings"><span>⌘</span> Settings</button>
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-controls="primary-navigation" aria-expanded="true" aria-label="Collapse navigation" title="Collapse navigation">
+          <span aria-hidden="true">‹</span>
+        </button>
+
+        <nav id="primary-navigation" aria-label="Primary navigation">
+          <button type="button" class="nav-item active" data-view="tasks" data-label="Tasks" aria-current="page" title="Tasks"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">Tasks</span></button>
+          <button type="button" class="nav-item" data-view="providers" data-label="Providers" title="Providers"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">Providers</span></button>
+          <button type="button" class="nav-item" data-view="control" data-label="Context & Tools" title="Context & Tools"><span class="nav-icon" aria-hidden="true">⊹</span><span class="nav-label">Context &amp; Tools</span></button>
+          <button type="button" class="nav-item" data-view="usage" data-label="Usage" title="Usage"><span class="nav-icon" aria-hidden="true">◔</span><span class="nav-label">Usage</span></button>
+          <button type="button" class="nav-item" data-view="settings" data-label="Settings" title="Settings"><span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">Settings</span></button>
         </nav>
 
         <div class="provider-rail">
@@ -27,9 +31,9 @@
           <div id="provider-mini-list"></div>
         </div>
 
-        <div class="privacy-note">
-          <span class="pulse-dot"></span>
-          <div><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
+        <div class="privacy-note" aria-label="Local process mode. Prompts stay between this app and your installed CLIs." title="Local process mode">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <div class="privacy-copy"><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
         </div>
         <div class="app-version">FRONTIER PROXY · v0.4.2</div>
       </aside>
@@ -49,7 +53,7 @@
             <section class="panel task-panel">
               <div class="panel-header">
                 <div><p class="eyebrow">WORK QUEUE</p><h2>Agent tasks</h2></div>
-                <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search tasks… (⌘K)" /><button id="clear-finished" class="text-button">Clear finished</button></div>
+                <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search tasks…" /><button id="clear-finished" class="text-button">Clear finished</button></div>
               </div>
               <div id="task-list" class="task-list"></div>
             </section>
@@ -227,6 +231,14 @@
         <p id="form-error" class="form-error"></p>
         <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Route task</button></div>
       </form>
+    </dialog>
+
+    <dialog id="command-palette" class="command-palette" aria-label="Command palette">
+      <div class="command-palette-shell">
+        <div class="command-palette-search"><span>⌘</span><input id="command-palette-input" autocomplete="off" placeholder="Type a command or find a task…" /></div>
+        <div id="command-palette-results" class="command-palette-results" role="listbox"></div>
+        <div class="command-palette-hint"><span>↑↓ Navigate</span><span>↵ Select</span><span>esc Close</span></div>
+      </div>
     </dialog>
 
     <div id="toast" role="status"></div>

@@ -53,10 +53,19 @@ describe('provider routing', () => {
     expect(rankProviders(task('balanced'), [limited])).toEqual([])
   })
 
-  it('skips a provider whose CLI reports a fully used plan window', () => {
+  it('skips a provider when any active CLI plan window is fully used', () => {
     const limited = provider('limited', 'claude')
-    limited.runtime.session = { utilizationPercent: 100, updatedAt: new Date().toISOString() }
+    limited.runtime.sessions = [
+      { limitType: 'five hour', utilizationPercent: 45, updatedAt: new Date().toISOString() },
+      { limitType: 'seven day', utilizationPercent: 100, resetsAt: new Date(Date.now() + 60_000).toISOString(), updatedAt: new Date().toISOString() }
+    ]
     expect(rankProviders(task('balanced'), [limited])).toEqual([])
+  })
+
+  it('allows a provider again after its fully used window has reset', () => {
+    const providerAfterReset = provider('available', 'claude')
+    providerAfterReset.runtime.sessions = [{ utilizationPercent: 100, resetsAt: new Date(Date.now() - 60_000).toISOString(), updatedAt: new Date().toISOString() }]
+    expect(rankProviders(task('balanced'), [providerAfterReset])).toHaveLength(1)
   })
 
   it('spreads otherwise similar subscription usage', () => {

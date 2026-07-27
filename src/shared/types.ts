@@ -20,6 +20,11 @@ export interface ProviderConfig {
   capabilities: TaskType[]
   // When false, this provider ignores the shared control-plane profile.
   useControlPlane?: boolean
+  // Copilot's built-in GitHub MCP server exposes more tools than its default
+  // CLI subset. These settings map to Copilot's per-session selection flags.
+  copilotGithubMcpToolsets?: string[]
+  copilotGithubMcpTools?: string[]
+  copilotEnableAllGithubMcpTools?: boolean
 }
 
 export type McpTransport = 'stdio' | 'http' | 'sse'
@@ -37,6 +42,17 @@ export interface McpServerConfig {
   // http/sse transport
   url?: string
   headers?: Record<string, string>
+}
+
+export type McpAuthState = 'not-authenticated' | 'authenticating' | 'authenticated' | 'manual' | 'error'
+
+// Sanitized runtime state exposed to the renderer. OAuth credentials never
+// leave the main process or appear in the shared control-plane profile.
+export interface McpAuthStatus {
+  serverId: string
+  state: McpAuthState
+  expiresAt?: string
+  error?: string
 }
 
 // A single, CLI-agnostic profile that Frontier translates into each agent's
@@ -57,9 +73,13 @@ export interface UsageSample {
   inputTokens: number
   outputTokens: number
   costUsd: number
-  // Current-request context size and the model's context window, for a % gauge.
-  contextTokens?: number
-  contextWindow?: number
+}
+
+// Current conversation-window occupancy is intentionally separate from usage:
+// cumulative billing tokens are not the same thing as the latest model request.
+export interface ContextSample {
+  tokens: number
+  window?: number
 }
 
 // Subscription session status parsed from Claude's rate_limit_event.
@@ -82,6 +102,10 @@ export interface ProviderRuntime {
   running: number
   cooldownUntil?: string
   cooldownReason?: string
+  // A provider can report several simultaneous plan windows (for example,
+  // Claude's five-hour and seven-day limits). Keep each one independently.
+  sessions?: SessionInfo[]
+  // Legacy single-window snapshots are still accepted when loading older state.
   session?: SessionInfo
   // Models this provider can run — discovered (`ollama list`) or a curated
   // known set for the subscription CLIs (no headless list command exists).
@@ -195,6 +219,7 @@ export interface ProxyTask {
   // Latest context-window occupancy for this task's session.
   contextTokens?: number
   contextWindow?: number
+  contextSource?: 'reported' | 'estimated'
   // Ongoing conversation — the initial prompt/result plus any follow-up turns.
   turns?: ConversationTurn[]
   // Provider CLI session for in-context continuation (Claude --resume).
@@ -218,6 +243,7 @@ export interface AppSnapshot {
   tasks: ProxyTask[]
   providers: Array<ProviderConfig & { runtime: ProviderRuntime }>
   settings: AppSettings
+  mcpAuth: McpAuthStatus[]
 }
 
 export interface CreateTaskInput {
@@ -258,6 +284,8 @@ export interface FrontierApi {
   updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory'>>): Promise<AppSnapshot>
   updateControlPlane(profile: ControlPlaneProfile): Promise<AppSnapshot>
   previewControlPlane(providerId: string, profile?: ControlPlaneProfile): Promise<string[]>
+  authenticateMcpServer(serverId: string): Promise<AppSnapshot>
+  disconnectMcpServer(serverId: string): Promise<AppSnapshot>
   chooseDirectory(currentPath?: string): Promise<string | null>
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void
   onStream(callback: (event: StreamEvent) => void): () => void

@@ -20,6 +20,10 @@ const api: FrontierApi = {
     ipcRenderer.invoke('frontier:update-control-plane', profile) as Promise<AppSnapshot>,
   previewControlPlane: (providerId: string, profile?: ControlPlaneProfile) =>
     ipcRenderer.invoke('frontier:preview-control-plane', providerId, profile) as Promise<string[]>,
+  authenticateMcpServer: (serverId: string) =>
+    ipcRenderer.invoke('frontier:authenticate-mcp', serverId) as Promise<AppSnapshot>,
+  disconnectMcpServer: (serverId: string) =>
+    ipcRenderer.invoke('frontier:disconnect-mcp', serverId) as Promise<AppSnapshot>,
   chooseDirectory: (currentPath?: string) => ipcRenderer.invoke('frontier:choose-directory', currentPath) as Promise<string | null>,
   onSnapshot: (callback: (snapshot: AppSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: AppSnapshot): void => callback(snapshot)

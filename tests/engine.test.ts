@@ -2,10 +2,23 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { OrchestrationEngine } from '../src/main/engine'
+import { mergeSessionWindows, OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
 import { freshDefaults } from '../src/shared/defaults'
 import type { ProviderConfig, ProxyTask } from '../src/shared/types'
+
+describe('provider session windows', () => {
+  it('retains different limits and updates only the matching window', () => {
+    const initial = [
+      { limitType: 'five hour', utilizationPercent: 20, updatedAt: '2026-07-27T00:00:00.000Z' },
+      { limitType: 'seven day', utilizationPercent: 60, updatedAt: '2026-07-27T00:00:00.000Z' }
+    ]
+    const merged = mergeSessionWindows(initial, { limitType: 'five hour', utilizationPercent: 25, updatedAt: '2026-07-27T01:00:00.000Z' })
+    expect(merged).toHaveLength(2)
+    expect(merged.find((window) => window.limitType === 'five hour')?.utilizationPercent).toBe(25)
+    expect(merged.find((window) => window.limitType === 'seven day')?.utilizationPercent).toBe(60)
+  })
+})
 
 function provider(id: string, priority: number, args: string[] = []): ProviderConfig {
   return {

@@ -103,7 +103,11 @@ Each MCP server row edits `McpServerConfig` in the draft: name, transport (stdio
 command+args+**env** (stdio) or url+**headers** (http/sse). "Import .mcp.json" merges a
 standard `{ "mcpServers": {…} }` document via a file input. Each provider card has an
 **Apply shared Context & Tools profile** toggle bound to `useControlPlane` (shown only for
-claude/copilot/codex kinds). See `PLAN.md` for the full roadmap.
+claude/copilot/codex kinds). Remote servers can authenticate through browser OAuth; tokens
+are encrypted with Electron `safeStorage`, remain in the main process, refresh automatically,
+and reach provider processes through environment-backed header placeholders. Copilot's
+provider card also maps GitHub MCP tool/toolset selections to the CLI's per-session flags.
+See `PLAN.md` for the full roadmap.
 
 ## Orchestration (planner delegates subtasks)
 
@@ -151,10 +155,12 @@ even when that CLI has no resumable session id.
   Tasks view fills remaining height and its panels scroll independently (no full-page
   scroll). Other views scroll internally. A draggable `.grid-gutter` between the work
   queue and live output resizes the columns (persisted to `localStorage` `fp-wq-width`).
-- **Context window** — `parseClaudeLine` reads `modelUsage[*].contextWindow` (largest wins)
-  and the request's input tokens from the `result` event → `task.contextTokens/contextWindow`,
-  shown on the task row, compact output metadata, and dedicated task workspace. It is not a
-  provider-level Usage metric because every conversation has independent occupancy.
+- **Context window** — usage and context are separate streams. `parseClaudeLine` reads the
+  latest `message_start` input/cache usage plus `message_delta` output usage for current
+  conversation occupancy, then pairs it with the active model's `modelUsage[*].contextWindow`.
+  Cumulative `result.usage` is never used as context. Codex `turn.completed.usage` is treated
+  as cumulative turn usage unless explicit context fields appear; configured fallbacks are
+  stored with `task.contextSource = "estimated"`. The UI labels estimates accordingly.
 - **Task workspace** — **Open details** (or double-clicking a task) opens the `task-detail`
   view with a large conversation pane, provider route/work log, task context meter, and a
   **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
@@ -170,7 +176,10 @@ even when that CLI has no resumable session id.
 `parseClaudeLine` also emits `onUsage` (from the `result` event: real input/output tokens +
 `total_cost_usd`) and `onSession` (from `rate_limit_event`: reset, status, and any reported
 utilization). Codex `turn.completed` events contribute real token counts as well. The engine
-accumulates these into `runtime.usage` and stores plan-window state in `runtime.session`.
+accumulates these into `runtime.usage` and stores every distinct plan window in
+`runtime.sessions` instead of overwriting one window with another. `JsonStore` persists
+the current day's usage and reported windows in `providerRuntime`; stale daily totals are
+discarded at the next local-date rollover.
 Context occupancy is deliberately task-scoped (`task.contextTokens/contextWindow`), shown on
 the task row and dedicated task workspace—not on provider Usage cards. A provider-level
 context-window value can still be configured as a fallback when its CLI does not report one.

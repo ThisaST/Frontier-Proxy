@@ -5,6 +5,9 @@ export interface ControlPlaneInjection {
   args: string[]
   // Text to prepend to the stdin prompt for CLIs without a system-prompt flag.
   promptPrefix?: string
+  // Per-run secrets referenced by MCP config placeholders. These are passed
+  // only to the provider process and never written to provider config files.
+  env?: Record<string, string>
 }
 
 const EMPTY: ControlPlaneInjection = { args: [] }
@@ -20,7 +23,22 @@ function configuredMcpServers(profile: ControlPlaneProfile): McpServerConfig[] {
 
 // Claude and Copilot both accept an `mcpServers` JSON document, but Copilot's
 // schema additionally expects an explicit transport, args, env, and tool set.
-function serverEntry(server: McpServerConfig, target: McpJsonTarget): Record<string, unknown> {
+function stableHash(value: string): string {
+  let hash = 2_166_136_261
+  for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16_777_619)
+  return (hash >>> 0).toString(16)
+}
+
+function environmentBackedHeaders(server: McpServerConfig, environment?: Record<string, string>): Record<string, string> {
+  if (!environment) return server.headers ?? {}
+  return Object.fromEntries(Object.entries(server.headers ?? {}).map(([header, value]) => {
+    const variable = `FRONTIER_MCP_HEADER_${stableHash(`${server.id}:${header.toLowerCase()}`)}`.toUpperCase()
+    environment[variable] = value
+    return [header, `\${${variable}}`]
+  }))
+}
+
+function serverEntry(server: McpServerConfig, target: McpJsonTarget, environment?: Record<string, string>): Record<string, unknown> {
   if (server.transport === 'stdio') {
     if (target === 'copilot') {
       return {
@@ -41,27 +59,27 @@ function serverEntry(server: McpServerConfig, target: McpJsonTarget): Record<str
     return {
       type: server.transport,
       url: server.url?.trim() ?? '',
-      headers: server.headers ?? {},
+      headers: environmentBackedHeaders(server, environment),
       tools: ['*']
     }
   }
   return {
     type: server.transport,
     url: server.url?.trim() ?? '',
-    ...(server.headers && Object.keys(server.headers).length ? { headers: server.headers } : {})
+    ...(server.headers && Object.keys(server.headers).length ? { headers: environmentBackedHeaders(server, environment) } : {})
   }
 }
 
-export function mcpServersDocument(profile: ControlPlaneProfile, target: McpJsonTarget = 'claude'): Record<string, unknown> | undefined {
+export function mcpServersDocument(profile: ControlPlaneProfile, target: McpJsonTarget = 'claude', environment?: Record<string, string>): Record<string, unknown> | undefined {
   const enabled = configuredMcpServers(profile)
   if (!enabled.length) return undefined
   const servers: Record<string, unknown> = {}
-  for (const server of enabled) servers[server.name.trim()] = serverEntry(server, target)
+  for (const server of enabled) servers[server.name.trim()] = serverEntry(server, target, environment)
   return { mcpServers: servers }
 }
 
-function mcpJson(profile: ControlPlaneProfile, target: McpJsonTarget): string | undefined {
-  const doc = mcpServersDocument(profile, target)
+function mcpJson(profile: ControlPlaneProfile, target: McpJsonTarget, environment: Record<string, string>): string | undefined {
+  const doc = mcpServersDocument(profile, target, environment)
   return doc ? JSON.stringify(doc) : undefined
 }
 
@@ -100,10 +118,8 @@ function codexServerName(name: string): string {
   // The CLI's dotted `-c` path parser does not support quoted key segments.
   // Keep portable names unchanged and give other names a stable, collision-
   // resistant alias rather than passing an override that breaks Codex startup.
-  let hash = 2_166_136_261
-  for (let index = 0; index < name.length; index += 1) hash = Math.imul(hash ^ name.charCodeAt(index), 16_777_619)
   const stem = name.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'server'
-  return `frontier_${stem}_${(hash >>> 0).toString(16)}`
+  return `frontier_${stem}_${stableHash(name)}`
 }
 
 function mcpSessionContext(kind: McpCapableProvider, profile: ControlPlaneProfile): string | undefined {
@@ -134,7 +150,7 @@ function joinPromptContext(...parts: Array<string | undefined>): string | undefi
 
 // Codex accepts per-invocation config overrides via repeated `-c key=value`
 // arguments. Inline tables keep each server override self-contained.
-function codexMcpArgs(profile: ControlPlaneProfile): string[] {
+function codexMcpArgs(profile: ControlPlaneProfile, environment: Record<string, string>): string[] {
   const args: string[] = []
   for (const server of profile.mcpServers) {
     const name = server.name.trim()
@@ -153,8 +169,14 @@ function codexMcpArgs(profile: ControlPlaneProfile): string[] {
       const url = server.url?.trim()
       if (!url) continue
       fields.push(`url = ${tomlString(url)}`)
-      fields.push(`http_headers = ${tomlStringMap(server.headers ?? {})}`)
-      fields.push('env_http_headers = { }')
+      fields.push('http_headers = { }')
+      const envHeaders: Record<string, string> = {}
+      for (const [header, value] of Object.entries(server.headers ?? {})) {
+        const variable = `FRONTIER_MCP_HEADER_${stableHash(`${server.id}:${header.toLowerCase()}`)}`.toUpperCase()
+        environment[variable] = value
+        envHeaders[header] = variable
+      }
+      fields.push(`env_http_headers = ${tomlStringMap(envHeaders)}`)
     } else {
       // Codex supports stdio and Streamable HTTP, but not the legacy SSE transport.
       continue
@@ -184,11 +206,14 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
   const disallowed = trimmedList(profile.disallowedTools)
   const addDirs = trimmedList(profile.addDirs)
   const systemPrompt = profile.systemPrompt?.trim()
+  const environment: Record<string, string> = {}
+  const withEnvironment = (injection: ControlPlaneInjection): ControlPlaneInjection =>
+    Object.keys(environment).length ? { ...injection, env: environment } : injection
 
   switch (provider.kind) {
     case 'claude': {
       const args: string[] = []
-      const mcp = mcpJson(profile, 'claude')
+      const mcp = mcpJson(profile, 'claude', environment)
       if (mcp) {
         args.push('--mcp-config', mcp)
         if (profile.strictMcp) args.push('--strict-mcp-config')
@@ -199,24 +224,24 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       if (addDirs.length) args.push('--add-dir', ...addDirs)
       const promptContext = joinPromptContext(systemPrompt, mcpSessionContext('claude', profile))
       if (promptContext) args.push('--append-system-prompt', promptContext)
-      return { args }
+      return withEnvironment({ args })
     }
     case 'copilot': {
       const args: string[] = []
-      const mcp = mcpJson(profile, 'copilot')
+      const mcp = mcpJson(profile, 'copilot', environment)
       if (mcp) args.push('--additional-mcp-config', mcp)
       const allowedWithMcp = [...new Set([...allowed, ...enabledMcpNames(profile)])]
       if (allowedWithMcp.length) args.push(`--allow-tool=${allowedWithMcp.join(', ')}`)
       if (disallowed.length) args.push(`--deny-tool=${disallowed.join(', ')}`)
       for (const dir of addDirs) args.push('--add-dir', dir)
       // Copilot has no system-prompt flag; fold context into the prompt text.
-      return { args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile)) }
+      return withEnvironment({ args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile)) })
     }
     case 'codex':
     case 'codex-oss': {
       // Tool scope is governed by Codex's sandbox mode. Shared MCP servers are
       // layered over config.toml for this invocation only.
-      return { args: codexMcpArgs(profile), promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile)) }
+      return withEnvironment({ args: codexMcpArgs(profile, environment), promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile)) })
     }
     default:
       // ollama / custom: no agent tool surface to configure centrally.

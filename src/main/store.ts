@@ -1,11 +1,12 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { freshDefaults } from '../shared/defaults'
-import type { AppSettings, ProxyTask } from '../shared/types'
+import type { AppSettings, ProviderRuntime, ProxyTask } from '../shared/types'
 
-interface PersistedState {
+export interface PersistedState {
   settings: AppSettings
   tasks: ProxyTask[]
+  providerRuntime?: Record<string, Pick<ProviderRuntime, 'usage' | 'sessions' | 'session'>>
 }
 
 export class JsonStore {
@@ -24,10 +25,11 @@ export class JsonStore {
         settings: { ...defaults, ...raw.settings, providers },
         tasks: (raw.tasks ?? []).map((task) => task.status === 'running'
           ? { ...task, status: 'failed', error: 'Frontier Proxy closed while this task was running.', finishedAt: new Date().toISOString() }
-          : task)
+          : task),
+        providerRuntime: raw.providerRuntime ?? {}
       }
     } catch {
-      return { settings: freshDefaults(), tasks: [] }
+      return { settings: freshDefaults(), tasks: [], providerRuntime: {} }
     }
   }
 

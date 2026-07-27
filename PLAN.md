@@ -13,15 +13,17 @@ real usage. No API keys — auth is each CLI's own login.
 - **Model detection + activity feed** — underlying model badge; live tool/thinking feed
   parsed from each CLI's stream (Claude verified against real events).
 
-## In progress (this iteration)
+## Completed in this iteration
 
-### Phase 2 — MCP manager polish
+### Phase 2 — MCP manager polish ✅
 - Per-server **environment variables** and **HTTP headers** editors.
 - **Import** servers from an existing `.mcp.json` / `mcp-config.json`.
 - **Per-provider control-plane opt-out** toggle on each provider card.
-- GitHub Copilot MCP toolset awareness (see Copilot notes below).
+- GitHub Copilot MCP tool and toolset controls, including an explicit all-tools mode.
+- Browser-based OAuth for protected remote MCP servers, encrypted with the operating
+  system credential store and injected only into each provider process.
 
-### File-change identification
+### File-change identification ✅
 - Track file-mutating tool calls (Claude `Edit`/`Write`/`MultiEdit`/`NotebookEdit`,
   Codex `file_change`) into `task.filesChanged` and show a **Files changed** panel
   (path + add/edit/delete + count) distinct from the general activity feed.
@@ -43,13 +45,18 @@ real usage. No API keys — auth is each CLI's own login.
 
 ### Phase 6 — Usage & sessions tab ✅
 Data source: each CLI's stream. Claude emits real `usage` (input/output/cache tokens),
-`total_cost_usd`, per-model breakdown, and `rate_limit_event` (`resetsAt`,
+`total_cost_usd`, model metadata, and `rate_limit_event` (`resetsAt`,
 `overageStatus`, `isUsingOverage`).
-- Per-provider: tokens used (actual, not estimated), cost, per-model split.
-- **Session reset countdown** + overage status from `rate_limit_event`.
+- Per-provider: tokens used (actual when reported, otherwise labeled estimates) and cost.
+- **Session reset countdown** + overage status from `rate_limit_event`, retaining
+  simultaneous plan windows (for example five-hour and seven-day limits) separately.
 - **% used** against the app's configurable daily budget (honest proxy for "quota left",
   since subscription CLIs don't expose a hard remaining-quota number).
-- History chart of usage over time.
+
+### Usage/context accuracy follow-up ✅
+- Daily token totals, plan-window utilization, and conversation context are distinct metrics.
+- Claude context uses the latest model request rather than cumulative task usage.
+- Codex context is shown only when explicitly reported; configured fallbacks are labeled estimates.
 
 ### Phase 7 — Model switching from the UI ✅
 - Per-task model override in the New Task dialog (and quick-switch on provider cards).
@@ -57,8 +64,21 @@ Data source: each CLI's stream. Claude emits real `usage` (input/output/cache to
   remembered recents). Injected via each CLI's `--model`.
 
 ### Phase 8 — UI/UX polish ✅ (first pass)
-- Done: task search/filter, orchestrated task badge, keyboard shortcuts (⌘K search, ⌘N new task).
-- Future: full command palette, provider cards showing real auth + MCP status, deeper theming.
+- Done: task search/filter, orchestrated task badge, keyboard shortcuts (⌘K command palette,
+  ⌘N new task), and a full command palette for navigation, common actions, and task lookup.
+- Future: provider cards showing real CLI auth + MCP status, deeper theming.
+
+## Remaining work
+
+1. **Usage history and per-model breakdowns** — persist daily history beyond the current
+   day, chart it, and attribute reported usage/cost to individual models.
+2. **Provider authentication diagnostics** — distinguish “executable detected” from a
+   valid Codex/Claude/Copilot login, and summarize each provider's active MCP servers.
+3. **Provider stream compatibility fixtures** — validate Codex and Copilot parsing against
+   captured events from current CLI releases; consume exact Codex context occupancy if its
+   JSON stream adds it.
+4. **Theme/accessibility polish** — deeper theming, responsive behavior below the current
+   desktop minimum width, and a dedicated keyboard/accessibility pass.
 
 ## GitHub Copilot CLI — extensible surfaces worth mirroring
 From `copilot --help` (v1.0.73):

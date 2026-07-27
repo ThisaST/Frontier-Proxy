@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 import { delimiter } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { OrchestrationEngine } from './engine'
 import { JsonStore } from './store'
+import { McpAuthManager } from './mcp-auth'
 import type { CreateTaskInput, ProviderPatch } from '../shared/types'
 
 let engine: OrchestrationEngine
@@ -68,6 +69,8 @@ function registerIpc(): void {
   ipcMain.handle('frontier:update-settings', (_event, changes) => engine.updateSettings(changes))
   ipcMain.handle('frontier:update-control-plane', (_event, profile) => engine.updateControlPlane(profile))
   ipcMain.handle('frontier:preview-control-plane', (_event, providerId: string, profile) => engine.previewControlPlane(providerId, profile))
+  ipcMain.handle('frontier:authenticate-mcp', (_event, serverId: string) => engine.authenticateMcpServer(serverId))
+  ipcMain.handle('frontier:disconnect-mcp', (_event, serverId: string) => engine.disconnectMcpServer(serverId))
   ipcMain.handle('frontier:choose-directory', (_event, currentPath?: string) => {
     const window = BrowserWindow.getFocusedWindow()
     const options = {
@@ -84,8 +87,22 @@ function registerIpc(): void {
 
 app.whenReady().then(async () => {
   await hydrateExecutablePath()
-  const store = new JsonStore(join(app.getPath('userData'), 'frontier-state.json'))
-  engine = new OrchestrationEngine(store)
+  const userData = app.getPath('userData')
+  const store = new JsonStore(join(userData, 'frontier-state.json'))
+  const mcpAuth = new McpAuthManager(join(userData, 'frontier-mcp-auth.json'), {
+    cipher: {
+      encrypt: (value) => {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this system.')
+        return safeStorage.encryptString(value).toString('base64')
+      },
+      decrypt: (value) => {
+        if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this system.')
+        return safeStorage.decryptString(Buffer.from(value, 'base64'))
+      }
+    },
+    openExternal: async (url) => { await shell.openExternal(url) }
+  })
+  engine = new OrchestrationEngine(store, mcpAuth)
   await engine.initialize()
   engine.on('snapshot', (snapshot) => broadcast('frontier:snapshot-changed', snapshot))
   engine.on('stream', (event) => broadcast('frontier:stream', event))

@@ -13,6 +13,7 @@ Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
 - Streams provider output, keeps a local task history, supports cancellation, retries, and explicit provider switching between turns.
 - Opens each task in a dedicated workspace with its conversation, task-scoped context meter, route/activity history, and syntax-highlighted source and diff views for recorded file changes.
+- Provides a keyboard-first command palette for navigation, common actions, and task lookup (`⌘K` on macOS or `Ctrl+K` elsewhere).
 - Shows per-provider session usage, reset information, and the latest context-window occupancy.
 - Detects quota/rate-limit/overload errors, cools that provider down, and fails over to the next eligible provider across first turns, follow-ups, and orchestrated runs.
 - Runs Codex in `workspace-write`, Claude Code in `acceptEdits`, and every process with `shell: false`.
@@ -89,6 +90,8 @@ copilot login
 
 Leave the provider executable as `copilot`, then enable it and select **Check providers**. Frontier sends prompts through stdin in Copilot's non-interactive silent mode. By default it grants file writes and common Git/package/build commands, but it does not grant `--allow-all`. Add or replace `--allow-tool` rules in Extra arguments if a project needs different tools. An optional model can be entered using a model name supported by your Copilot plan.
 
+The provider card also lets you extend Copilot's built-in GitHub MCP server with selected toolsets or individual tools. Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset plus your selections.
+
 Official references: [installing Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) and [programmatic CLI options](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference).
 
 ### Open-source models
@@ -127,6 +130,7 @@ Only quota/unavailable failures automatically fail over. Intentional cancellatio
 
 - Frontier proxies **CLI processes**, not the private internals or UI automation of the Codex/Claude desktop apps. This is the stable local integration surface and still reuses the account sessions available to those CLIs.
 - Subscription tools do not expose a reliable, universal local “tokens remaining” interface. Frontier therefore tracks conservative local estimates and learns temporary unavailability from CLI errors. Optional daily budgets give you deterministic control.
+- Context occupancy is not inferred from cumulative billing usage. Claude reports enough per-request data for a live task context gauge; providers that do not expose current conversation occupancy show either a clearly labeled estimate (when a context-window fallback is configured) or “Not reported.”
 - Direct Ollama output is not an agent. Use Codex + Ollama when a local model needs filesystem and shell tools.
 - Every task agent can modify its selected working directory. Review the provider permission mode and use version control.
 

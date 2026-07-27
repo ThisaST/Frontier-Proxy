@@ -22,6 +22,17 @@ let lastBodyRender = { id: '', status: '', length: -1 }
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const taskDialog = byId<HTMLDialogElement>('task-dialog')
+const commandPalette = byId<HTMLDialogElement>('command-palette')
+let commandPaletteIndex = 0
+
+interface CommandPaletteEntry {
+  icon: string
+  label: string
+  detail: string
+  shortcut?: string
+  keywords: string
+  run(): void
+}
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat(undefined, { notation: value > 9_999 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value)
@@ -72,13 +83,25 @@ function trackedTokens(provider: SnapshotProvider): number {
   return actual || usage.estimatedInputTokens + usage.estimatedOutputTokens
 }
 
+function providerSessions(provider: SnapshotProvider): NonNullable<SnapshotProvider['runtime']['sessions']> {
+  return provider.runtime.sessions?.length ? provider.runtime.sessions : provider.runtime.session ? [provider.runtime.session] : []
+}
+
+function sessionResetAt(session: NonNullable<SnapshotProvider['runtime']['session']>): string | undefined {
+  return session.usingOverage ? session.overageResetsAt ?? session.resetsAt : session.resetsAt ?? session.overageResetsAt
+}
+
+function sessionWindowPercent(session: NonNullable<SnapshotProvider['runtime']['session']>): number | undefined {
+  if (session.utilizationPercent === undefined) return undefined
+  const reset = sessionResetAt(session)
+  return reset && Date.parse(reset) <= Date.now() ? 0 : session.utilizationPercent
+}
+
 function sessionPercent(provider: SnapshotProvider): number | undefined {
-  if (provider.runtime.session?.utilizationPercent !== undefined) {
-    if (provider.runtime.session.resetsAt && Date.parse(provider.runtime.session.resetsAt) <= Date.now()) return 0
-    return provider.runtime.session.utilizationPercent
-  }
-  if (provider.dailyTokenBudget) return Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100)
-  return undefined
+  const reported = providerSessions(provider).map(sessionWindowPercent).filter((value): value is number => value !== undefined)
+  const tracked = provider.dailyTokenBudget ? Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100) : undefined
+  const values = [...reported, ...(tracked === undefined ? [] : [tracked])]
+  return values.length ? Math.max(...values) : undefined
 }
 
 function providerLimitReached(provider: SnapshotProvider): boolean {
@@ -96,6 +119,20 @@ function providerCapacity(provider: SnapshotProvider): { label: string; tone: st
 
 function providerSelectableForTask(provider: SnapshotProvider, task: ProxyTask): boolean {
   return provider.enabled && provider.runtime.available && !providerLimitReached(provider) && provider.capabilities.includes(task.type)
+}
+
+function taskIsBusy(task: ProxyTask): boolean {
+  return task.status === 'running' || task.status === 'queued'
+}
+
+function renderComposerState(task: ProxyTask, input: HTMLTextAreaElement, button: HTMLButtonElement): void {
+  const busy = taskIsBusy(task)
+  input.disabled = busy
+  input.placeholder = busy ? 'Working…' : 'Continue the conversation…'
+  button.disabled = false
+  button.textContent = busy ? 'Cancel' : 'Send'
+  button.classList.toggle('cancel-button', busy)
+  button.setAttribute('aria-label', busy ? 'Cancel current task' : 'Send message')
 }
 
 function renderMetrics(): void {
@@ -127,8 +164,11 @@ function renderMiniProviders(): void {
   container.replaceChildren(...snapshot.providers.filter((provider) => provider.enabled).map((provider) => {
     const row = document.createElement('div'); row.className = 'mini-provider'
     const capacity = providerCapacity(provider)
+    row.title = `${provider.name} · ${capacity.label}`
+    row.setAttribute('aria-label', `${provider.name}: ${capacity.label}`)
     const dot = document.createElement('span')
     dot.className = `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`
+    dot.setAttribute('aria-hidden', 'true')
     const name = document.createElement('span'); name.textContent = provider.name
     const status = document.createElement('small'); status.textContent = capacity.label.toLowerCase()
     row.append(dot, name, status)
@@ -174,7 +214,8 @@ function renderTasks(): void {
     for (const value of tags) { const tag = document.createElement('span'); tag.textContent = value; meta.append(tag) }
     if (task.contextWindow && task.contextTokens !== undefined) {
       const context = document.createElement('span'); context.className = 'tag-context'
-      context.textContent = `context ${Math.round((task.contextTokens / task.contextWindow) * 100)}%`
+      const percent = Math.min(100, Math.max(0, (task.contextTokens / task.contextWindow) * 100))
+      context.textContent = `${task.contextSource === 'estimated' ? 'context est.' : 'context'} ${Math.round(percent)}%`
       meta.append(context)
     }
     if (task.orchestrated) { const tag = document.createElement('span'); tag.className = 'tag-orchestrated'; tag.textContent = 'orchestrated'; meta.append(tag) }
@@ -390,8 +431,9 @@ function renderOutput(): void {
   ]
   if (task.model) { const modelChip = metaChip('Model', task.model); modelChip.classList.add('model'); chips.unshift(modelChip) }
   if (task.contextWindow && task.contextTokens !== undefined) {
-    const pct = Math.round((task.contextTokens / task.contextWindow) * 100)
-    const chip = metaChip('Context', `${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)} · ${pct}%`)
+    const pct = Math.round(Math.min(100, Math.max(0, (task.contextTokens / task.contextWindow) * 100)))
+    const estimated = task.contextSource === 'estimated'
+    const chip = metaChip(estimated ? 'Context estimate' : 'Context', `${estimated ? '~' : ''}${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)} · ${pct}%`)
     if (pct >= 80) chip.classList.add('context-high')
     chips.push(chip)
   }
@@ -405,19 +447,14 @@ function renderOutput(): void {
   const composer = byId('output-composer'); composer.hidden = false
   const composerInput = byId<HTMLTextAreaElement>('composer-input')
   const composerSend = byId<HTMLButtonElement>('composer-send')
-  const busy = task.status === 'running' || task.status === 'queued'
-  composerInput.disabled = busy; composerSend.disabled = busy
-  composerInput.placeholder = busy ? 'Working… you can reply when this turn finishes' : 'Continue the conversation…'
+  const busy = taskIsBusy(task)
+  renderComposerState(task, composerInput, composerSend)
 
   const controls = document.createElement('div'); controls.className = 'output-actions-inner'
   const details = document.createElement('button'); details.className = 'secondary-button'; details.textContent = 'Open details'
   details.addEventListener('click', () => openTaskDetail(task.id))
   controls.append(details)
-  if (task.status === 'running' || task.status === 'queued') {
-    const cancel = document.createElement('button'); cancel.className = 'secondary-button'; cancel.textContent = 'Cancel'
-    cancel.addEventListener('click', () => void window.frontier.cancelTask(task.id))
-    controls.append(cancel)
-  } else {
+  if (!busy) {
     const switcher = document.createElement('label'); switcher.className = 'provider-switch'
     const switchLabel = document.createElement('span'); switchLabel.textContent = 'Next provider'
     const select = document.createElement('select'); select.title = 'Choose the provider for the next message'
@@ -533,6 +570,30 @@ function renderProviders(): void {
     const args = textInput(formatArguments(provider.args ?? []))
     form.append(field('Display name', displayName), field('Executable', executable), field('Model (optional)', model), field('Routing priority', priority), field('Tracked usage limit', budget), field('Context window (tokens)', contextWindow), field('Extra arguments (quotes supported)', args, true))
 
+    let copilotToolsets: HTMLTextAreaElement | undefined
+    let copilotTools: HTMLTextAreaElement | undefined
+    let copilotAllTools: HTMLInputElement | undefined
+    if (provider.kind === 'copilot') {
+      copilotToolsets = textArea((provider.copilotGithubMcpToolsets ?? []).join('\n'), 2)
+      copilotToolsets.placeholder = 'actions, code_security, discussions…'
+      copilotTools = textArea((provider.copilotGithubMcpTools ?? []).join('\n'), 2)
+      copilotTools.placeholder = 'Individual GitHub MCP tool names (optional)'
+      copilotAllTools = document.createElement('input')
+      copilotAllTools.type = 'checkbox'
+      copilotAllTools.checked = Boolean(provider.copilotEnableAllGithubMcpTools)
+      const allToolsRow = document.createElement('label'); allToolsRow.className = 'checkbox-row wide'
+      allToolsRow.append(copilotAllTools, ' Enable every built-in GitHub MCP tool')
+      const help = document.createElement('p'); help.className = 'field-help wide'
+      help.textContent = 'Optional. Toolsets and tools extend Copilot’s default GitHub subset for each Frontier task. “Every tool” overrides both lists.'
+      const syncCopilotFields = (): void => {
+        copilotToolsets!.disabled = copilotAllTools!.checked
+        copilotTools!.disabled = copilotAllTools!.checked
+      }
+      copilotAllTools.addEventListener('change', syncCopilotFields)
+      syncCopilotFields()
+      form.append(field('GitHub MCP toolsets', copilotToolsets, true), field('Individual GitHub MCP tools', copilotTools, true), allToolsRow, help)
+    }
+
     const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind)
     let cpToggle: HTMLInputElement | undefined
     if (cpCapable) {
@@ -558,7 +619,12 @@ function renderProviders(): void {
           dailyTokenBudget: Number(budget.value) > 0 ? Number(budget.value) : undefined,
           contextWindow: Number(contextWindow.value) > 0 ? Number(contextWindow.value) : undefined,
           args: args.value.trim() ? splitArguments(args.value) : undefined,
-          ...(cpToggle ? { useControlPlane: cpToggle.checked } : {})
+          ...(cpToggle ? { useControlPlane: cpToggle.checked } : {}),
+          ...(provider.kind === 'copilot' ? {
+            copilotGithubMcpToolsets: listValues(copilotToolsets?.value ?? ''),
+            copilotGithubMcpTools: listValues(copilotTools?.value ?? ''),
+            copilotEnableAllGithubMcpTools: Boolean(copilotAllTools?.checked)
+          } : {})
         } })
         showToast(`${provider.name} updated`)
       } catch (error) { reportError(`Could not update ${provider.name}`, error) } finally { save.removeAttribute('disabled') }
@@ -649,12 +715,17 @@ function ensureDraft(): ControlPlaneProfile {
 async function persistControlPlaneDraft(showConfirmation = false): Promise<void> {
   if (!controlPlaneDraft) return
   const saved = await window.frontier.updateControlPlane(syncDraftFromInputs())
+  snapshot = saved
   controlPlaneDraft = cloneProfile(saved.settings.controlPlane)
   if (showConfirmation) showToast('Context & Tools configuration saved')
 }
 
 function textLines(value: string): string[] {
   return value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+}
+
+function listValues(value: string): string[] {
+  return [...new Set(value.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean))]
 }
 
 function newId(): string {
@@ -722,6 +793,55 @@ function renderMcpServers(): void {
       detail.append(field('Server URL', url, true), field('Headers', headers, true))
     }
     row.append(top, detail)
+    if (server.transport !== 'stdio') {
+      const persisted = snapshot.settings.controlPlane.mcpServers.find((item) => item.id === server.id)
+      const changed = persisted?.url?.trim() !== server.url?.trim()
+      const authState = changed ? undefined : snapshot.mcpAuth.find((item) => item.serverId === server.id)
+      const auth = document.createElement('div'); auth.className = 'cp-server-auth'
+      const message = document.createElement('div'); message.className = `cp-auth-status ${authState?.state ?? 'not-authenticated'}`
+      const statusLabels = {
+        authenticated: 'Authenticated securely',
+        authenticating: 'Waiting for browser authentication…',
+        manual: 'Authorization header configured manually',
+        error: 'Authentication needs attention',
+        'not-authenticated': 'OAuth not connected'
+      } as const
+      const label = document.createElement('strong'); label.textContent = statusLabels[authState?.state ?? 'not-authenticated']
+      const detailText = document.createElement('span')
+      detailText.textContent = changed
+        ? 'Save this server before authenticating.'
+        : authState?.error ?? (authState?.expiresAt ? `Token refresh is managed automatically · current token expires ${new Date(authState.expiresAt).toLocaleString()}` : 'Use browser login for OAuth-protected servers; public servers can be used without it.')
+      message.append(label, detailText)
+
+      const actions = document.createElement('div'); actions.className = 'cp-auth-actions'
+      if (authState?.state !== 'manual') {
+        const authenticate = document.createElement('button'); authenticate.className = 'secondary-button'
+        authenticate.textContent = authState?.state === 'authenticated' ? 'Re-authenticate' : 'Authenticate'
+        authenticate.disabled = changed || authState?.state === 'authenticating'
+        authenticate.addEventListener('click', async () => {
+          authenticate.disabled = true; authenticate.textContent = 'Opening browser…'
+          try {
+            await persistControlPlaneDraft()
+            snapshot = await window.frontier.authenticateMcpServer(server.id)
+            showToast(`${server.name || 'MCP server'} authenticated`)
+          } catch (error) { reportError('MCP authentication failed', error) }
+          finally { renderMcpServers(); void refreshPreview() }
+        })
+        actions.append(authenticate)
+      }
+      if (authState?.state === 'authenticated' || authState?.state === 'error') {
+        const disconnect = document.createElement('button'); disconnect.className = 'text-button'; disconnect.textContent = 'Disconnect'
+        disconnect.addEventListener('click', async () => {
+          disconnect.disabled = true
+          try { snapshot = await window.frontier.disconnectMcpServer(server.id); showToast(`${server.name || 'MCP server'} disconnected`) }
+          catch (error) { reportError('Could not disconnect MCP server', error) }
+          finally { renderMcpServers(); void refreshPreview() }
+        })
+        actions.append(disconnect)
+      }
+      auth.append(message, actions)
+      row.append(auth)
+    }
     return row
   }))
 }
@@ -766,8 +886,10 @@ function countdown(iso?: string): string {
   if (!iso) return '—'
   const ms = Date.parse(iso) - Date.now()
   if (ms <= 0) return 'resetting…'
+  const days = Math.floor(ms / 86_400_000)
   const hours = Math.floor(ms / 3_600_000)
   const minutes = Math.floor((ms % 3_600_000) / 60_000)
+  if (days > 0) return `${days}d ${hours % 24}h`
   return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
@@ -818,30 +940,37 @@ function renderUsage(): void {
       usageStat('Tasks', String(usage.tasks))
     )
 
-    const session = provider.runtime.session
-    const trackedPct = sessionPercent(provider)
-    const limitPct = providerLimitReached(provider) ? 100 : trackedPct
-    const sessionLabel = session?.limitType ? `${session.limitType} limit` : 'Session usage'
-    const resetAt = session?.resetsAt ?? session?.overageResetsAt
-    const sessionDetail = providerLimitReached(provider)
-      ? activeCooldown(provider) ? `Automatic fallback active · retries in ${countdown(provider.runtime.cooldownUntil)}` : 'Automatic fallback active · tracked limit reached'
-      : resetAt
-        ? `Resets in ${countdown(resetAt)}${session?.usingOverage ? ' · overage in use' : ''}`
-        : provider.dailyTokenBudget
-          ? `${formatNumber(trackedTokens(provider))} / ${formatNumber(provider.dailyTokenBudget)} tracked tokens`
-          : `${formatNumber(trackedTokens(provider))} tracked tokens · no limit reported`
-    const sessionGauge = usageGauge(sessionLabel, limitPct, sessionDetail, providerLimitReached(provider) || (limitPct ?? 0) >= 90 ? 'high' : '')
+    const sessions = providerSessions(provider)
+    const gauges = document.createElement('div'); gauges.className = 'usage-gauges'
+    for (const session of sessions) {
+      const percent = sessionWindowPercent(session)
+      const resetAt = sessionResetAt(session)
+      const detail = resetAt
+        ? `Resets in ${countdown(resetAt)}${session.usingOverage ? ' · overage in use' : ''}`
+        : 'No reset time reported by the CLI'
+      gauges.append(usageGauge(`${session.limitType ?? 'Provider'} usage`, percent, detail, (percent ?? 0) >= 90 ? 'high' : ''))
+    }
+    if (provider.dailyTokenBudget) {
+      const trackedPct = Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100)
+      gauges.append(usageGauge('Tracked daily budget', trackedPct, `${formatNumber(trackedTokens(provider))} / ${formatNumber(provider.dailyTokenBudget)} tracked tokens`, trackedPct >= 90 ? 'high' : ''))
+    } else if (!sessions.length) {
+      const cooldown = activeCooldown(provider)
+      gauges.append(usageGauge('Session usage', cooldown ? 100 : undefined,
+        cooldown ? `Automatic fallback active · retries in ${countdown(provider.runtime.cooldownUntil)}` : `${formatNumber(trackedTokens(provider))} tracked tokens · no plan limit reported`,
+        cooldown ? 'high' : ''))
+    }
 
     const footer = document.createElement('div'); footer.className = 'usage-card-footer'
     const note = document.createElement('span'); note.className = 'usage-session'
+    const attention = sessions.find((session) => session.status && session.status !== 'allowed')
     note.textContent = providerLimitReached(provider)
       ? `Frontier will skip ${provider.name} while this limit is active and route work elsewhere.`
-      : session?.status && session.status !== 'allowed'
-        ? `Provider status: ${session.status}`
-        : 'Limits are detected from CLI events and configured tracked-usage thresholds.'
+      : attention?.status
+        ? `Provider status: ${attention.status}`
+        : sessions.length ? `${sessions.length} provider usage window${sessions.length === 1 ? '' : 's'} reported by the CLI.` : 'No provider plan window has been reported in this app session.'
     footer.append(note)
 
-    card.append(header, sessionGauge, stats, footer)
+    card.append(header, gauges, stats, footer)
     return card
   }))
 }
@@ -860,14 +989,14 @@ function renderTaskDetailSummary(task: ProxyTask): void {
     meta.append(value)
   }
   const context = document.createElement('div'); context.className = 'task-context-card'
-  const label = document.createElement('span'); label.className = 'task-context-label'; label.textContent = 'Context'
+  const label = document.createElement('span'); label.className = 'task-context-label'; label.textContent = task.contextSource === 'estimated' ? 'Context estimate' : 'Context'
   const detail = document.createElement('span'); detail.className = 'task-context-detail'
   const value = document.createElement('strong')
   let percent: number | undefined
   if (task.contextWindow && task.contextTokens !== undefined) {
     percent = Math.min(100, (task.contextTokens / task.contextWindow) * 100)
     value.textContent = `${Math.round(percent)}%`
-    detail.textContent = `${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)}`
+    detail.textContent = `${task.contextSource === 'estimated' ? '~' : ''}${formatNumber(task.contextTokens)} / ${formatNumber(task.contextWindow)}`
   } else {
     value.textContent = '—'
     detail.textContent = 'Not reported'
@@ -911,8 +1040,7 @@ function renderTaskDetailThread(task: ProxyTask): void {
 
   const input = byId<HTMLTextAreaElement>('task-detail-composer-input')
   const send = byId<HTMLButtonElement>('task-detail-composer-send')
-  input.disabled = streaming; send.disabled = streaming
-  input.placeholder = streaming ? 'Working… you can reply when this turn finishes' : 'Continue the conversation…'
+  renderComposerState(task, input, send)
 }
 
 function renderTaskDetailInspector(task: ProxyTask): void {
@@ -1037,35 +1165,30 @@ function renderTaskDetailFiles(task: ProxyTask): void {
 
 function renderTaskDetailActions(task: ProxyTask): void {
   const target = byId('task-detail-actions')
+  if (taskIsBusy(task)) { target.replaceChildren(); return }
   const controls = document.createElement('div'); controls.className = 'output-actions-inner'
-  const busy = task.status === 'running' || task.status === 'queued'
-  if (busy) {
-    const cancel = document.createElement('button'); cancel.className = 'secondary-button'; cancel.textContent = 'Cancel task'
-    cancel.addEventListener('click', () => void window.frontier.cancelTask(task.id)); controls.append(cancel)
-  } else {
-    const select = document.createElement('select'); select.className = 'detail-provider-select'; select.title = 'Provider for the next message'
-    const current = task.continuationProviderId ?? task.selectedProviderId ?? ''
-    for (const provider of snapshot.providers) {
-      const option = document.createElement('option'); option.value = provider.id
-      const selectable = providerSelectableForTask(provider, task)
-      option.textContent = `${provider.name}${selectable ? '' : ' · unavailable'}`; option.disabled = !selectable; select.append(option)
-    }
-    select.value = current
-    select.addEventListener('change', async () => {
-      const next = select.value
-      if (!next || next === current) return
-      select.disabled = true
-      try { await window.frontier.changeTaskProvider(task.id, next); showToast(`${providerName(next)} selected for the next message`) }
-      catch (error) { select.value = current; reportError('Could not change provider', error) }
-      finally { select.disabled = false }
-    })
-    const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry as new task'
-    retry.addEventListener('click', async () => {
-      try { await persistControlPlaneDraft(); const created = await window.frontier.retryTask(task.id); openTaskDetail(created.id) }
-      catch (error) { reportError('Could not retry task', error) }
-    })
-    controls.append(select, retry)
+  const select = document.createElement('select'); select.className = 'detail-provider-select'; select.title = 'Provider for the next message'
+  const current = task.continuationProviderId ?? task.selectedProviderId ?? ''
+  for (const provider of snapshot.providers) {
+    const option = document.createElement('option'); option.value = provider.id
+    const selectable = providerSelectableForTask(provider, task)
+    option.textContent = `${provider.name}${selectable ? '' : ' · unavailable'}`; option.disabled = !selectable; select.append(option)
   }
+  select.value = current
+  select.addEventListener('change', async () => {
+    const next = select.value
+    if (!next || next === current) return
+    select.disabled = true
+    try { await window.frontier.changeTaskProvider(task.id, next); showToast(`${providerName(next)} selected for the next message`) }
+    catch (error) { select.value = current; reportError('Could not change provider', error) }
+    finally { select.disabled = false }
+  })
+  const retry = document.createElement('button'); retry.className = 'secondary-button'; retry.textContent = 'Retry as new task'
+  retry.addEventListener('click', async () => {
+    try { await persistControlPlaneDraft(); const created = await window.frontier.retryTask(task.id); openTaskDetail(created.id) }
+    catch (error) { reportError('Could not retry task', error) }
+  })
+  controls.append(select, retry)
   target.replaceChildren(controls)
 }
 
@@ -1111,7 +1234,12 @@ function switchView(view: string): void {
   currentView = view
   document.querySelector('main')?.classList.toggle('task-detail-active', view === 'task-detail')
   const navView = view === 'task-detail' ? 'tasks' : view
-  document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', (item as HTMLElement).dataset.view === navView))
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    const active = (item as HTMLElement).dataset.view === navView
+    item.classList.toggle('active', active)
+    if (active) item.setAttribute('aria-current', 'page')
+    else item.removeAttribute('aria-current')
+  })
   document.querySelectorAll('.view').forEach((item) => item.classList.toggle('active', item.id === `${view}-view`))
   byId('view-title').textContent = VIEW_TITLES[view] ?? view
   byId('new-task-button').style.display = view === 'tasks' ? '' : 'none'
@@ -1121,6 +1249,83 @@ function switchView(view: string): void {
   if (view === 'task-detail') renderTaskDetail()
 }
 
+function commandPaletteEntries(query: string): CommandPaletteEntry[] {
+  const commands: CommandPaletteEntry[] = [
+    { icon: '＋', label: 'New task', detail: 'Route work to an available agent', shortcut: '⌘N', keywords: 'create route agent', run: () => taskDialog.showModal() },
+    { icon: '⌁', label: 'Go to Tasks', detail: 'Open the work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
+    { icon: '◫', label: 'Go to Providers', detail: 'Manage local agent CLIs', keywords: 'navigate agents models', run: () => switchView('providers') },
+    { icon: '⊹', label: 'Go to Context & Tools', detail: 'Manage MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
+    { icon: '◔', label: 'Go to Usage', detail: 'Review sessions, limits, and token use', keywords: 'navigate quota cost', run: () => switchView('usage') },
+    { icon: '⌘', label: 'Go to Settings', detail: 'Configure scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
+    { icon: '↻', label: 'Check providers', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
+    { icon: '×', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
+  ]
+  const normalized = query.trim().toLowerCase()
+  const matchingCommands = commands.filter((entry) => !normalized || `${entry.label} ${entry.detail} ${entry.keywords}`.toLowerCase().includes(normalized))
+  const matchingTasks = (snapshot?.tasks ?? [])
+    .filter((task) => !normalized || `${task.prompt} ${task.type} ${task.status} ${providerName(task.selectedProviderId)}`.toLowerCase().includes(normalized))
+    .slice(0, normalized ? 10 : 5)
+    .map((task): CommandPaletteEntry => ({
+      icon: task.status === 'running' ? '◌' : task.status === 'completed' ? '✓' : '·',
+      label: task.prompt,
+      detail: `${task.type} · ${task.status} · ${providerName(task.selectedProviderId)}`,
+      keywords: 'task conversation workspace',
+      run: () => openTaskDetail(task.id)
+    }))
+  return [...matchingCommands, ...matchingTasks]
+}
+
+function renderCommandPalette(): void {
+  const input = byId<HTMLInputElement>('command-palette-input')
+  const entries = commandPaletteEntries(input.value)
+  commandPaletteIndex = Math.max(0, Math.min(commandPaletteIndex, Math.max(0, entries.length - 1)))
+  const results = byId('command-palette-results')
+  if (!entries.length) {
+    const empty = document.createElement('div'); empty.className = 'command-palette-empty'; empty.textContent = 'No matching commands or tasks.'
+    results.replaceChildren(empty)
+    return
+  }
+  results.replaceChildren(...entries.map((entry, index) => {
+    const button = document.createElement('button'); button.className = `command-palette-item${index === commandPaletteIndex ? ' selected' : ''}`
+    button.type = 'button'; button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(index === commandPaletteIndex))
+    const icon = document.createElement('span'); icon.className = 'command-palette-item-icon'; icon.textContent = entry.icon
+    const copy = document.createElement('span'); copy.className = 'command-palette-item-copy'
+    const label = document.createElement('strong'); label.textContent = entry.label
+    const detail = document.createElement('small'); detail.textContent = entry.detail
+    copy.append(label, detail)
+    const key = document.createElement('span'); key.className = 'command-palette-item-key'; key.textContent = entry.shortcut ?? ''
+    button.append(icon, copy, key)
+    button.addEventListener('click', () => { commandPalette.close(); entry.run() })
+    return button
+  }))
+}
+
+function openCommandPalette(): void {
+  const input = byId<HTMLInputElement>('command-palette-input')
+  input.value = ''
+  commandPaletteIndex = 0
+  renderCommandPalette()
+  commandPalette.showModal()
+  requestAnimationFrame(() => input.focus())
+}
+
+const SIDEBAR_STATE_KEY = 'fp-sidebar-collapsed'
+
+function setSidebarCollapsed(collapsed: boolean, persist = true): void {
+  const shell = document.querySelector<HTMLElement>('.shell')
+  const toggle = byId<HTMLButtonElement>('sidebar-toggle')
+  shell?.classList.toggle('sidebar-collapsed', collapsed)
+  toggle.setAttribute('aria-expanded', String(!collapsed))
+  toggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation')
+  toggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation'
+  toggle.querySelector('span')!.textContent = collapsed ? '›' : '‹'
+  if (persist) localStorage.setItem(SIDEBAR_STATE_KEY, String(collapsed))
+}
+
+setSidebarCollapsed(localStorage.getItem(SIDEBAR_STATE_KEY) === 'true', false)
+byId('sidebar-toggle').addEventListener('click', () => {
+  setSidebarCollapsed(!document.querySelector('.shell')?.classList.contains('sidebar-collapsed'))
+})
 document.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => item.addEventListener('click', () => switchView(item.dataset.view ?? 'tasks')))
 byId('task-detail-back').addEventListener('click', () => switchView('tasks'))
 document.querySelectorAll<HTMLElement>('.task-detail-tab').forEach((tab) => tab.addEventListener('click', () => {
@@ -1164,11 +1369,29 @@ byId<HTMLInputElement>('task-search').addEventListener('input', (event) => {
   taskQuery = (event.target as HTMLInputElement).value.trim().toLowerCase()
   renderTasks()
 })
-// Keyboard shortcuts: ⌘/Ctrl+K focuses search, ⌘/Ctrl+N opens a new task.
+byId<HTMLInputElement>('command-palette-input').addEventListener('input', () => { commandPaletteIndex = 0; renderCommandPalette() })
+byId<HTMLInputElement>('command-palette-input').addEventListener('keydown', (event) => {
+  const entries = commandPaletteEntries((event.currentTarget as HTMLInputElement).value)
+  if (event.key === 'ArrowDown') { event.preventDefault(); commandPaletteIndex = Math.min(entries.length - 1, commandPaletteIndex + 1); renderCommandPalette() }
+  else if (event.key === 'ArrowUp') { event.preventDefault(); commandPaletteIndex = Math.max(0, commandPaletteIndex - 1); renderCommandPalette() }
+  else if (event.key === 'Enter' && entries[commandPaletteIndex]) { event.preventDefault(); commandPalette.close(); entries[commandPaletteIndex].run() }
+})
+commandPalette.addEventListener('click', (event) => {
+  if (event.target === commandPalette) commandPalette.close()
+})
+// Keyboard shortcuts: ⌘/Ctrl+K opens the command palette, ⌘/Ctrl+N opens a new task.
 window.addEventListener('keydown', (event) => {
   if (!(event.metaKey || event.ctrlKey)) return
-  if (event.key === 'k') { event.preventDefault(); switchView('tasks'); byId<HTMLInputElement>('task-search').focus() }
-  else if (event.key === 'n') { event.preventDefault(); if (!taskDialog.open) taskDialog.showModal() }
+  if (event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    if (commandPalette.open) commandPalette.close()
+    else if (!taskDialog.open) openCommandPalette()
+  }
+  else if (event.key.toLowerCase() === 'n') {
+    event.preventDefault()
+    if (commandPalette.open) commandPalette.close()
+    if (!taskDialog.open) taskDialog.showModal()
+  }
 })
 // Draggable divider between the work queue and live output.
 ;(function setupResizer(): void {
@@ -1192,27 +1415,53 @@ window.addEventListener('keydown', (event) => {
   })
 })()
 
-async function sendFollowUp(): Promise<void> {
-  const input = byId<HTMLTextAreaElement>('composer-input')
+async function handleComposerAction(taskId: string | undefined, inputId: string, buttonId: string): Promise<void> {
+  if (!taskId) return
+  const task = snapshot.tasks.find((item) => item.id === taskId)
+  if (!task) return
+  const input = byId<HTMLTextAreaElement>(inputId)
+  const button = byId<HTMLButtonElement>(buttonId)
+
+  if (taskIsBusy(task)) {
+    button.disabled = true
+    button.textContent = 'Cancelling…'
+    try { await window.frontier.cancelTask(taskId) }
+    catch (error) {
+      reportError('Could not cancel the task', error)
+      renderComposerState(task, input, button)
+    }
+    return
+  }
+
   const text = input.value.trim()
-  if (!text || !selectedTaskId) return
-  const send = byId<HTMLButtonElement>('composer-send'); send.disabled = true; input.disabled = true
-  try { await persistControlPlaneDraft(); await window.frontier.continueTask(selectedTaskId, text); input.value = '' }
-  catch (error) { reportError('Could not continue the conversation', error) }
-  finally { send.disabled = false; input.disabled = false; input.focus() }
+  if (!text) return
+  // Clear the submitted draft immediately. The user turn remains in the thread,
+  // while the composer becomes the active task's Cancel control.
+  input.value = ''
+  input.disabled = true
+  button.disabled = true
+  try {
+    await persistControlPlaneDraft()
+    await window.frontier.continueTask(taskId, text)
+  } catch (error) {
+    if (!input.value) input.value = text
+    reportError('Could not continue the conversation', error)
+  } finally {
+    const latest = snapshot.tasks.find((item) => item.id === taskId)
+    if (latest) renderComposerState(latest, input, button)
+    if (!latest || !taskIsBusy(latest)) input.focus()
+  }
+}
+
+function sendFollowUp(): Promise<void> {
+  return handleComposerAction(selectedTaskId, 'composer-input', 'composer-send')
 }
 byId('composer-send').addEventListener('click', () => void sendFollowUp())
 byId<HTMLTextAreaElement>('composer-input').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendFollowUp() }
 })
-async function sendTaskDetailFollowUp(): Promise<void> {
-  const input = byId<HTMLTextAreaElement>('task-detail-composer-input')
-  const text = input.value.trim()
-  if (!text || !detailTaskId) return
-  const send = byId<HTMLButtonElement>('task-detail-composer-send'); send.disabled = true; input.disabled = true
-  try { await persistControlPlaneDraft(); await window.frontier.continueTask(detailTaskId, text); input.value = '' }
-  catch (error) { reportError('Could not continue the conversation', error) }
-  finally { send.disabled = false; input.disabled = false; input.focus() }
+function sendTaskDetailFollowUp(): Promise<void> {
+  return handleComposerAction(detailTaskId, 'task-detail-composer-input', 'task-detail-composer-send')
 }
 byId('task-detail-composer-send').addEventListener('click', () => void sendTaskDetailFollowUp())
 byId<HTMLTextAreaElement>('task-detail-composer-input').addEventListener('keydown', (event) => {
@@ -1266,8 +1515,9 @@ byId<HTMLInputElement>('cp-import-file').addEventListener('change', async (event
   try {
     syncDraftFromInputs()
     const count = importMcpServers(await file.text())
+    await persistControlPlaneDraft()
     renderMcpServers(); void refreshPreview()
-    showToast(`Imported ${count} MCP server${count === 1 ? '' : 's'}`)
+    showToast(`Imported and saved ${count} MCP server${count === 1 ? '' : 's'}`)
   } catch (error) { reportError('Import failed', error) } finally { input.value = '' }
 })
 byId<HTMLSelectElement>('cp-preview-provider').addEventListener('change', () => void refreshPreview())
@@ -1345,3 +1595,11 @@ window.frontier.onStream((event) => {
 void window.frontier.getSnapshot()
   .then((initial) => { snapshot = initial; render() })
   .catch((error) => reportError('Could not connect to the Frontier service', error))
+
+// Reset countdowns and expired-window state should keep moving even when no
+// provider emits a new snapshot.
+window.setInterval(() => {
+  if (typeof snapshot === 'undefined') return
+  renderMiniProviders()
+  if (currentView === 'usage') renderUsage()
+}, 30_000)

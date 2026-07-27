@@ -79,15 +79,34 @@ describe('control plane translation', () => {
       ]
     })
 
+    const headerEnvironment = Object.entries(injection.env ?? {}).find(([, value]) => value === 'Bearer token')
+    expect(headerEnvironment).toBeDefined()
+    const [headerVariable] = headerEnvironment!
     expect(injection.args).toEqual([
       '-c', 'mcp_servers.frontier_local_tools_600ecdd={ command = "npx", args = ["-y", "mcp-files"], env = { "API_KEY" = "secret" }, env_vars = [], cwd = ".", default_tools_approval_mode = "approve", enabled = true }',
-      '-c', 'mcp_servers.remote={ url = "https://mcp.example/api", http_headers = { "Authorization" = "Bearer token" }, env_http_headers = { }, default_tools_approval_mode = "approve", enabled = true }'
+      '-c', `mcp_servers.remote={ url = "https://mcp.example/api", http_headers = { }, env_http_headers = { "Authorization" = "${headerVariable}" }, default_tools_approval_mode = "approve", enabled = true }`
     ])
+    expect(injection.args.join(' ')).not.toContain('Bearer token')
     expect(injection.promptPrefix).toContain('Prefer pnpm.')
     expect(injection.promptPrefix).toContain('"local.tools" (stdio; session tool namespace: "frontier_local_tools_600ecdd")')
     expect(injection.promptPrefix).toContain('"remote" (http)')
     expect(injection.promptPrefix).not.toContain('"legacy"')
     expect(injection.promptPrefix).toContain('`codex mcp list`')
+  })
+
+  it.each(['claude', 'copilot'] as const)('passes remote %s headers through per-process environment placeholders', (kind) => {
+    const injection = controlPlaneInjection(provider(kind), {
+      ...profile,
+      mcpServers: [{ id: 'secure', name: 'secure', enabled: true, transport: 'http', url: 'https://mcp.example/api', headers: { Authorization: 'Bearer secret' } }]
+    })
+
+    const headerEnvironment = Object.entries(injection.env ?? {}).find(([, value]) => value === 'Bearer secret')
+    expect(headerEnvironment).toBeDefined()
+    const [headerVariable] = headerEnvironment!
+    const flag = kind === 'claude' ? '--mcp-config' : '--additional-mcp-config'
+    const config = injection.args[injection.args.indexOf(flag) + 1]
+    expect(config).toContain(`\${${headerVariable}}`)
+    expect(config).not.toContain('Bearer secret')
   })
 
   it.each(['claude', 'copilot', 'codex', 'codex-oss'] as const)('adds MCP task context for %s even without a custom system prompt', (kind) => {

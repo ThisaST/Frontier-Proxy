@@ -21,4 +21,19 @@ describe('persistent store', () => {
     const store = new JsonStore(join(tmpdir(), `missing-${Date.now()}`, 'state.json'))
     expect((await store.load()).settings.providers.map((provider) => provider.id)).toEqual(expect.arrayContaining(['codex', 'claude', 'copilot']))
   })
+
+  it('persists daily usage and separate provider plan windows', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-runtime-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    const usage = { date: new Date().toLocaleDateString('en-CA'), tasks: 2, estimatedInputTokens: 0, estimatedOutputTokens: 0, inputTokens: 1200, outputTokens: 80, costUsd: 0.04, elapsedMs: 1000 }
+    const sessions = [
+      { limitType: 'five hour', utilizationPercent: 20, updatedAt: new Date().toISOString() },
+      { limitType: 'seven day', utilizationPercent: 60, updatedAt: new Date().toISOString() }
+    ]
+    await store.save({ settings, tasks: [], providerRuntime: { claude: { usage, sessions } } })
+    const loaded = await store.load()
+    expect(loaded.providerRuntime?.claude.usage.inputTokens).toBe(1200)
+    expect(loaded.providerRuntime?.claude.sessions).toHaveLength(2)
+  })
 })

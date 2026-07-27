@@ -18,8 +18,12 @@ function isCoolingDown(runtime: ProviderRuntime, now: number): boolean {
 }
 
 function sessionLimitReached(runtime: ProviderRuntime, now: number): boolean {
-  if ((runtime.session?.utilizationPercent ?? 0) < 100) return false
-  return !runtime.session?.resetsAt || Date.parse(runtime.session.resetsAt) > now
+  const sessions = runtime.sessions?.length ? runtime.sessions : runtime.session ? [runtime.session] : []
+  return sessions.some((session) => {
+    if ((session.utilizationPercent ?? 0) < 100) return false
+    const reset = session.usingOverage ? session.overageResetsAt ?? session.resetsAt : session.resetsAt ?? session.overageResetsAt
+    return !reset || Date.parse(reset) > now
+  })
 }
 
 export function rankProviders(task: ProxyTask, providers: RoutableProvider[], now = Date.now()): RoutableProvider[] {

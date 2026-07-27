@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import spawn from 'cross-spawn'
-import type { ActivityEvent, ControlPlaneProfile, ProviderConfig, SessionInfo, UsageSample } from '../shared/types'
+import type { ActivityEvent, ContextSample, ControlPlaneProfile, ProviderConfig, SessionInfo, UsageSample } from '../shared/types'
 import { controlPlaneInjection } from './controlplane'
 
 export type RunFailureKind = 'quota' | 'unavailable' | 'failed' | 'cancelled'
@@ -24,6 +24,7 @@ interface RunOptions {
   onModel?: (model: string) => void
   onActivity?: (event: ActivityEvent) => void
   onUsage?: (usage: UsageSample) => void
+  onContext?: (context: ContextSample) => void
   onSession?: (session: SessionInfo) => void
   onSessionId?: (sessionId: string) => void
   controlPlane?: ControlPlaneProfile
@@ -36,6 +37,7 @@ export interface StreamHandlers {
   onModel: (model: string) => void
   onActivity: (event: ActivityEvent) => void
   onUsage?: (usage: UsageSample) => void
+  onContext?: (context: ContextSample) => void
   onSession?: (session: SessionInfo) => void
   onSessionId?: (sessionId: string) => void
 }
@@ -44,9 +46,20 @@ const QUOTA_PATTERN = /(rate.?limit|usage.?limit|request.?limit|premium requests
 
 const COPILOT_SAFE_TOOLS = 'write, shell(git:*), shell(npm:*), shell(npx:*), shell(pnpm:*), shell(yarn:*), shell(bun:*), shell(cargo:*), shell(go:*), shell(pytest:*)'
 
+function copilotGithubMcpArgs(provider: ProviderConfig): string[] {
+  if (provider.copilotEnableAllGithubMcpTools) return ['--enable-all-github-mcp-tools']
+  const toolsets = [...new Set((provider.copilotGithubMcpToolsets ?? []).map((value) => value.trim()).filter(Boolean))]
+  const tools = [...new Set((provider.copilotGithubMcpTools ?? []).map((value) => value.trim()).filter(Boolean))]
+  return [
+    ...toolsets.map((toolset) => `--add-github-mcp-toolset=${toolset}`),
+    ...tools.map((tool) => `--add-github-mcp-tool=${tool}`)
+  ]
+}
+
 export interface ProviderCommand {
   executable: string
   args: string[]
+  env?: Record<string, string>
   promptInArgs?: boolean
   // Context (e.g. system prompt) folded into the stdin prompt for CLIs that
   // lack a native system-prompt flag.
@@ -63,28 +76,32 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
         executable: provider.executable,
         args: ['exec', '--json', '--color', 'never', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', cwd,
           ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra, '-'],
-        promptPrefix: cp.promptPrefix
+        promptPrefix: cp.promptPrefix,
+        env: cp.env
       }
     case 'codex-oss':
       return {
         executable: provider.executable,
         args: ['exec', '--json', '--color', 'never', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', cwd,
           '--oss', '--local-provider', 'ollama', ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra, '-'],
-        promptPrefix: cp.promptPrefix
+        promptPrefix: cp.promptPrefix,
+        env: cp.env
       }
     case 'claude':
       return {
         executable: provider.executable,
         args: ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--permission-mode', 'acceptEdits',
           ...resume, ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra],
-        promptPrefix: cp.promptPrefix
+        promptPrefix: cp.promptPrefix,
+        env: cp.env
       }
     case 'copilot':
       return {
         executable: provider.executable,
         args: ['-s', '--no-ask-user', `--allow-tool=${COPILOT_SAFE_TOOLS}`,
-          ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra],
-        promptPrefix: cp.promptPrefix
+          ...(provider.model ? ['--model', provider.model] : []), ...copilotGithubMcpArgs(provider), ...cp.args, ...extra],
+        promptPrefix: cp.promptPrefix,
+        env: cp.env
       }
     case 'ollama':
       return { executable: provider.executable, args: ['run', provider.model || 'qwen3-coder', ...extra] }
@@ -111,6 +128,59 @@ function utilizationPercent(info: Dict): number | undefined {
   return Math.min(100, raw <= 1 ? raw * 100 : raw)
 }
 
+function timestampIso(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const time = Date.parse(value)
+    return Number.isFinite(time) ? new Date(time).toISOString() : undefined
+  }
+  const numeric = finiteNumber(value)
+  if (numeric === undefined) return undefined
+  return new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric).toISOString()
+}
+
+function inputTokens(usage: Dict | undefined): number | undefined {
+  if (!usage) return undefined
+  const values = [usage.input_tokens, usage.cache_creation_input_tokens, usage.cache_read_input_tokens]
+  if (!values.some((value) => finiteNumber(value) !== undefined)) return undefined
+  return values.reduce<number>((total, value) => total + (finiteNumber(value) ?? 0), 0)
+}
+
+interface ClaudeStreamState {
+  streamedText: boolean
+  thinking: string
+  model?: string
+  contextInputTokens?: number
+  contextOutputTokens: number
+  contextWindow?: number
+}
+
+function emitClaudeContext(handlers: StreamHandlers, state: ClaudeStreamState): void {
+  if (state.contextInputTokens === undefined) return
+  handlers.onContext?.({ tokens: state.contextInputTokens + state.contextOutputTokens, window: state.contextWindow })
+}
+
+function updateClaudeMessageContext(message: Dict | undefined, handlers: StreamHandlers, state: ClaudeStreamState): void {
+  const usage = message?.usage as Dict | undefined
+  const input = inputTokens(usage)
+  if (input === undefined) return
+  state.contextInputTokens = input
+  state.contextOutputTokens = finiteNumber(usage?.output_tokens) ?? 0
+  emitClaudeContext(handlers, state)
+}
+
+function modelContextWindow(modelUsage: Dict | undefined, model?: string): number | undefined {
+  if (!modelUsage) return undefined
+  const matching = model ? Object.entries(modelUsage).find(([name]) => canonicalModel(name) === model)?.[1] as Dict | undefined : undefined
+  const matchedWindow = finiteNumber(matching?.contextWindow ?? matching?.context_window)
+  if (matchedWindow && matchedWindow > 0) return matchedWindow
+  let largest: number | undefined
+  for (const entry of Object.values(modelUsage)) {
+    const window = finiteNumber((entry as Dict)?.contextWindow ?? (entry as Dict)?.context_window)
+    if (window && window > (largest ?? 0)) largest = window
+  }
+  return largest
+}
+
 // Model tags can carry suffixes like "[1m]" (1M-context). Show the canonical id.
 function canonicalModel(model: string): string {
   return model.replace(/\[[^\]]*\]\s*$/, '').trim()
@@ -134,22 +204,22 @@ function summarizeToolInput(input: unknown): string | undefined {
 
 // Parse one Claude Code stream-json line. Text is streamed incrementally via
 // content_block_delta; tool calls and thinking become activity events.
-export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { streamedText: boolean; thinking: string }): void {
+export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: ClaudeStreamState): void {
   const type = event.type
   if (type === 'system' && event.subtype === 'init') {
-    if (typeof event.model === 'string') handlers.onModel(canonicalModel(event.model))
+    if (typeof event.model === 'string') { state.model = canonicalModel(event.model); handlers.onModel(state.model) }
     if (typeof event.session_id === 'string') handlers.onSessionId?.(event.session_id)
     return
   }
   if (type === 'rate_limit_event') {
-    const info = event.rate_limit_info as Dict | undefined
+    const info = (event.rate_limit_info ?? event.rateLimitInfo) as Dict | undefined
     if (info) handlers.onSession?.({
-      resetsAt: typeof info.resetsAt === 'number' ? new Date(info.resetsAt * 1000).toISOString() : undefined,
-      overageResetsAt: typeof info.overageResetsAt === 'number' ? new Date(info.overageResetsAt * 1000).toISOString() : undefined,
-      usingOverage: typeof info.isUsingOverage === 'boolean' ? info.isUsingOverage : undefined,
-      status: typeof info.status === 'string' ? info.status : typeof info.overageStatus === 'string' ? info.overageStatus : undefined,
+      resetsAt: timestampIso(info.resetsAt ?? info.resets_at),
+      overageResetsAt: timestampIso(info.overageResetsAt ?? info.overage_resets_at),
+      usingOverage: typeof (info.isUsingOverage ?? info.is_using_overage) === 'boolean' ? Boolean(info.isUsingOverage ?? info.is_using_overage) : undefined,
+      status: typeof info.status === 'string' ? info.status : typeof (info.overageStatus ?? info.overage_status) === 'string' ? String(info.overageStatus ?? info.overage_status) : undefined,
       utilizationPercent: utilizationPercent(info),
-      limitType: typeof info.rateLimitType === 'string' ? info.rateLimitType.replaceAll('_', ' ') : undefined,
+      limitType: typeof (info.rateLimitType ?? info.rate_limit_type) === 'string' ? String(info.rateLimitType ?? info.rate_limit_type).replaceAll('_', ' ') : 'reported',
       updatedAt: new Date().toISOString()
     })
     return
@@ -159,7 +229,12 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { 
     const innerType = inner?.type
     if (innerType === 'message_start') {
       const message = inner?.message as Dict | undefined
-      if (typeof message?.model === 'string') handlers.onModel(canonicalModel(message.model))
+      if (typeof message?.model === 'string') { state.model = canonicalModel(message.model); handlers.onModel(state.model) }
+      updateClaudeMessageContext(message, handlers, state)
+    } else if (innerType === 'message_delta') {
+      const usage = inner?.usage as Dict | undefined
+      const output = finiteNumber(usage?.output_tokens)
+      if (output !== undefined) { state.contextOutputTokens = output; emitClaudeContext(handlers, state) }
     } else if (innerType === 'content_block_delta') {
       const delta = inner?.delta as Dict | undefined
       if (delta?.type === 'text_delta' && typeof delta.text === 'string') { state.streamedText = true; handlers.onText(delta.text) }
@@ -172,6 +247,7 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { 
   }
   if (type === 'assistant') {
     const message = event.message as Dict | undefined
+    updateClaudeMessageContext(message, handlers, state)
     const content = message?.content as Dict[] | undefined
     for (const block of content ?? []) {
       if (block.type === 'tool_use' && typeof block.name === 'string') {
@@ -183,16 +259,10 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: { 
   if (type === 'result') {
     const usage = event.usage as Dict | undefined
     if (usage) {
-      const input = Number(usage.input_tokens ?? 0) + Number(usage.cache_creation_input_tokens ?? 0) + Number(usage.cache_read_input_tokens ?? 0)
-      // The active model's context window (largest wins over sub-agent models).
-      let contextWindow: number | undefined
-      const modelUsage = event.modelUsage as Dict | undefined
-      if (modelUsage) for (const entry of Object.values(modelUsage)) {
-        const window = Number((entry as Dict)?.contextWindow ?? 0)
-        if (window > (contextWindow ?? 0)) contextWindow = window
-      }
-      handlers.onUsage?.({ inputTokens: input, outputTokens: Number(usage.output_tokens ?? 0), costUsd: Number(event.total_cost_usd ?? 0), contextTokens: input, contextWindow })
+      handlers.onUsage?.({ inputTokens: inputTokens(usage) ?? 0, outputTokens: finiteNumber(usage.output_tokens) ?? 0, costUsd: finiteNumber(event.total_cost_usd) ?? 0 })
     }
+    state.contextWindow = modelContextWindow(event.modelUsage as Dict | undefined, state.model)
+    emitClaudeContext(handlers, state)
     if (typeof event.result === 'string' && !state.streamedText) handlers.onText(event.result)
   }
 }
@@ -208,10 +278,10 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
       handlers.onUsage?.({
         inputTokens: input,
         outputTokens: Number(usage.output_tokens ?? 0),
-        costUsd: 0,
-        contextTokens: input,
-        contextWindow
+        costUsd: 0
       })
+      const explicitContext = finiteNumber(usage.context_tokens ?? usage.current_context_tokens ?? event.context_tokens)
+      if (explicitContext !== undefined) handlers.onContext?.({ tokens: explicitContext, window: contextWindow })
     }
   }
   if (event.type === 'item.completed' || event.type === 'item.updated') {
@@ -238,12 +308,13 @@ function consumeJsonLines(
   let usage: UsageSample | undefined
   let session: SessionInfo | undefined
   let sessionId: string | undefined
-  const state = { streamedText: false, thinking: '' }
+  const state: ClaudeStreamState = { streamedText: false, thinking: '', contextOutputTokens: 0 }
   const textHandlers: StreamHandlers = {
     onText: (text) => { output += text; handlers.onText(text) },
     onModel: (value) => { model = value; handlers.onModel(value) },
     onActivity: handlers.onActivity,
     onUsage: (value) => { usage = value; handlers.onUsage?.(value) },
+    onContext: (value) => { handlers.onContext?.(value) },
     onSession: (value) => { session = value; handlers.onSession?.(value) },
     onSessionId: (value) => { sessionId = value; handlers.onSessionId?.(value) }
   }
@@ -289,7 +360,7 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
     try {
       child = spawn(command.executable, command.args, {
         cwd: options.cwd,
-        env: process.env,
+        env: { ...process.env, ...(command.env ?? {}) },
         shell: false,
         windowsHide: true,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -304,6 +375,7 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
       onModel: (model) => options.onModel?.(model),
       onActivity: (event) => options.onActivity?.(event),
       onUsage: (usage) => options.onUsage?.(usage),
+      onContext: (context) => options.onContext?.(context),
       onSession: (session) => options.onSession?.(session),
       onSessionId: (sessionId) => options.onSessionId?.(sessionId)
     })

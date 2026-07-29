@@ -30,6 +30,7 @@ interface RunOptions {
   controlPlane?: ControlPlaneProfile
   // Resume a prior CLI session (Claude --resume) to continue in-context.
   resumeSessionId?: string
+  imagePaths?: string[]
 }
 
 export interface StreamHandlers {
@@ -61,12 +62,12 @@ export interface ProviderCommand {
   args: string[]
   env?: Record<string, string>
   promptInArgs?: boolean
-  // Context (e.g. system prompt) folded into the stdin prompt for CLIs that
-  // lack a native system-prompt flag.
+  // Context folded into stdin only for CLIs that lack a native
+  // system/developer-instruction channel.
   promptPrefix?: string
 }
 
-export function buildProviderCommand(provider: ProviderConfig, cwd: string, prompt: string, profile?: ControlPlaneProfile, resumeSessionId?: string): ProviderCommand {
+export function buildProviderCommand(provider: ProviderConfig, cwd: string, prompt: string, profile?: ControlPlaneProfile, resumeSessionId?: string, imagePaths: string[] = []): ProviderCommand {
   const extra = provider.args ?? []
   const cp = profile ? controlPlaneInjection(provider, profile) : { args: [] as string[], promptPrefix: undefined as string | undefined }
   const resume = resumeSessionId && provider.kind === 'claude' ? ['--resume', resumeSessionId] : []
@@ -75,7 +76,7 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
       return {
         executable: provider.executable,
         args: ['exec', '--json', '--color', 'never', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', cwd,
-          ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra, '-'],
+          ...(provider.model ? ['--model', provider.model] : []), ...imagePaths.flatMap((path) => ['--image', path]), ...cp.args, ...extra, '-'],
         promptPrefix: cp.promptPrefix,
         env: cp.env
       }
@@ -83,7 +84,7 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
       return {
         executable: provider.executable,
         args: ['exec', '--json', '--color', 'never', '--sandbox', 'workspace-write', '--skip-git-repo-check', '-C', cwd,
-          '--oss', '--local-provider', 'ollama', ...(provider.model ? ['--model', provider.model] : []), ...cp.args, ...extra, '-'],
+          '--oss', '--local-provider', 'ollama', ...(provider.model ? ['--model', provider.model] : []), ...imagePaths.flatMap((path) => ['--image', path]), ...cp.args, ...extra, '-'],
         promptPrefix: cp.promptPrefix,
         env: cp.env
       }
@@ -289,7 +290,15 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
     const at = new Date().toISOString()
     if (item?.type === 'agent_message' && typeof item.text === 'string') handlers.onText(item.text)
     else if (item?.type === 'command_execution' && typeof item.command === 'string') handlers.onActivity({ kind: 'tool', label: 'Shell', detail: condense(item.command, 120), at })
-    else if (item?.type === 'file_change') handlers.onActivity({ kind: 'tool', label: 'Edit', detail: typeof item.path === 'string' ? item.path : undefined, at })
+    else if (item?.type === 'file_change') {
+      const changes = Array.isArray(item.changes) ? item.changes as Dict[] : [item]
+      for (const change of changes) {
+        if (typeof change.path !== 'string') continue
+        const kind = String(change.kind ?? change.action ?? '').toLowerCase()
+        const label = kind.includes('add') || kind.includes('create') ? 'Write' : kind.includes('delete') || kind.includes('remove') ? 'Delete' : 'Edit'
+        handlers.onActivity({ kind: 'tool', label, detail: change.path, at })
+      }
+    }
     else if (item?.type === 'mcp_tool_call') handlers.onActivity({ kind: 'tool', label: typeof item.tool === 'string' ? item.tool : 'MCP', detail: typeof item.server === 'string' ? item.server : undefined, at })
     else if (item?.type === 'reasoning' && typeof item.text === 'string') handlers.onActivity({ kind: 'thinking', label: 'Thinking', detail: condense(item.text), at })
   }
@@ -353,7 +362,7 @@ function consumeJsonLines(
 }
 
 export async function runProvider(provider: ProviderConfig, options: RunOptions): Promise<ProviderRunResult> {
-  const command = buildProviderCommand(provider, options.cwd, options.prompt, options.controlPlane, options.resumeSessionId)
+  const command = buildProviderCommand(provider, options.cwd, options.prompt, options.controlPlane, options.resumeSessionId, options.imagePaths)
   return await new Promise((resolve) => {
     let settled = false
     let child: ChildProcessWithoutNullStreams

@@ -1,7 +1,7 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
 import { highlightSourceLine, parseUnifiedDiff } from './syntax'
-import type { AppSnapshot, ControlPlaneProfile, ConversationTurn, FileChange, McpServerConfig, McpTransport, ProviderConfig, ProxyTask, TaskAttempt, TaskFileContent } from '../../shared/types'
+import type { AppSnapshot, ChatContextItem, ControlPlaneProfile, ConversationTurn, FileChange, McpServerConfig, McpTransport, ProviderConfig, ProxyTask, SelectedImage, TaskAttempt, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
 
 let snapshot: AppSnapshot
 let selectedTaskId: string | undefined
@@ -17,6 +17,8 @@ let detailFileMode: 'diff' | 'source' = 'diff'
 let detailFileState: { taskId: string; path: string; version: string; file: TaskFileContent } | undefined
 let detailFileRequest = 0
 let detailFileLoadingKey: string | undefined
+let detailWorkspaceState: { taskId: string; version: string; workspace: TaskWorkspaceSnapshot } | undefined
+let detailWorkspaceLoadingKey: string | undefined
 // Avoids re-parsing markdown for a finished task on every unrelated snapshot.
 let lastBodyRender = { id: '', status: '', length: -1 }
 
@@ -24,6 +26,166 @@ const byId = <T extends HTMLElement>(id: string): T => document.getElementById(i
 const taskDialog = byId<HTMLDialogElement>('task-dialog')
 const commandPalette = byId<HTMLDialogElement>('command-palette')
 let commandPaletteIndex = 0
+
+interface ComposerDraft {
+  items: ChatContextItem[]
+  previews: Map<string, string>
+  mentionEntries: WorkspaceEntry[]
+  mentionIndex: number
+  mentionRange?: { start: number; end: number }
+  requestVersion: number
+}
+
+const composerDrafts = new Map<string, ComposerDraft>()
+const attachmentPreviewCache = new Map<string, string>()
+
+function composerDraft(inputId: string): ComposerDraft {
+  let draft = composerDrafts.get(inputId)
+  if (!draft) {
+    draft = { items: [], previews: new Map(), mentionEntries: [], mentionIndex: 0, requestVersion: 0 }
+    composerDrafts.set(inputId, draft)
+  }
+  return draft
+}
+
+function composerCwd(inputId: string): string | undefined {
+  if (inputId === 'prompt') return byId<HTMLInputElement>('cwd').value.trim() || undefined
+  const taskId = inputId === 'composer-input' ? selectedTaskId : detailTaskId
+  return snapshot?.tasks.find((task) => task.id === taskId)?.cwd
+}
+
+function renderDraftImages(inputId: string): void {
+  const draft = composerDraft(inputId)
+  const container = byId(`${inputId}-attachments`)
+  const images = draft.items.filter((item) => item.kind === 'image')
+  container.replaceChildren(...images.map((item) => {
+    const chip = document.createElement('div'); chip.className = 'composer-image-chip'; chip.title = item.name
+    const image = document.createElement('img'); image.alt = item.name; image.src = draft.previews.get(item.id) ?? ''
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `Remove ${item.name}`)
+    remove.addEventListener('click', () => {
+      draft.items = draft.items.filter((candidate) => candidate.id !== item.id)
+      draft.previews.delete(item.id)
+      renderDraftImages(inputId)
+    })
+    chip.append(image, remove); return chip
+  }))
+}
+
+function addImages(inputId: string, selected: SelectedImage[]): void {
+  const draft = composerDraft(inputId)
+  for (const item of selected) {
+    if (draft.items.length >= 12) { showToast('A message can include up to 12 context items'); break }
+    if (draft.items.some((candidate) => candidate.id === item.attachment.id)) continue
+    draft.items.push(item.attachment)
+    draft.previews.set(item.attachment.id, item.previewUrl)
+  }
+  renderDraftImages(inputId)
+}
+
+function fileDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the image.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function saveDroppedImages(inputId: string, files: File[]): Promise<void> {
+  const images = files.filter((file) => file.type.startsWith('image/'))
+  if (!images.length) return
+  try {
+    const selected: SelectedImage[] = []
+    for (const file of images.slice(0, 12)) selected.push(await window.frontier.savePastedImage({ dataUrl: await fileDataUrl(file), name: file.name }))
+    addImages(inputId, selected)
+  } catch (error) { reportError('Could not attach image', error) }
+}
+
+function closeMentions(inputId: string): void {
+  const draft = composerDraft(inputId)
+  draft.mentionEntries = []; draft.mentionRange = undefined; draft.mentionIndex = 0; draft.requestVersion += 1
+  byId(`${inputId}-mentions`).hidden = true
+}
+
+function selectMention(inputId: string, entry: WorkspaceEntry): void {
+  const input = byId<HTMLTextAreaElement>(inputId)
+  const draft = composerDraft(inputId)
+  if (!draft.mentionRange) return
+  const suffix = entry.kind === 'folder' ? '/' : ''
+  const insertion = `@${entry.path}${suffix} `
+  input.value = `${input.value.slice(0, draft.mentionRange.start)}${insertion}${input.value.slice(draft.mentionRange.end)}`
+  const caret = draft.mentionRange.start + insertion.length
+  input.setSelectionRange(caret, caret)
+  if (!draft.items.some((item) => item.kind === entry.kind && item.path === entry.path) && draft.items.length < 12) {
+    draft.items.push({ id: crypto.randomUUID(), kind: entry.kind, name: entry.name, path: entry.path })
+  }
+  closeMentions(inputId)
+  input.focus()
+}
+
+function renderMentions(inputId: string): void {
+  const draft = composerDraft(inputId)
+  const menu = byId(`${inputId}-mentions`)
+  const nodes = draft.mentionEntries.map((entry, index) => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = `composer-mention ${index === draft.mentionIndex ? 'selected' : ''}`
+    button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(index === draft.mentionIndex))
+    const icon = document.createElement('span'); icon.className = 'composer-mention-icon'; icon.textContent = entry.kind === 'folder' ? '▱' : '◇'
+    const copy = document.createElement('span'); copy.className = 'composer-mention-copy'
+    const name = document.createElement('strong'); name.textContent = entry.name
+    const path = document.createElement('small'); path.textContent = entry.path
+    copy.append(name, path); button.append(icon, copy)
+    button.addEventListener('mousedown', (event) => { event.preventDefault(); selectMention(inputId, entry) })
+    return button
+  })
+  if (!nodes.length) { const empty = document.createElement('div'); empty.className = 'composer-mention-empty'; empty.textContent = 'No matching files or folders'; menu.replaceChildren(empty) }
+  else menu.replaceChildren(...nodes)
+  menu.hidden = false
+}
+
+async function refreshMentions(inputId: string): Promise<void> {
+  const input = byId<HTMLTextAreaElement>(inputId)
+  const caret = input.selectionStart ?? input.value.length
+  const before = input.value.slice(0, caret)
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(before)
+  if (!match) { closeMentions(inputId); return }
+  const cwd = composerCwd(inputId)
+  const menu = byId(`${inputId}-mentions`)
+  if (!cwd) {
+    const empty = document.createElement('div'); empty.className = 'composer-mention-empty'; empty.textContent = 'Choose a working folder first'
+    menu.replaceChildren(empty); menu.hidden = false; return
+  }
+  const draft = composerDraft(inputId)
+  const version = ++draft.requestVersion
+  draft.mentionRange = { start: caret - match[1].length - 1, end: caret }
+  try {
+    const entries = await window.frontier.listWorkspaceEntries(cwd, match[1].trim())
+    if (draft.requestVersion !== version) return
+    draft.mentionEntries = entries; draft.mentionIndex = 0; renderMentions(inputId)
+  } catch (error) {
+    closeMentions(inputId)
+    reportError('Could not list project files', error)
+  }
+}
+
+function handleMentionKeydown(inputId: string, event: KeyboardEvent): boolean {
+  const draft = composerDraft(inputId)
+  const menu = byId(`${inputId}-mentions`)
+  if (menu.hidden || !draft.mentionEntries.length) return false
+  if (event.key === 'ArrowDown') { event.preventDefault(); draft.mentionIndex = Math.min(draft.mentionEntries.length - 1, draft.mentionIndex + 1); renderMentions(inputId); return true }
+  if (event.key === 'ArrowUp') { event.preventDefault(); draft.mentionIndex = Math.max(0, draft.mentionIndex - 1); renderMentions(inputId); return true }
+  if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); selectMention(inputId, draft.mentionEntries[draft.mentionIndex]); return true }
+  if (event.key === 'Escape') { event.preventDefault(); closeMentions(inputId); return true }
+  return false
+}
+
+function messageContext(inputId: string, message: string): ChatContextItem[] {
+  return composerDraft(inputId).items.filter((item) => item.kind === 'image' || message.includes(`@${item.path}`))
+}
+
+function clearComposerDraft(inputId: string): void {
+  const draft = composerDraft(inputId)
+  draft.items = []; draft.previews.clear(); closeMentions(inputId); renderDraftImages(inputId)
+}
 
 interface CommandPaletteEntry {
   icon: string
@@ -128,7 +290,8 @@ function taskIsBusy(task: ProxyTask): boolean {
 function renderComposerState(task: ProxyTask, input: HTMLTextAreaElement, button: HTMLButtonElement): void {
   const busy = taskIsBusy(task)
   input.disabled = busy
-  input.placeholder = busy ? 'Working…' : 'Continue the conversation…'
+  input.placeholder = busy ? 'Working…' : 'Continue the conversation…  @ to add files'
+  input.closest('.composer-draft')?.querySelectorAll<HTMLButtonElement>('.composer-attach').forEach((control) => { control.disabled = busy })
   button.disabled = false
   button.textContent = busy ? 'Cancel' : 'Send'
   button.classList.toggle('cancel-button', busy)
@@ -360,6 +523,29 @@ function renderActivity(task: ProxyTask): void {
   if (task.status === 'running') container.scrollTop = container.scrollHeight
 }
 
+function appendTurnAttachments(taskId: string, body: HTMLElement, attachments: ChatContextItem[] = []): void {
+  if (!attachments.length) return
+  const container = document.createElement('div'); container.className = 'turn-attachments'
+  for (const attachment of attachments) {
+    if (attachment.kind === 'image') {
+      const image = document.createElement('img'); image.className = 'turn-image'; image.alt = attachment.name; image.title = attachment.name
+      container.append(image)
+      const key = `${taskId}:${attachment.id}`
+      const cached = attachmentPreviewCache.get(key)
+      if (cached) image.src = cached
+      else void window.frontier.getAttachmentPreview(taskId, attachment.id)
+        .then((preview) => { attachmentPreviewCache.set(key, preview); if (image.isConnected) image.src = preview })
+        .catch(() => { image.alt = `${attachment.name} (preview unavailable)` })
+    } else {
+      const reference = document.createElement('span'); reference.className = 'turn-reference'; reference.title = attachment.path
+      const icon = document.createElement('span'); icon.textContent = attachment.kind === 'folder' ? '▱' : '◇'
+      const path = document.createElement('span'); path.textContent = `@${attachment.path}${attachment.kind === 'folder' ? '/' : ''}`
+      reference.append(icon, path); container.append(reference)
+    }
+  }
+  body.append(container)
+}
+
 function renderOutputBody(task: ProxyTask): void {
   const output = byId<HTMLDivElement>('output-content')
   const streaming = task.status === 'running' || task.status === 'queued'
@@ -393,6 +579,7 @@ function renderOutputBody(task: ProxyTask): void {
     else if (live) { body.classList.add('streaming'); body.textContent = content || 'Working…' }
     else if (content.trim()) { body.classList.add('markdown'); body.appendChild(renderMarkdown(content)) }
     else { body.textContent = turn.status === 'failed' ? (task.error ?? 'Failed.') : '—' }
+    if (turn.role === 'user') appendTurnAttachments(task.id, body, turn.attachments)
     block.append(head, body)
     fragment.appendChild(block)
   })
@@ -1032,6 +1219,7 @@ function renderTaskDetailThread(task: ProxyTask): void {
     if (turn.role === 'user' || live) body.textContent = content || (live ? 'Working…' : '')
     else if (content.trim()) body.appendChild(renderMarkdown(content))
     else body.textContent = turn.status === 'failed' ? (task.error ?? 'Failed.') : '—'
+    if (turn.role === 'user') appendTurnAttachments(task.id, body, turn.attachments)
     block.append(head, body); fragment.append(block)
   }
   if (task.error && !streaming) { const error = document.createElement('div'); error.className = 'output-error'; error.textContent = task.error; fragment.append(error) }
@@ -1090,10 +1278,14 @@ function renderTaskFileViewer(file?: TaskFileContent): void {
   const code = byId('task-file-code')
   const modes = byId('task-file-mode')
   modes.hidden = !file
-  modes.querySelectorAll('button').forEach((button) => button.classList.toggle('active', (button as HTMLElement).dataset.fileMode === detailFileMode))
+  modes.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+    const isDiff = button.dataset.fileMode === 'diff'
+    button.disabled = isDiff && !file?.diff.trim()
+    button.classList.toggle('active', button.dataset.fileMode === detailFileMode)
+  })
   if (!file) {
-    title.textContent = 'Select a changed file'; language.textContent = 'SOURCE'
-    notice.hidden = false; notice.textContent = 'Choose a file to inspect its current source and working-tree changes.'
+    title.textContent = 'Select a file'; language.textContent = 'SOURCE'
+    notice.hidden = false; notice.textContent = 'Choose any project file. Changed files are marked in the workspace tree.'
     code.replaceChildren(); return
   }
   title.textContent = file.relativePath; language.textContent = file.language.toUpperCase()
@@ -1117,10 +1309,9 @@ function renderTaskFileViewer(file?: TaskFileContent): void {
   }
 }
 
-async function loadDetailFile(task: ProxyTask, change: FileChange): Promise<void> {
-  const version = change.at
-  const key = `${task.id}:${change.path}:${version}`
-  if (detailFileState?.taskId === task.id && detailFileState.path === change.path && detailFileState.version === version) {
+async function loadDetailFile(task: ProxyTask, path: string, version: string): Promise<void> {
+  const key = `${task.id}:${path}:${version}`
+  if (detailFileState?.taskId === task.id && detailFileState.path === path && detailFileState.version === version) {
     renderTaskFileViewer(detailFileState.file); return
   }
   if (detailFileLoadingKey === key) return
@@ -1129,9 +1320,9 @@ async function loadDetailFile(task: ProxyTask, change: FileChange): Promise<void
   const notice = byId('task-file-notice'); notice.hidden = false; notice.textContent = 'Loading file…'
   byId('task-file-code').replaceChildren()
   try {
-    const file = await window.frontier.readTaskFile(task.id, change.path)
-    if (request !== detailFileRequest || detailTaskId !== task.id || detailFilePath !== change.path) return
-    detailFileState = { taskId: task.id, path: change.path, version, file }
+    const file = await window.frontier.readTaskFile(task.id, path)
+    if (request !== detailFileRequest || detailTaskId !== task.id || detailFilePath !== path) return
+    detailFileState = { taskId: task.id, path, version, file }
     renderTaskFileViewer(file)
   } catch (error) {
     if (request !== detailFileRequest) return
@@ -1139,28 +1330,103 @@ async function loadDetailFile(task: ProxyTask, change: FileChange): Promise<void
   } finally { if (detailFileLoadingKey === key) detailFileLoadingKey = undefined }
 }
 
+function taskWorkspaceVersion(task: ProxyTask): string {
+  return (task.filesChanged ?? []).map((change) => `${change.path}:${change.action}:${change.at}`).join('|')
+}
+
+async function loadDetailWorkspace(task: ProxyTask, version: string): Promise<void> {
+  const key = `${task.id}:${version}`
+  if (detailWorkspaceLoadingKey === key) return
+  detailWorkspaceLoadingKey = key
+  try {
+    const workspace = await window.frontier.getTaskWorkspace(task.id)
+    if (detailTaskId !== task.id || taskWorkspaceVersion(task) !== version) return
+    detailWorkspaceState = { taskId: task.id, version, workspace }
+    if (detailTab === 'files') renderTaskDetailFiles(task)
+  } catch (error) {
+    if (detailTaskId === task.id) {
+      const empty = document.createElement('div'); empty.className = 'detail-empty'; empty.textContent = errorMessage(error)
+      byId('task-detail-file-list').replaceChildren(empty)
+    }
+  } finally { if (detailWorkspaceLoadingKey === key) detailWorkspaceLoadingKey = undefined }
+}
+
 function renderTaskDetailFiles(task: ProxyTask): void {
-  const changes = task.filesChanged ?? []
+  const version = taskWorkspaceVersion(task)
+  const loaded = detailWorkspaceState?.taskId === task.id && detailWorkspaceState.version === version
+    ? detailWorkspaceState.workspace : undefined
+  if (!loaded) {
+    const loading = document.createElement('div'); loading.className = 'detail-empty'; loading.textContent = 'Loading project files…'
+    byId('task-detail-file-list').replaceChildren(loading)
+    renderTaskFileViewer()
+    void loadDetailWorkspace(task, version)
+    return
+  }
+  const changes = loaded.changes
   byId('task-detail-file-count').textContent = String(changes.length)
   const list = byId('task-detail-file-list')
-  if (!changes.length) {
-    const empty = document.createElement('div'); empty.className = 'detail-empty'; empty.textContent = 'No changed files were recorded for this task.'
+  const summary = byId('task-file-sidebar-summary')
+  summary.textContent = `${loaded.entries.filter((entry) => entry.kind === 'file').length} files · ${changes.length} changed`
+
+  const entries = new Map(loaded.entries.map((entry) => [entry.path, entry]))
+  for (const change of changes) {
+    const parts = change.path.split('/')
+    for (let index = 1; index < parts.length; index += 1) {
+      const folderPath = parts.slice(0, index).join('/')
+      if (!entries.has(folderPath)) entries.set(folderPath, { kind: 'folder', name: parts[index - 1], path: folderPath })
+    }
+    if (!entries.has(change.path)) entries.set(change.path, { kind: 'file', name: baseName(change.path), path: change.path })
+  }
+  const allEntries = [...entries.values()]
+  const files = allEntries.filter((entry) => entry.kind === 'file')
+  if (!files.length) {
+    const empty = document.createElement('div'); empty.className = 'detail-empty'; empty.textContent = 'This project folder has no files to display.'
     list.replaceChildren(empty); detailFilePath = undefined; renderTaskFileViewer(); return
   }
-  if (!detailFilePath || !changes.some((change) => change.path === detailFilePath)) detailFilePath = changes[0].path
-  const rows = changes.map((change) => {
-    const button = document.createElement('button'); button.className = `task-detail-file ${change.path === detailFilePath ? 'active' : ''}`
-    const badge = document.createElement('span'); badge.className = `file-badge ${change.action}`; badge.textContent = change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT'
-    const body = document.createElement('span')
-    const name = document.createElement('strong'); name.textContent = baseName(change.path)
-    const path = document.createElement('small'); path.textContent = change.path
-    body.append(name, path); button.append(badge, body)
-    button.addEventListener('click', () => { detailFilePath = change.path; detailFileState = undefined; renderTaskDetailFiles(task) })
-    return button
-  })
+  const changeByPath = new Map(changes.map((change) => [change.path, change]))
+  if (!detailFilePath || !entries.has(detailFilePath) || entries.get(detailFilePath)?.kind !== 'file') {
+    detailFilePath = changes[0]?.path ?? files[0].path
+  }
+  const children = new Map<string, WorkspaceEntry[]>()
+  for (const entry of allEntries) {
+    const separator = entry.path.lastIndexOf('/')
+    const parent = separator === -1 ? '' : entry.path.slice(0, separator)
+    const siblings = children.get(parent) ?? []
+    siblings.push(entry); children.set(parent, siblings)
+  }
+  for (const siblings of children.values()) siblings.sort((left, right) => Number(right.kind === 'folder') - Number(left.kind === 'folder') || left.name.localeCompare(right.name))
+  const rows: HTMLElement[] = []
+  const appendRows = (parent: string, depth: number): void => {
+    for (const entry of children.get(parent) ?? []) {
+      if (entry.kind === 'folder') {
+        const folder = document.createElement('div'); folder.className = 'task-detail-folder'; folder.style.setProperty('--tree-depth', String(depth))
+        const icon = document.createElement('span'); icon.textContent = '▾'
+        const name = document.createElement('strong'); name.textContent = entry.name
+        folder.append(icon, name); rows.push(folder); appendRows(entry.path, depth + 1); continue
+      }
+      const change = changeByPath.get(entry.path)
+      const button = document.createElement('button'); button.className = `task-detail-file ${change ? 'changed' : ''} ${entry.path === detailFilePath ? 'active' : ''}`
+      button.style.setProperty('--tree-depth', String(depth))
+      const badge = document.createElement('span')
+      if (change) {
+        badge.className = `file-badge ${change.action}`
+        badge.textContent = change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT'
+      } else { badge.className = 'file-tree-icon'; badge.textContent = '·' }
+      const body = document.createElement('span')
+      const name = document.createElement('strong'); name.textContent = entry.name
+      const path = document.createElement('small'); path.textContent = entry.path
+      body.append(name, path); button.append(badge, body)
+      button.addEventListener('click', () => {
+        detailFilePath = entry.path; detailFileMode = change ? 'diff' : 'source'; detailFileState = undefined; renderTaskDetailFiles(task)
+      })
+      rows.push(button)
+    }
+  }
+  appendRows('', 0)
   list.replaceChildren(...rows)
-  const selected = changes.find((change) => change.path === detailFilePath)
-  if (selected) void loadDetailFile(task, selected)
+  const selectedChange = changes.find((change) => change.path === detailFilePath)
+  if (!selectedChange && detailFileMode === 'diff') detailFileMode = 'source'
+  if (detailFilePath) void loadDetailFile(task, detailFilePath, selectedChange?.at ?? (version || 'workspace'))
 }
 
 function renderTaskDetailActions(task: ProxyTask): void {
@@ -1219,7 +1485,7 @@ function renderTaskDetail(): void {
 function openTaskDetail(taskId: string): void {
   selectedTaskId = taskId
   if (detailTaskId !== taskId) {
-    detailTaskId = taskId; detailTab = 'conversation'; detailInspectorOpen = false; detailFilePath = undefined; detailFileState = undefined; detailFileRequest += 1
+    detailTaskId = taskId; detailTab = 'conversation'; detailInspectorOpen = false; detailFilePath = undefined; detailFileState = undefined; detailWorkspaceState = undefined; detailFileRequest += 1
   }
   switchView('task-detail')
 }
@@ -1415,6 +1681,39 @@ window.addEventListener('keydown', (event) => {
   })
 })()
 
+for (const inputId of ['composer-input', 'task-detail-composer-input', 'prompt']) {
+  const input = byId<HTMLTextAreaElement>(inputId)
+  const attach = document.querySelector<HTMLButtonElement>(`.composer-attach[data-composer-input="${inputId}"]`)
+  attach?.addEventListener('click', async () => {
+    attach.disabled = true
+    try { addImages(inputId, await window.frontier.chooseImages()) }
+    catch (error) { reportError('Could not attach image', error) }
+    finally { attach.disabled = false; input.focus() }
+  })
+  input.addEventListener('input', () => {
+    const draft = composerDraft(inputId)
+    draft.items = draft.items.filter((item) => item.kind === 'image' || input.value.includes(`@${item.path}`))
+    void refreshMentions(inputId)
+  })
+  input.addEventListener('click', () => { void refreshMentions(inputId) })
+  input.addEventListener('keydown', (event) => { if (handleMentionKeydown(inputId, event)) event.stopImmediatePropagation() })
+  input.addEventListener('blur', () => window.setTimeout(() => closeMentions(inputId), 120))
+  input.addEventListener('paste', (event) => {
+    const files = [...(event.clipboardData?.files ?? [])]
+    if (!files.some((file) => file.type.startsWith('image/'))) return
+    event.preventDefault(); void saveDroppedImages(inputId, files)
+  })
+  const draft = input.closest<HTMLElement>('.composer-draft')
+  draft?.addEventListener('dragover', (event) => { if ([...(event.dataTransfer?.items ?? [])].some((item) => item.type.startsWith('image/'))) { event.preventDefault(); draft.classList.add('dragging') } })
+  draft?.addEventListener('dragleave', () => draft.classList.remove('dragging'))
+  draft?.addEventListener('drop', (event) => {
+    draft.classList.remove('dragging')
+    const files = [...(event.dataTransfer?.files ?? [])]
+    if (!files.some((file) => file.type.startsWith('image/'))) return
+    event.preventDefault(); void saveDroppedImages(inputId, files)
+  })
+}
+
 async function handleComposerAction(taskId: string | undefined, inputId: string, buttonId: string): Promise<void> {
   if (!taskId) return
   const task = snapshot.tasks.find((item) => item.id === taskId)
@@ -1434,17 +1733,31 @@ async function handleComposerAction(taskId: string | undefined, inputId: string,
   }
 
   const text = input.value.trim()
-  if (!text) return
+  const attachments = messageContext(inputId, text)
+  if (!text && !attachments.length) return
+  const draft = composerDraft(inputId)
+  const savedItems = [...draft.items]
+  const savedPreviews = new Map(draft.previews)
   // Clear the submitted draft immediately. The user turn remains in the thread,
   // while the composer becomes the active task's Cancel control.
   input.value = ''
+  for (const attachment of attachments) {
+    const preview = savedPreviews.get(attachment.id)
+    if (preview) attachmentPreviewCache.set(`${taskId}:${attachment.id}`, preview)
+  }
+  clearComposerDraft(inputId)
   input.disabled = true
   button.disabled = true
   try {
     await persistControlPlaneDraft()
-    await window.frontier.continueTask(taskId, text)
+    await window.frontier.continueTask(taskId, text, attachments)
   } catch (error) {
     if (!input.value) input.value = text
+    if (!composerDraft(inputId).items.length) {
+      composerDraft(inputId).items = savedItems
+      composerDraft(inputId).previews = savedPreviews
+      renderDraftImages(inputId)
+    }
     reportError('Could not continue the conversation', error)
   } finally {
     const latest = snapshot.tasks.find((item) => item.id === taskId)
@@ -1563,20 +1876,27 @@ byId<HTMLFormElement>('task-form').addEventListener('submit', async (event) => {
   const errorNode = byId('form-error'); errorNode.textContent = ''
   try {
     await persistControlPlaneDraft()
+    const prompt = byId<HTMLTextAreaElement>('prompt').value
     const task = await window.frontier.createTask({
-      prompt: byId<HTMLTextAreaElement>('prompt').value,
+      prompt,
       cwd: byId<HTMLInputElement>('cwd').value,
       mode: byId<HTMLSelectElement>('routing-mode').value as 'balanced' | 'quality' | 'saver',
       preferredProviderId: byId<HTMLSelectElement>('provider-override').value || undefined,
       model: selectedModel(),
-      orchestrate: byId<HTMLInputElement>('task-orchestrate').checked
+      orchestrate: byId<HTMLInputElement>('task-orchestrate').checked,
+      attachments: messageContext('prompt', prompt)
     })
+    for (const item of composerDraft('prompt').items) {
+      const preview = composerDraft('prompt').previews.get(item.id)
+      if (preview) attachmentPreviewCache.set(`${task.id}:${item.id}`, preview)
+    }
     selectedTaskId = task.id
     byId<HTMLTextAreaElement>('prompt').value = ''
     byId<HTMLSelectElement>('task-model-select').value = ''
     byId<HTMLInputElement>('task-model').value = ''
     byId<HTMLInputElement>('task-model').hidden = true
     byId<HTMLInputElement>('task-orchestrate').checked = false
+    clearComposerDraft('prompt')
     taskDialog.close()
     switchView('tasks')
   } catch (error) { errorNode.textContent = error instanceof Error ? error.message : String(error) }

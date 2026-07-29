@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, StreamEvent, TaskFileContent } from '../shared/types'
+import type { AppSettings, AppSnapshot, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
@@ -7,8 +7,13 @@ const api: FrontierApi = {
   cancelTask: (taskId: string) => ipcRenderer.invoke('frontier:cancel-task', taskId) as Promise<void>,
   retryTask: (taskId: string) => ipcRenderer.invoke('frontier:retry-task', taskId) as Promise<ProxyTask>,
   changeTaskProvider: (taskId: string, providerId: string) => ipcRenderer.invoke('frontier:change-task-provider', taskId, providerId) as Promise<ProxyTask>,
-  continueTask: (taskId: string, message: string) => ipcRenderer.invoke('frontier:continue-task', taskId, message) as Promise<ProxyTask>,
+  continueTask: (taskId: string, message: string, attachments?: ChatContextItem[]) => ipcRenderer.invoke('frontier:continue-task', taskId, message, attachments) as Promise<ProxyTask>,
   readTaskFile: (taskId: string, path: string) => ipcRenderer.invoke('frontier:read-task-file', taskId, path) as Promise<TaskFileContent>,
+  getTaskWorkspace: (taskId: string) => ipcRenderer.invoke('frontier:task-workspace', taskId) as Promise<TaskWorkspaceSnapshot>,
+  listWorkspaceEntries: (cwd: string, query: string) => ipcRenderer.invoke('frontier:list-workspace-entries', cwd, query) as Promise<WorkspaceEntry[]>,
+  chooseImages: () => ipcRenderer.invoke('frontier:choose-images') as Promise<SelectedImage[]>,
+  savePastedImage: (input: { dataUrl: string; name?: string }) => ipcRenderer.invoke('frontier:save-pasted-image', input) as Promise<SelectedImage>,
+  getAttachmentPreview: (taskId: string, attachmentId: string) => ipcRenderer.invoke('frontier:attachment-preview', taskId, attachmentId) as Promise<string>,
   clearFinishedTasks: () => ipcRenderer.invoke('frontier:clear-finished') as Promise<void>,
   checkProviders: () => ipcRenderer.invoke('frontier:check-providers') as Promise<AppSnapshot>,
   updateProvider: (patch: ProviderPatch) => ipcRenderer.invoke('frontier:update-provider', patch) as Promise<AppSnapshot>,

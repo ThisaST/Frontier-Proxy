@@ -3,7 +3,8 @@ import type { ControlPlaneProfile, McpServerConfig, ProviderConfig } from '../sh
 export interface ControlPlaneInjection {
   // Extra CLI flags to splice into the provider command.
   args: string[]
-  // Text to prepend to the stdin prompt for CLIs without a system-prompt flag.
+  // Text to prepend to the stdin prompt only for CLIs without a native
+  // system/developer-instruction channel.
   promptPrefix?: string
   // Per-run secrets referenced by MCP config placeholders. These are passed
   // only to the provider process and never written to provider config files.
@@ -240,8 +241,13 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
     case 'codex':
     case 'codex-oss': {
       // Tool scope is governed by Codex's sandbox mode. Shared MCP servers are
-      // layered over config.toml for this invocation only.
-      return withEnvironment({ args: codexMcpArgs(profile, environment), promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile)) })
+      // layered over config.toml for this invocation only. Keep Frontier's
+      // context out of the user prompt and put it in Codex's native developer
+      // instruction channel so the model receives it with the correct role.
+      const args = codexMcpArgs(profile, environment)
+      const developerInstructions = joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile))
+      if (developerInstructions) args.push('-c', `developer_instructions=${tomlString(developerInstructions)}`)
+      return withEnvironment({ args })
     }
     default:
       // ollama / custom: no agent tool surface to configure centrally.

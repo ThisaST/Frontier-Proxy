@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -90,5 +90,31 @@ describe('conversation provider selection', () => {
     expect(continued.output).toContain('First Provider (model-one, cancelled): Earlier answer')
     expect(continued.output).toContain('User: New question')
     expect(continued.output).toContain('Full conversation history transferred by Frontier')
+  })
+
+  it('persists @ references and includes their resolved workspace context', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-context-'))
+    await writeFile(join(directory, 'notes.md'), '# Notes', 'utf8')
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [provider('first', 1, ['-e', 'process.stdin.pipe(process.stdout)'])]
+    const task: ProxyTask = {
+      id: 'referenced-conversation', prompt: 'Initial question', cwd: directory, mode: 'balanced', type: 'general',
+      status: 'completed', selectedProviderId: 'first', createdAt: new Date().toISOString(), output: 'Done', attempts: [],
+      estimatedInputTokens: 4, estimatedOutputTokens: 1,
+      turns: [
+        { id: 'user-1', role: 'user', content: 'Initial question', at: new Date().toISOString() },
+        { id: 'assistant-1', role: 'assistant', content: 'Done', providerId: 'first', status: 'completed', at: new Date().toISOString() }
+      ]
+    }
+    await store.save({ settings, tasks: [task] })
+    const engine = new OrchestrationEngine(store)
+    await engine.initialize()
+
+    const continued = await engine.continueTask(task.id, 'Review @notes.md', [{ id: 'ref-1', kind: 'file', name: 'notes.md', path: 'notes.md' }])
+    expect(continued.turns?.at(-2)?.attachments).toEqual([{ id: 'ref-1', kind: 'file', name: 'notes.md', path: 'notes.md' }])
+    expect(continued.output).toContain('[Referenced workspace items]')
+    expect(continued.output).toContain('file: @notes.md')
+    expect(continued.output).toContain(join(directory, 'notes.md'))
   })
 })

@@ -9,6 +9,12 @@ function custom(args: string[]): ProviderConfig {
   }
 }
 
+function codexDeveloperInstructions(args: string[]): string | undefined {
+  const prefix = 'developer_instructions='
+  const argument = args.find((value) => value.startsWith(prefix))
+  return argument ? JSON.parse(argument.slice(prefix.length)) as string : undefined
+}
+
 describe('local provider process adapter', () => {
   it('builds a non-interactive Copilot command with scoped permissions', () => {
     const provider: ProviderConfig = {
@@ -70,8 +76,22 @@ describe('local provider process adapter', () => {
     expect(command.args).toContain('-c')
     expect(command.args).toContain('mcp_servers.supabase={ url = "https://mcp.supabase.com/mcp?project_ref=example&read_only=true&features=database", http_headers = { }, env_http_headers = { }, default_tools_approval_mode = "approve", enabled = true }')
     expect(command.args.at(-1)).toBe('-')
-    expect(command.promptPrefix).toContain('"supabase" (http)')
-    expect(command.promptPrefix).toContain('Do not install or re-register these servers')
+    expect(command.promptPrefix).toBeUndefined()
+    const developerInstructions = codexDeveloperInstructions(command.args)
+    expect(developerInstructions).toContain('"supabase" (http)')
+    expect(developerInstructions).toContain('Do not install or re-register these servers')
+  })
+
+  it('passes attached images to Codex as native vision inputs', () => {
+    const codex: ProviderConfig = {
+      id: 'codex', name: 'Codex', kind: 'codex', enabled: true, executable: 'codex',
+      priority: 1, maxConcurrent: 1, capabilities: ['coding']
+    }
+    const command = buildProviderCommand(codex, '/workspace', 'inspect these', undefined, undefined, ['/tmp/one.png', '/tmp/two.jpg'])
+    expect(command.args).toContain('--image')
+    expect(command.args).toContain('/tmp/one.png')
+    expect(command.args).toContain('/tmp/two.jpg')
+    expect(command.args.at(-1)).toBe('-')
   })
 
   it.each(['claude', 'copilot'] as const)('includes and permits a shared Supabase MCP server in the launched %s command', (kind) => {

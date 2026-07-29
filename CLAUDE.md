@@ -53,8 +53,10 @@ unit-tested function (`tests/controlplane.test.ts`). Per CLI:
   and each enabled server name is added to `--allow-tool` for headless execution.
 - **Codex / Codex + Ollama**: stdio and Streamable HTTP MCP servers are supplied as
   per-invocation `-c 'mcp_servers.<name>={...}'` overrides; the shared system prompt
-  is folded into stdin via `promptPrefix`. Legacy SSE servers are not injected because
-  Codex does not support that transport. Names containing characters outside letters,
+  and MCP session notice are supplied through Codex's native per-invocation
+  `developer_instructions` config, preserving their developer role instead of folding
+  them into the user prompt. Legacy SSE servers are not injected because Codex does not
+  support that transport. Names containing characters outside letters,
   digits, `_`, and `-` receive a stable Codex-only alias because the CLI's dotted
   override parser cannot address quoted TOML key segments. Enabled servers use Codex's
   per-server `default_tools_approval_mode = "approve"` so MCP calls work headlessly.

@@ -158,6 +158,33 @@ export interface TaskFileContent {
   truncated: boolean
 }
 
+export interface TaskWorkspaceSnapshot {
+  entries: WorkspaceEntry[]
+  changes: FileChange[]
+}
+
+// User-supplied context attached to a chat turn. Workspace references keep a
+// path relative to the task root; images keep the absolute path selected by
+// the user so provider CLIs can receive them as native vision inputs.
+export interface ChatContextItem {
+  id: string
+  kind: 'image' | 'file' | 'folder'
+  name: string
+  path: string
+  mimeType?: string
+}
+
+export interface WorkspaceEntry {
+  kind: 'file' | 'folder'
+  name: string
+  path: string
+}
+
+export interface SelectedImage {
+  attachment: ChatContextItem
+  previewUrl: string
+}
+
 // One turn in a task's ongoing conversation. Tasks are multi-turn: after the
 // first result you can send follow-up messages that continue in-context.
 export interface ConversationTurn {
@@ -167,6 +194,7 @@ export interface ConversationTurn {
   providerId?: string
   model?: string
   status?: TaskStatus
+  attachments?: ChatContextItem[]
   at: string
 }
 
@@ -255,6 +283,7 @@ export interface CreateTaskInput {
   model?: string
   // Run as a multi-provider orchestration (planner decomposes → delegates → synthesizes).
   orchestrate?: boolean
+  attachments?: ChatContextItem[]
 }
 
 export interface ProviderPatch {
@@ -274,8 +303,13 @@ export interface FrontierApi {
   cancelTask(taskId: string): Promise<void>
   retryTask(taskId: string): Promise<ProxyTask>
   changeTaskProvider(taskId: string, providerId: string): Promise<ProxyTask>
-  continueTask(taskId: string, message: string): Promise<ProxyTask>
+  continueTask(taskId: string, message: string, attachments?: ChatContextItem[]): Promise<ProxyTask>
   readTaskFile(taskId: string, path: string): Promise<TaskFileContent>
+  getTaskWorkspace(taskId: string): Promise<TaskWorkspaceSnapshot>
+  listWorkspaceEntries(cwd: string, query: string): Promise<WorkspaceEntry[]>
+  chooseImages(): Promise<SelectedImage[]>
+  savePastedImage(input: { dataUrl: string; name?: string }): Promise<SelectedImage>
+  getAttachmentPreview(taskId: string, attachmentId: string): Promise<string>
   clearFinishedTasks(): Promise<void>
   checkProviders(): Promise<AppSnapshot>
   updateProvider(patch: ProviderPatch): Promise<AppSnapshot>

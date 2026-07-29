@@ -6,6 +6,12 @@ function provider(kind: ProviderConfig['kind'], extra: Partial<ProviderConfig> =
   return { id: kind, name: kind, kind, enabled: true, executable: kind, priority: 1, maxConcurrent: 1, capabilities: ['coding'], ...extra }
 }
 
+function codexDeveloperInstructions(args: string[]): string | undefined {
+  const prefix = 'developer_instructions='
+  const argument = args.find((value) => value.startsWith(prefix))
+  return argument ? JSON.parse(argument.slice(prefix.length)) as string : undefined
+}
+
 const profile: ControlPlaneProfile = {
   systemPrompt: 'Prefer pnpm.',
   addDirs: ['C:/docs'],
@@ -82,16 +88,19 @@ describe('control plane translation', () => {
     const headerEnvironment = Object.entries(injection.env ?? {}).find(([, value]) => value === 'Bearer token')
     expect(headerEnvironment).toBeDefined()
     const [headerVariable] = headerEnvironment!
-    expect(injection.args).toEqual([
+    expect(injection.args.slice(0, 4)).toEqual([
       '-c', 'mcp_servers.frontier_local_tools_600ecdd={ command = "npx", args = ["-y", "mcp-files"], env = { "API_KEY" = "secret" }, env_vars = [], cwd = ".", default_tools_approval_mode = "approve", enabled = true }',
       '-c', `mcp_servers.remote={ url = "https://mcp.example/api", http_headers = { }, env_http_headers = { "Authorization" = "${headerVariable}" }, default_tools_approval_mode = "approve", enabled = true }`
     ])
     expect(injection.args.join(' ')).not.toContain('Bearer token')
-    expect(injection.promptPrefix).toContain('Prefer pnpm.')
-    expect(injection.promptPrefix).toContain('"local.tools" (stdio; session tool namespace: "frontier_local_tools_600ecdd")')
-    expect(injection.promptPrefix).toContain('"remote" (http)')
-    expect(injection.promptPrefix).not.toContain('"legacy"')
-    expect(injection.promptPrefix).toContain('`codex mcp list`')
+    expect(injection.promptPrefix).toBeUndefined()
+    expect(injection.args[4]).toBe('-c')
+    const developerInstructions = codexDeveloperInstructions(injection.args)
+    expect(developerInstructions).toContain('Prefer pnpm.')
+    expect(developerInstructions).toContain('"local.tools" (stdio; session tool namespace: "frontier_local_tools_600ecdd")')
+    expect(developerInstructions).toContain('"remote" (http)')
+    expect(developerInstructions).not.toContain('"legacy"')
+    expect(developerInstructions).toContain('`codex mcp list`')
   })
 
   it.each(['claude', 'copilot'] as const)('passes remote %s headers through per-process environment placeholders', (kind) => {
@@ -121,7 +130,9 @@ describe('control plane translation', () => {
 
     const promptContext = kind === 'claude'
       ? injection.args[injection.args.indexOf('--append-system-prompt') + 1]
-      : injection.promptPrefix
+      : kind === 'codex' || kind === 'codex-oss'
+        ? codexDeveloperInstructions(injection.args)
+        : injection.promptPrefix
     expect(promptContext).toContain('"supabase" (http)')
     expect(promptContext).toContain('Use their MCP tools directly')
     expect(promptContext).toContain('persistent configuration')

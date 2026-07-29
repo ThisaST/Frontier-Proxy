@@ -108,4 +108,22 @@ describe('codex stream parsing', () => {
     })
     expect(context).toEqual({ tokens: 900, window: 200_000 })
   })
+
+  it('surfaces every path in a Codex file-change item', () => {
+    const activity: ActivityEvent[] = []
+    parseCodexLine({
+      type: 'item.completed',
+      item: { type: 'file_change', changes: [
+        { path: 'src/new.ts', kind: 'add' },
+        { path: 'src/app.ts', kind: 'update' },
+        { path: 'src/old.ts', kind: 'delete' }
+      ] }
+    }, {
+      onText: () => undefined, onModel: () => undefined,
+      onActivity: (event) => activity.push(event)
+    })
+    expect(activity.map(({ label, detail }) => [label, detail])).toEqual([
+      ['Write', 'src/new.ts'], ['Edit', 'src/app.ts'], ['Delete', 'src/old.ts']
+    ])
+  })
 })

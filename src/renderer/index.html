@@ -70,7 +70,14 @@
               <div id="output-activity" class="output-activity"></div>
               <div id="output-content" class="output-content markdown">Choose a task from the queue to inspect its routed provider, attempts, and output.</div>
               <div id="output-composer" class="output-composer" hidden>
-                <textarea id="composer-input" rows="1" placeholder="Continue the conversation…"></textarea>
+                <div class="composer-draft">
+                  <div id="composer-input-attachments" class="composer-attachments"></div>
+                  <div class="composer-input-row">
+                    <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images">＋</button>
+                    <textarea id="composer-input" rows="1" placeholder="Continue the conversation…  @ to add files"></textarea>
+                    <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
+                  </div>
+                </div>
                 <button id="composer-send" class="primary-button">Send</button>
               </div>
             </section>
@@ -102,7 +109,14 @@
               <section class="panel task-detail-thread-panel">
                 <div id="task-detail-thread" class="task-detail-thread markdown"></div>
                 <div id="task-detail-composer" class="output-composer">
-                  <textarea id="task-detail-composer-input" rows="2" placeholder="Continue the conversation…"></textarea>
+                  <div class="composer-draft">
+                    <div id="task-detail-composer-input-attachments" class="composer-attachments"></div>
+                    <div class="composer-input-row">
+                      <button type="button" class="composer-attach" data-composer-input="task-detail-composer-input" aria-label="Attach images" title="Attach images">＋</button>
+                      <textarea id="task-detail-composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
+                      <div id="task-detail-composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
+                    </div>
+                  </div>
                   <button id="task-detail-composer-send" class="primary-button">Send</button>
                 </div>
               </section>
@@ -114,18 +128,18 @@
 
             <div id="task-detail-files-tab" class="task-detail-tab-panel">
               <aside class="panel task-file-sidebar">
-                <div class="task-file-sidebar-head"><p class="eyebrow">CHANGED FILES</p><h3>Task files</h3></div>
+                <div class="task-file-sidebar-head"><p class="eyebrow" id="task-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
                 <div id="task-detail-file-list" class="task-detail-file-list"></div>
               </aside>
               <section class="panel task-file-viewer">
                 <header class="task-file-viewer-head">
-                  <div><p class="eyebrow" id="task-file-language">SOURCE</p><h3 id="task-file-title">Select a changed file</h3></div>
+                  <div><p class="eyebrow" id="task-file-language">SOURCE</p><h3 id="task-file-title">Select a file</h3></div>
                   <div class="task-file-mode" id="task-file-mode" hidden>
                     <button data-file-mode="diff" class="active">Changes</button>
                     <button data-file-mode="source">Current file</button>
                   </div>
                 </header>
-                <div id="task-file-notice" class="task-file-notice">Choose a file to inspect its current source and working-tree changes.</div>
+                <div id="task-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the workspace tree.</div>
                 <div id="task-file-code" class="task-file-code"></div>
               </section>
             </div>
@@ -217,7 +231,16 @@
     <dialog id="task-dialog">
       <form id="task-form" method="dialog">
         <div class="dialog-header"><div><p class="eyebrow">DISTRIBUTE WORK</p><h2>New agent task</h2></div><button type="button" class="icon-button" id="close-dialog">×</button></div>
-        <label>What should the agent do?<textarea id="prompt" rows="7" required placeholder="Implement the authentication flow, add tests, and explain the tradeoffs…"></textarea></label>
+        <div class="task-prompt-field"><span class="field-label">What should the agent do?</span>
+          <div class="composer-draft dialog-composer">
+            <div id="prompt-attachments" class="composer-attachments"></div>
+            <div class="composer-input-row">
+              <button type="button" class="composer-attach" data-composer-input="prompt" aria-label="Attach images" title="Attach images">＋</button>
+              <textarea id="prompt" rows="7" placeholder="Implement the authentication flow…  Type @ to add project files or folders"></textarea>
+              <div id="prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
+            </div>
+          </div>
+        </div>
         <label>Working directory<div class="path-control"><input id="cwd" required placeholder="/path/to/project" /><button type="button" id="choose-directory" class="secondary-button">Choose folder…</button></div></label>
         <p class="field-help">Agents inherit your normal user access. Full Disk Access is only needed for protected macOS locations.</p>
         <div class="form-row">

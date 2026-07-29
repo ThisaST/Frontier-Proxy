@@ -3,12 +3,12 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, UsageSample
+  ActivityEvent, AppSettings, AppSnapshot, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
-const FILE_TOOL_ACTIONS: Record<string, 'create' | 'edit'> = {
-  Write: 'create', Edit: 'edit', MultiEdit: 'edit', NotebookEdit: 'edit', 'str_replace_editor': 'edit'
+const FILE_TOOL_ACTIONS: Record<string, 'create' | 'edit' | 'delete'> = {
+  Write: 'create', Edit: 'edit', Delete: 'delete', MultiEdit: 'edit', NotebookEdit: 'edit', 'str_replace_editor': 'edit'
 }
 
 function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
@@ -24,7 +24,7 @@ import { rankProviders } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
 import { JsonStore } from './store'
-import { loadTaskFile } from './taskfiles'
+import { contextPrompt, listWorkspaceEntries, loadTaskFile, loadTaskWorkspace, validateChatContext } from './taskfiles'
 import type { McpAuthManager } from './mcp-auth'
 
 function today(): string {
@@ -81,7 +81,7 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   async createTask(input: CreateTaskInput): Promise<ProxyTask> {
-    if (!input.prompt.trim()) throw new Error('A task prompt is required.')
+    if (!input.prompt.trim() && !input.attachments?.length) throw new Error('A task prompt or image is required.')
     if (!input.cwd.trim()) throw new Error('A working directory is required.')
     try {
       const directory = await stat(input.cwd)
@@ -89,25 +89,27 @@ export class OrchestrationEngine extends EventEmitter {
     } catch {
       throw new Error('The working directory does not exist or cannot be accessed.')
     }
+    const attachments = await validateChatContext(input.cwd, input.attachments)
+    const prompt = input.prompt.trim() || 'Please inspect the attached image.'
     const task: ProxyTask = {
       id: randomUUID(),
-      prompt: input.prompt.trim(),
+      prompt,
       cwd: input.cwd,
       mode: input.mode,
-      type: classifyTask(input.prompt),
+      type: classifyTask(prompt),
       preferredProviderId: input.preferredProviderId || undefined,
       modelOverride: input.model?.trim() || undefined,
       status: 'queued',
       createdAt: new Date().toISOString(),
       output: '',
       attempts: [],
-      estimatedInputTokens: estimateTokens(input.prompt),
+      estimatedInputTokens: estimateTokens(prompt),
       estimatedOutputTokens: 0,
       activity: [],
       filesChanged: [],
       orchestrated: input.orchestrate || undefined,
       subtasks: input.orchestrate ? [] : undefined,
-      turns: [{ id: randomUUID(), role: 'user', content: input.prompt.trim(), at: new Date().toISOString() }]
+      turns: [{ id: randomUUID(), role: 'user', content: prompt, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }]
     }
     this.tasks.unshift(task)
     await this.persistAndEmit()
@@ -133,7 +135,8 @@ export class OrchestrationEngine extends EventEmitter {
       prompt: original.prompt,
       cwd: original.cwd,
       mode: original.mode,
-      preferredProviderId: original.continuationProviderId ?? original.preferredProviderId
+      preferredProviderId: original.continuationProviderId ?? original.preferredProviderId,
+      attachments: original.turns?.find((turn) => turn.role === 'user')?.attachments
     })
   }
 
@@ -169,7 +172,25 @@ export class OrchestrationEngine extends EventEmitter {
 
   async readTaskFile(taskId: string, path: string): Promise<TaskFileContent> {
     const task = this.findTask(taskId)
-    return await loadTaskFile(task.cwd, task.filesChanged ?? [], path)
+    const workspace = await loadTaskWorkspace(task.cwd, task.filesChanged ?? [])
+    return await loadTaskFile(task.cwd, workspace.changes, path)
+  }
+
+  async getTaskWorkspace(taskId: string): Promise<TaskWorkspaceSnapshot> {
+    const task = this.findTask(taskId)
+    return await loadTaskWorkspace(task.cwd, task.filesChanged ?? [])
+  }
+
+  async listWorkspaceEntries(cwd: string, query: string): Promise<WorkspaceEntry[]> {
+    return await listWorkspaceEntries(cwd, query)
+  }
+
+  attachmentPath(taskId: string, attachmentId: string): string {
+    const task = this.findTask(taskId)
+    const attachment = (task.turns ?? []).flatMap((turn) => turn.attachments ?? [])
+      .find((item) => item.id === attachmentId && item.kind === 'image')
+    if (!attachment) throw new Error('Unknown image attachment.')
+    return attachment.path
   }
 
   async clearFinishedTasks(): Promise<void> {
@@ -319,13 +340,15 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       this.emitSnapshot()
 
-      const runPrompt = this.promptWithMemory(task.prompt)
+      const attachments = task.turns?.find((turn) => turn.role === 'user')?.attachments ?? []
+      const runPrompt = this.promptWithMemory(this.messageWithContext(task.prompt, task.cwd, attachments))
       let contextReported = false
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
         prompt: runPrompt,
         cwd: task.cwd,
         signal: controller.signal,
         controlPlane: await this.activeControlPlane(),
+        imagePaths: this.imagePaths(attachments),
         onOutput: (text) => {
           task.output += text
           task.estimatedOutputTokens = estimateTokens(task.output)
@@ -415,10 +438,12 @@ export class OrchestrationEngine extends EventEmitter {
   // Continue a finished task with a follow-up message — a real multi-turn
   // conversation. Resumes the CLI session in-context (Claude --resume) when the
   // owning provider is available; otherwise replays the transcript as context.
-  async continueTask(taskId: string, message: string): Promise<ProxyTask> {
+  async continueTask(taskId: string, message: string, contextItems: ChatContextItem[] = []): Promise<ProxyTask> {
     const text = message.trim()
-    if (!text) throw new Error('A follow-up message is required.')
     const task = this.findTask(taskId)
+    const attachments = await validateChatContext(task.cwd, contextItems)
+    if (!text && !attachments.length) throw new Error('A follow-up message or image is required.')
+    const userMessage = text || 'Please inspect the attached image.'
     if (task.status === 'running' || task.status === 'queued') throw new Error('Wait for the current turn to finish before continuing.')
 
     // Keep a stopped conversation on the provider the user last selected. This
@@ -437,7 +462,7 @@ export class OrchestrationEngine extends EventEmitter {
     const primaryProviderId = requestedProviderId ?? ranked[0]?.id
     if (!primaryProviderId) throw new Error('No eligible provider is available to continue.')
 
-    task.turns = [...(task.turns ?? []), { id: randomUUID(), role: 'user', content: text, at: new Date().toISOString() }]
+    task.turns = [...(task.turns ?? []), { id: randomUUID(), role: 'user', content: userMessage, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }]
     task.status = 'running'
     task.error = undefined
     task.finishedAt = undefined
@@ -465,7 +490,7 @@ export class OrchestrationEngine extends EventEmitter {
       const runtime = this.runtimes.get(providerId)
       if (!provider || !runtime || controller.signal.aborted) break
       const resumable = providerId === sessionProviderId && Boolean(task.sessionId)
-      const prompt = resumable ? text : `[Full conversation history transferred by Frontier]\n${this.transcript(task)}\n\n[Instruction]\nContinue the conversation from the latest user message. Use the complete history above, including work and partial results from previous providers.`
+      const prompt = resumable ? this.messageWithContext(userMessage, task.cwd, attachments) : `[Full conversation history transferred by Frontier]\n${this.transcript(task)}\n\n[Instruction]\nContinue the conversation from the latest user message. Use the complete history above, including work and partial results from previous providers.`
       if (!resumable) { task.sessionId = undefined; task.sessionProviderId = undefined }
       this.selectTaskProvider(task, provider.id)
       runtime.running += 1
@@ -478,6 +503,7 @@ export class OrchestrationEngine extends EventEmitter {
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
         prompt, cwd: task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
         resumeSessionId: resumable ? task.sessionId : undefined,
+        imagePaths: this.imagePaths(attachments),
         onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
@@ -523,7 +549,7 @@ export class OrchestrationEngine extends EventEmitter {
   private transcript(task: ProxyTask): string {
     return (task.turns ?? []).filter((turn) => turn.content.trim())
       .map((turn) => {
-        if (turn.role === 'user') return `User: ${turn.content}`
+        if (turn.role === 'user') return `User: ${this.messageWithContext(turn.content, task.cwd, turn.attachments ?? [])}`
         const provider = this.settings.providers.find((item) => item.id === turn.providerId)?.name ?? 'Assistant'
         const details = [turn.model, turn.status && turn.status !== 'completed' ? turn.status : undefined].filter(Boolean).join(', ')
         return `${provider}${details ? ` (${details})` : ''}: ${turn.content}`
@@ -546,7 +572,9 @@ export class OrchestrationEngine extends EventEmitter {
       const planner = this.pickProvider(task)
       if (!planner) { this.finishTask(task, 'failed', 'No eligible provider is available to plan this task.'); return }
       this.selectTaskProvider(task, planner.id)
-      const planResult = await this.runOne(planner, buildPlannerPrompt(this.promptWithMemory(task.prompt)), task, controller)
+      const attachments = task.turns?.find((turn) => turn.role === 'user')?.attachments ?? []
+      const imagePaths = this.imagePaths(attachments)
+      const planResult = await this.runOne(planner, buildPlannerPrompt(this.promptWithMemory(this.messageWithContext(task.prompt, task.cwd, attachments))), task, controller, undefined, undefined, undefined, imagePaths)
       if (controller.signal.aborted) { this.finishTask(task, 'cancelled', 'Task cancelled.'); return }
       if (!planResult.ok) throw new Error(planResult.error ?? 'No provider could plan this task.')
 
@@ -569,7 +597,7 @@ export class OrchestrationEngine extends EventEmitter {
         task.output += text
         task.estimatedOutputTokens = estimateTokens(task.output)
         this.emitSnapshot()
-      })
+      }, undefined, undefined, imagePaths)
       if (!synthesisResult.ok) throw new Error(synthesisResult.error ?? 'No provider could synthesize the task results.')
 
       task.orchestrationStage = 'done'
@@ -587,6 +615,7 @@ export class OrchestrationEngine extends EventEmitter {
 
   private async runSubtasks(task: ProxyTask, controller: AbortController): Promise<void> {
     const subtasks = task.subtasks ?? []
+    const imagePaths = this.imagePaths(task.turns?.find((turn) => turn.role === 'user')?.attachments ?? [])
     // Isolate each subtask in its own git worktree so parallel agents editing
     // files can't collide. Falls back to the shared cwd when not a git repo.
     const worktrees = new Map<string, string>()
@@ -611,7 +640,7 @@ export class OrchestrationEngine extends EventEmitter {
       subtask.status = 'running'; subtask.providerId = provider.id; this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
-        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type)
+        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths)
         if (!subtask.output.trim()) subtask.output = result.output
         subtask.providerId = result.providerId
         subtask.model = result.model
@@ -640,7 +669,8 @@ export class OrchestrationEngine extends EventEmitter {
     controller: AbortController,
     onText?: (text: string) => void,
     cwd?: string,
-    routingType?: TaskType
+    routingType?: TaskType,
+    imagePaths: string[] = []
   ): Promise<{ output: string; model?: string; ok: boolean; error?: string; providerId: string }> {
     const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false }
     const ranked = rankProviders(routingTask, this.snapshot().providers)
@@ -660,7 +690,7 @@ export class OrchestrationEngine extends EventEmitter {
       let output = ''
       let contextReported = false
       const result = await runProvider(this.withModel(provider, task.modelOverride), {
-        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
+        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
@@ -749,6 +779,15 @@ export class OrchestrationEngine extends EventEmitter {
   private promptWithMemory(prompt: string): string {
     const memory = this.settings.memory?.trim()
     return memory ? `[Frontier memory — persistent context you should use]\n${memory}\n\n[Task]\n${prompt}` : prompt
+  }
+
+  private messageWithContext(message: string, cwd: string, items: ChatContextItem[]): string {
+    const context = contextPrompt(cwd, items)
+    return context ? `${message}\n\n${context}` : message
+  }
+
+  private imagePaths(items: ChatContextItem[]): string[] {
+    return items.filter((item) => item.kind === 'image').map((item) => item.path)
   }
 
   private finishTask(task: ProxyTask, status: ProxyTask['status'], error?: string): void {

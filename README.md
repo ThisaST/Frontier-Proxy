@@ -43,14 +43,6 @@ Create distributable installers on each target operating system with `pnpm dist`
 
 GitHub Actions builds Windows, macOS, and Linux installers after every push to `main`, when a `v*` tag is pushed, or when the workflow is started manually. Open the repository's **Actions** tab, select a successful **Build desktop apps** run, and download the artifact for your platform. Build artifacts are retained for 30 days.
 
-The macOS build is signed and notarized through the Apple Developer Program. Configure these GitHub Actions repository secrets before running the workflow:
-
-- `MAC_CSC_LINK`: base64-encoded Developer ID Application `.p12` certificate
-- `MAC_CSC_KEY_PASSWORD`: password used when exporting the certificate
-- `APPLE_ID`: Apple Developer account email
-- `APPLE_APP_SPECIFIC_PASSWORD`: app-specific password for that Apple ID
-- `APPLE_TEAM_ID`: 10-character Apple Developer team ID
-
 Version tags also create a GitHub Release with the installers attached for permanent public downloads. For example:
 
 ```bash

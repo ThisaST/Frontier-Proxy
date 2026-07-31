@@ -9,6 +9,19 @@ import { branchFileDiff, deleteTaskBranch, isTaskBranch, listBranchInbox, listRe
 const run = promisify(execFile)
 const AUTHOR = ['-c', 'user.name=Frontier Tests', '-c', 'user.email=tests@frontier.local']
 
+// Reproduce a machine with no git identity (a CI container, a fresh install) by
+// pointing git's global and system config at nothing for the duration. The
+// child processes under test inherit this environment.
+async function withoutGitIdentity(body: () => Promise<void>): Promise<void> {
+  const saved = { global: process.env.GIT_CONFIG_GLOBAL, system: process.env.GIT_CONFIG_SYSTEM }
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null'
+  process.env.GIT_CONFIG_SYSTEM = '/dev/null'
+  try { await body() } finally {
+    if (saved.global === undefined) delete process.env.GIT_CONFIG_GLOBAL; else process.env.GIT_CONFIG_GLOBAL = saved.global
+    if (saved.system === undefined) delete process.env.GIT_CONFIG_SYSTEM; else process.env.GIT_CONFIG_SYSTEM = saved.system
+  }
+}
+
 // A repo with one Frontier task branch carrying a new file and an edit, exactly
 // as an orchestrated subtask leaves it behind.
 async function repoWithTaskBranch(): Promise<{ cwd: string; branch: string }> {
@@ -69,6 +82,32 @@ describe('task branch inbox', () => {
     const repo = await listRepoBranches(cwd)
     expect(repo?.branches[0].merged).toBe(true)
     expect(repo?.branches[0].ahead).toBe(0)
+  })
+
+  // `--no-ff` always writes a merge commit, and git refuses to make one without
+  // a committer identity. A CI container has none and the merge failed outright
+  // with "empty ident name". This cannot be reproduced directly on a developer
+  // machine, where git silently derives a name from the OS account — so assert
+  // the fallback identity is what lands, which only holds if we supply it.
+  it('supplies its own identity for the merge commit when none is configured', async () => {
+    const { cwd, branch } = await repoWithTaskBranch()
+    await withoutGitIdentity(async () => {
+      // Guard: no identity is configured, so this exercises the fallback.
+      await expect(run('git', ['-C', cwd, 'config', 'user.name'])).rejects.toThrow()
+      await mergeTaskBranch(cwd, branch)
+    })
+    const { stdout } = await run('git', ['-C', cwd, 'log', '-1', '--format=%cn <%ce>'])
+    expect(stdout.trim()).toBe('Frontier Proxy <frontier@local>')
+    expect((await listRepoBranches(cwd))?.branches[0].merged).toBe(true)
+  })
+
+  it('attributes the merge to the user when they do have an identity', async () => {
+    const { cwd, branch } = await repoWithTaskBranch()
+    await run('git', ['-C', cwd, 'config', 'user.name', 'Real Developer'], { env: process.env })
+    await run('git', ['-C', cwd, 'config', 'user.email', 'dev@example.com'], { env: process.env })
+    await withoutGitIdentity(async () => { await mergeTaskBranch(cwd, branch) })
+    const { stdout } = await run('git', ['-C', cwd, 'log', '-1', '--format=%cn <%ce>'])
+    expect(stdout.trim()).toBe('Real Developer <dev@example.com>')
   })
 
   // Merging rewrites the working tree, so uncommitted work must not be at risk.

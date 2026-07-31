@@ -140,6 +140,62 @@ describe('end-to-end task lifecycle', () => {
     expect(healthy?.runtime.usage.tasks).toBe(0)
   })
 
+  // Observed live with only one CLI installed (the shipped default: every
+  // provider maxConcurrent 1, maxParallelTasks 2). The first lane marked the
+  // provider busy before the second lane ranked, so the second subtask found no
+  // free provider and was abandoned — failing the whole orchestrated task.
+  it('waits for a provider slot instead of abandoning a subtask when the only CLI is busy', async () => {
+    const script = [
+      "let input='';process.stdin.on('data',(c)=>input+=c);process.stdin.on('end',()=>{",
+      "if(input.includes('planning coordinator'))process.stdout.write('[{\"title\":\"A\",\"prompt\":\"do a\",\"type\":\"coding\"},{\"title\":\"B\",\"prompt\":\"do b\",\"type\":\"coding\"}]');",
+      "else process.stdout.write('ok');})"
+    ].join('')
+    const { engine, cwd } = await makeEngine([{ ...fakeProvider('solo', 100, script), maxConcurrent: 1 }])
+
+    const created = await engine.createTask({ prompt: 'split this work', cwd, mode: 'balanced', orchestrate: true })
+    const task = await waitForTask(engine, created.id, 20_000)
+
+    expect(task.subtasks?.map((subtask) => subtask.status)).toEqual(['completed', 'completed'])
+    expect(task.subtasks?.some((subtask) => subtask.error)).toBe(false)
+    expect(task.status).toBe('completed')
+  })
+
+  // Head-to-head runs the same prompt on every chosen agent instead of routing
+  // it, so a lane that fails is a result about that agent — never a reroute.
+  it('runs a bench on the chosen agents in parallel and keeps each result separate', async () => {
+    const { engine, cwd } = await makeEngine([
+      fakeProvider('alpha', 100, succeedWith('alpha answer')),
+      fakeProvider('beta', 90, succeedWith('beta answer')),
+      fakeProvider('gamma', 80, failWith('gamma exploded')),
+      fakeProvider('unused', 70, succeedWith('never runs'))
+    ])
+    const created = await engine.createTask({
+      prompt: 'compare these agents', cwd, mode: 'balanced', benchProviderIds: ['alpha', 'beta', 'gamma']
+    })
+    const task = await waitForTask(engine, created.id, 20_000)
+
+    expect(task.bench).toBe(true)
+    expect(task.orchestrated).toBeUndefined()
+    const lanes = Object.fromEntries((task.subtasks ?? []).map((lane) => [lane.providerId, lane]))
+    expect(Object.keys(lanes).sort()).toEqual(['alpha', 'beta', 'gamma'])
+    expect(lanes.alpha.output).toBe('alpha answer')
+    expect(lanes.beta.output).toBe('beta answer')
+    // The failing agent stays failed rather than being replaced by a healthy one.
+    expect(lanes.gamma.status).toBe('failed')
+    expect(lanes.gamma.error).toContain('gamma exploded')
+    expect(task.status).toBe('completed')
+    expect(task.output).toContain('Head-to-head results')
+
+    const unused = engine.snapshot().providers.find((provider) => provider.id === 'unused')
+    expect(unused?.runtime.usage.tasks).toBe(0)
+  })
+
+  it('requires at least two agents for a comparison', async () => {
+    const { engine, cwd } = await makeEngine([fakeProvider('solo', 100, succeedWith('x'))])
+    await expect(engine.createTask({ prompt: 'compare', cwd, mode: 'balanced', benchProviderIds: ['solo'] }))
+      .rejects.toThrow('at least two')
+  })
+
   it('continues a completed task in-context by replaying the transcript', async () => {
     const { engine, cwd } = await makeEngine([
       // Echo whatever arrives on stdin so we can assert the transcript replay.

@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { freshDefaults } from '../shared/defaults'
 import type { AppSettings, ProviderRuntime, ProxyTask } from '../shared/types'
@@ -10,6 +11,8 @@ export interface PersistedState {
 }
 
 export class JsonStore {
+  private writing: Promise<void> = Promise.resolve()
+
   constructor(private readonly filePath: string) {}
 
   async load(): Promise<PersistedState> {
@@ -33,10 +36,26 @@ export class JsonStore {
     }
   }
 
+  // The engine persists from several concurrent paths (streaming callbacks,
+  // task completion, settings edits). Sharing one temp filename let two writes
+  // overlap, so the second rename could hit a file the first had already moved
+  // — losing a write and throwing ENOENT. Saves are serialized, and each gets
+  // its own temp file.
   async save(state: PersistedState): Promise<void> {
+    const write = this.writing.then(() => this.writeState(state), () => this.writeState(state))
+    this.writing = write.then(() => undefined, () => undefined)
+    await write
+  }
+
+  private async writeState(state: PersistedState): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true })
-    const temporaryPath = `${this.filePath}.tmp`
-    await writeFile(temporaryPath, JSON.stringify(state, null, 2), 'utf8')
-    await rename(temporaryPath, this.filePath)
+    const temporaryPath = `${this.filePath}.${randomUUID().slice(0, 8)}.tmp`
+    try {
+      await writeFile(temporaryPath, JSON.stringify(state, null, 2), 'utf8')
+      await rename(temporaryPath, this.filePath)
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 }

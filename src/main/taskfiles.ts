@@ -86,23 +86,44 @@ async function workingTreeChanges(cwd: string): Promise<FileChange[]> {
   } catch { return [] }
 }
 
-export async function loadTaskWorkspace(cwd: string, recordedChanges: FileChange[]): Promise<TaskWorkspaceSnapshot> {
-  const [entries, gitChanges] = await Promise.all([
-    collectWorkspaceEntries(cwd, '', IGNORED_TASK_TREE_NAMES, 20_000),
-    workingTreeChanges(cwd)
-  ])
+// A CLI reports canonical paths (on macOS a task in /tmp or /var comes back as
+// /private/...), while the task cwd may reach the same directory through a
+// symlink. Containment is therefore checked against both views of the root, so
+// a change the agent really made inside the workspace is not mistaken for an
+// escape attempt. A path outside both is still rejected.
+async function workspaceRoots(cwd: string): Promise<string[]> {
   const root = resolve(cwd)
+  try {
+    const real = await realpath(root)
+    return real === root ? [root] : [root, real]
+  } catch { return [root] }
+}
+
+function workspaceRelative(roots: string[], candidate: string): string | undefined {
+  for (const root of roots) {
+    const relativePath = relative(root, resolve(root, candidate))
+    if (relativePath && !relativePath.startsWith('..') && !isAbsolute(relativePath)) return relativePath.replaceAll('\\', '/')
+  }
+  return undefined
+}
+
+export async function loadTaskWorkspace(cwd: string, recordedChanges: FileChange[]): Promise<TaskWorkspaceSnapshot> {
+  const [entries, gitChanges, roots] = await Promise.all([
+    collectWorkspaceEntries(cwd, '', IGNORED_TASK_TREE_NAMES, 20_000),
+    workingTreeChanges(cwd),
+    workspaceRoots(cwd)
+  ])
   const changes = new Map<string, FileChange>()
   for (const change of recordedChanges) {
-    const absolute = resolve(root, change.path)
-    const workspacePath = relative(root, absolute)
-    if (!workspacePath || workspacePath.startsWith('..') || isAbsolute(workspacePath)) continue
-    changes.set(absolute, { ...change, path: workspacePath.replaceAll('\\', '/') })
+    const workspacePath = workspaceRelative(roots, change.path)
+    if (!workspacePath) continue
+    changes.set(workspacePath, { ...change, path: workspacePath })
   }
   for (const change of gitChanges) {
-    const key = resolve(root, change.path)
-    const recorded = changes.get(key)
-    changes.set(key, recorded ? { ...change, at: recorded.at } : change)
+    const workspacePath = workspaceRelative(roots, change.path)
+    if (!workspacePath) continue
+    const recorded = changes.get(workspacePath)
+    changes.set(workspacePath, recorded ? { ...change, path: workspacePath, at: recorded.at } : { ...change, path: workspacePath })
   }
   return { entries, changes: [...changes.values()] }
 }
@@ -180,10 +201,11 @@ function createdFileDiff(path: string, content: string): string {
 
 export async function loadTaskFile(cwd: string, changes: FileChange[], requestedPath: string): Promise<TaskFileContent> {
   const root = resolve(cwd)
-  const absolutePath = resolve(root, requestedPath)
-  const relativePath = relative(root, absolutePath)
-  if (!relativePath || relativePath.startsWith('..') || isAbsolute(relativePath)) throw new Error('The requested file is outside this task workspace.')
-  const change = changes.find((item) => resolve(root, item.path) === absolutePath)
+  const roots = await workspaceRoots(cwd)
+  const relativePath = workspaceRelative(roots, requestedPath)
+  if (!relativePath) throw new Error('The requested file is outside this task workspace.')
+  const absolutePath = resolve(root, relativePath)
+  const change = changes.find((item) => workspaceRelative(roots, item.path) === relativePath)
   try {
     const [realRoot, realTarget] = await Promise.all([realpath(cwd), realpath(absolutePath)])
     const realRelative = relative(realRoot, realTarget)

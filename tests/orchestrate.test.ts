@@ -45,4 +45,22 @@ describe('orchestration planning', () => {
     expect(prompt).toContain('did frontend')
     expect(prompt).toContain('did not complete: timeout')
   })
+
+  // Observed live: the synthesizer is a full agent with file tools running in the
+  // task cwd. Seeing the subtasks' files "missing" (they are committed on their
+  // worktree branches), it redid all of the work in the main tree — defeating the
+  // isolation and paying for the work twice.
+  it('tells the synthesizer not to touch files and names the committed branches', () => {
+    const subtasks: SubTask[] = [
+      { id: '1', title: 'Docs', prompt: '', type: 'documentation', status: 'completed', output: 'wrote docs', branch: 'frontier/abc/1-docs', committed: true },
+      { id: '2', title: 'Tests', prompt: '', type: 'coding', status: 'completed', output: 'wrote tests', branch: 'frontier/abc/2-tests', committed: false }
+    ]
+    const prompt = buildSynthesisPrompt('Improve the repo', subtasks)
+    expect(prompt).toContain('Do NOT create, edit, or delete any file')
+    expect(prompt).toContain('isolated git worktree')
+    expect(prompt).toContain('## Docs (committed to branch `frontier/abc/1-docs`)')
+    // Only branches that actually carry a commit are offered for merging.
+    expect(prompt).toContain('- frontier/abc/1-docs — Docs')
+    expect(prompt).not.toContain('- frontier/abc/2-tests — Tests')
+  })
 })

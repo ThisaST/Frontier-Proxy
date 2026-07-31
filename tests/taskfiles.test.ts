@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -45,6 +45,41 @@ describe('task file inspection', () => {
       expect.objectContaining({ path: 'tracked.ts', action: 'edit' }),
       expect.objectContaining({ path: 'new.ts', action: 'create' })
     ]))
+  })
+
+  // Observed live on macOS: the task cwd came from mkdtemp (/var/folders/…) while
+  // the CLI reported the canonical path it actually edited (/private/var/folders/…).
+  // A purely lexical containment check read that as an escape, so the change was
+  // dropped from the workspace and opening the file failed outright.
+  it('accepts recorded paths that reach the workspace through a symlinked root', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'frontier-symlink-'))
+    const real = join(parent, 'real-workspace')
+    const link = join(parent, 'linked-workspace')
+    await mkdir(real)
+    await writeFile(join(real, 'app.js'), 'module.exports = 1\n', 'utf8')
+    try { await symlink(real, link, 'dir') } catch { return } // symlinks may be unprivileged-blocked (Windows)
+
+    // The task cwd is the symlink; the CLI reports the canonical path it edited.
+    const reported = join(await realpath(link), 'app.js')
+    const workspace = await loadTaskWorkspace(link, [{ path: reported, action: 'edit', at: new Date().toISOString() }])
+    expect(workspace.changes).toEqual([expect.objectContaining({ path: 'app.js', action: 'edit' })])
+
+    const file = await loadTaskFile(link, workspace.changes, reported)
+    expect(file.relativePath).toBe('app.js')
+    expect(file.content).toBe('module.exports = 1\n')
+  })
+
+  it('still rejects a recorded path that escapes the workspace entirely', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'frontier-escape-'))
+    const workspaceDir = join(parent, 'workspace')
+    await mkdir(workspaceDir)
+    await writeFile(join(parent, 'secret.txt'), 'private\n', 'utf8')
+    const outside = join(parent, 'secret.txt')
+
+    const workspace = await loadTaskWorkspace(workspaceDir, [{ path: outside, action: 'edit', at: new Date().toISOString() }])
+    expect(workspace.changes).toEqual([])
+    await expect(loadTaskFile(workspaceDir, [], outside)).rejects.toThrow('outside this task workspace')
+    await expect(loadTaskFile(workspaceDir, [], '../secret.txt')).rejects.toThrow('outside this task workspace')
   })
 
   it('rejects traversal and files that were not recorded by the task', () => {

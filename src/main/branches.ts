@@ -105,6 +105,19 @@ export async function branchFileDiff(cwd: string, branch: string, path: string):
   return await gitOrEmpty(cwd, ['diff', '--no-ext-diff', '--unified=4', `HEAD...${branch}`, '--', path])
 }
 
+// `--no-ff` always writes a merge commit, and git refuses to create one without
+// a committer identity. Most machines have one, but a fresh install or a
+// container does not, and the merge then fails with "empty ident name". Fall
+// back to Frontier's own identity only when none is configured, so a user who
+// has set one still gets the commit attributed to them.
+async function identityArgs(cwd: string): Promise<string[]> {
+  const [name, email] = await Promise.all([
+    gitOrEmpty(cwd, ['config', 'user.name']),
+    gitOrEmpty(cwd, ['config', 'user.email'])
+  ])
+  return name.trim() && email.trim() ? [] : ['-c', 'user.name=Frontier Proxy', '-c', 'user.email=frontier@local']
+}
+
 // Merging rewrites the user's checkout, so refuse on a dirty tree rather than
 // risk mixing their uncommitted work into a merge or a conflict.
 export async function mergeTaskBranch(cwd: string, branch: string): Promise<{ merged: boolean; message: string }> {
@@ -112,7 +125,7 @@ export async function mergeTaskBranch(cwd: string, branch: string): Promise<{ me
   const status = await gitOrEmpty(cwd, ['status', '--porcelain'])
   if (status.trim()) throw new Error('Commit or stash your current changes before merging this branch.')
   try {
-    await git(cwd, ['merge', '--no-ff', '-m', `Merge Frontier subtask ${branch}`, branch])
+    await git(cwd, [...await identityArgs(cwd), 'merge', '--no-ff', '-m', `Merge Frontier subtask ${branch}`, branch])
     return { merged: true, message: `Merged ${branch}` }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)

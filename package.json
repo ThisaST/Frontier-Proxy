@@ -32,10 +32,7 @@
     ],
     "afterPack": "build/afterPack.cjs",
     "mac": {
-      "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
-      ],
+      "target": ["dmg", "zip"],
       "category": "public.app-category.developer-tools"
     },
     "win": {

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -20,6 +20,27 @@ describe('persistent store', () => {
   it('falls back to defaults for a missing file', async () => {
     const store = new JsonStore(join(tmpdir(), `missing-${Date.now()}`, 'state.json'))
     expect((await store.load()).settings.providers.map((provider) => provider.id)).toEqual(expect.arrayContaining(['codex', 'claude', 'copilot']))
+  })
+
+  // The engine saves from several concurrent paths at once. With a shared temp
+  // filename these overlapped: one rename moved the file another was still
+  // counting on, throwing ENOENT and losing that write.
+  it('survives overlapping saves and keeps the last one intact', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-race-'))
+    const path = join(directory, 'state.json')
+    const store = new JsonStore(path)
+    const settings = freshDefaults()
+
+    await Promise.all(Array.from({ length: 25 }, (_unused, index) =>
+      store.save({ settings: { ...settings, maxParallelTasks: (index % 8) + 1 }, tasks: [] })))
+
+    // Whatever landed last, the file must be complete and parseable — never a
+    // partial write and never missing.
+    const raw = await readFile(path, 'utf8')
+    expect(() => JSON.parse(raw)).not.toThrow()
+    expect((await store.load()).settings.providers.length).toBeGreaterThan(0)
+    // No temp files may be left behind.
+    expect((await readdir(directory)).filter((name) => name.includes('.tmp'))).toEqual([])
   })
 
   it('persists daily usage and separate provider plan windows', async () => {

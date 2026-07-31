@@ -198,6 +198,31 @@ export interface ConversationTurn {
   at: string
 }
 
+// One labelled part of a provider's routing score. The parts sum to the score
+// the router sorts on, so the UI can show exactly why an agent was picked.
+export interface RoutingFactor {
+  label: string
+  points: number
+}
+
+export interface RoutingCandidate {
+  providerId: string
+  providerName: string
+  eligible: boolean
+  score?: number
+  factors?: RoutingFactor[]
+  // Plain-language reason an ineligible provider was passed over.
+  skippedReason?: string
+}
+
+export interface RoutingDecision {
+  at: string
+  taskType: TaskType
+  mode: RoutingMode
+  chosenProviderId?: string
+  candidates: RoutingCandidate[]
+}
+
 export type OrchestrationStage = 'planning' | 'delegating' | 'synthesizing' | 'done'
 
 // One unit of work in an orchestrated task, dispatched to a best-fit provider.
@@ -245,6 +270,11 @@ export interface ProxyTask {
   activity?: ActivityEvent[]
   // Files the agent created or edited during the task.
   filesChanged?: FileChange[]
+  // Why the router picked this task's provider, recorded at selection time.
+  routing?: RoutingDecision
+  // Head-to-head run: the same prompt sent to several agents at once, each in
+  // its own worktree, for side-by-side comparison. Lanes reuse `subtasks`.
+  bench?: boolean
   // Multi-provider orchestration (planner delegates subtasks).
   orchestrated?: boolean
   orchestrationStage?: OrchestrationStage
@@ -261,6 +291,37 @@ export interface ProxyTask {
   // User-selected provider for future turns. Unlike selectedProviderId, this
   // does not rewrite which provider produced the most recent response.
   continuationProviderId?: string
+}
+
+// A file a Frontier task branch would bring into the checkout, measured from
+// the branch's merge base with HEAD.
+export interface BranchFileChange {
+  path: string
+  action: 'create' | 'edit' | 'delete'
+  additions: number
+  deletions: number
+}
+
+// One `frontier/<task>/<n>-<slug>` branch left behind by an orchestrated task,
+// waiting to be reviewed and merged.
+export interface TaskBranch {
+  cwd: string
+  branch: string
+  taskId: string
+  subject: string
+  committedAt: string
+  ahead: number
+  merged: boolean
+  files: BranchFileChange[]
+}
+
+export interface BranchRepo {
+  cwd: string
+  name: string
+  currentBranch: string
+  // Merging is refused while the checkout has uncommitted changes.
+  dirty: boolean
+  branches: TaskBranch[]
 }
 
 export interface AppSettings {
@@ -288,6 +349,8 @@ export interface CreateTaskInput {
   model?: string
   // Run as a multi-provider orchestration (planner decomposes → delegates → synthesizes).
   orchestrate?: boolean
+  // Run the same prompt head-to-head on these providers instead of routing it.
+  benchProviderIds?: string[]
   attachments?: ChatContextItem[]
 }
 
@@ -315,6 +378,10 @@ export interface FrontierApi {
   chooseImages(): Promise<SelectedImage[]>
   savePastedImage(input: { dataUrl: string; name?: string }): Promise<SelectedImage>
   getAttachmentPreview(taskId: string, attachmentId: string): Promise<string>
+  listBranchInbox(): Promise<BranchRepo[]>
+  readBranchFile(cwd: string, branch: string, path: string): Promise<string>
+  mergeBranch(cwd: string, branch: string): Promise<BranchRepo[]>
+  deleteBranch(cwd: string, branch: string): Promise<BranchRepo[]>
   clearFinishedTasks(): Promise<void>
   checkProviders(): Promise<AppSnapshot>
   updateProvider(patch: ProviderPatch): Promise<AppSnapshot>

@@ -119,9 +119,16 @@ instead of `execute(task)`:
    subtask array; `parsePlan` (in `orchestrate.ts`, unit-tested) extracts it even from
    fenced/prose-wrapped output. Empty plan → falls back to running the whole task as one subtask.
 2. **Delegate** — `runSubtasks` ranks providers per subtask type and runs them with bounded
-   concurrency (`maxParallelTasks` lanes), streaming each subtask's output live.
+   concurrency (`maxParallelTasks` lanes), streaming each subtask's output live. A lane whose
+   providers are all *busy* waits for a slot (`awaitSubtaskProvider`) instead of failing —
+   with one installed CLI at `maxConcurrent: 1` (the shipped default) the second lane would
+   otherwise find everything busy the instant the first started and abandon its subtask.
+   Only a subtask no idle provider could take is a real failure.
 3. **Synthesize** — `buildSynthesisPrompt` feeds all subtask outputs to a provider; its
-   streamed result becomes `task.output`.
+   streamed result becomes `task.output`. The synthesis prompt states explicitly that this
+   is a **read-only reporting step**: the synthesizer is a full agent with file tools running
+   in the task cwd, and without that instruction it sees the subtasks' files "missing" (they
+   are committed on their worktree branches) and redoes all the work in the main tree.
 `task.orchestrationStage` (planning→delegating→synthesizing→done) and `task.subtasks[]`
 drive the UI stage bar + subtask cards. `task.modelOverride` (from the New Task dialog)
 is applied to every run via `withModel`.
@@ -131,6 +138,29 @@ the task cwd is a git repo, `runSubtasks` gives each subtask its own `git worktr
 on a `frontier/<taskId>/<n>-<slug>` branch, runs it there (isolated file edits), commits its
 changes to that branch (`subtask.committed`), then tears the worktree down — leaving the
 branch for the user to review/merge. Non-git cwd falls back to the shared directory.
+
+## Head-to-head comparison (bench)
+
+`createTask({ benchProviderIds: [...] })` (≥2 agents) sets `task.bench` and seeds one
+`subtasks[]` lane per chosen agent. `runBench` sends the **identical** prompt to every lane
+at once, each in its own worktree branch (`frontier/<taskId>/bench-<agent-slug>`), and
+deliberately performs **no failover** — a lane that fails is a result about that agent, not
+something to reroute. Activity events are prefixed with the agent name because lanes stream
+concurrently. `task.output` is a factual scoreboard built from what happened (`benchSummary`),
+not another model call. The UI renders lanes as side-by-side columns instead of a transcript,
+and hides the follow-up composer (a comparison has no single conversation to continue).
+
+## Branch review inbox (`src/main/branches.ts`)
+
+Split & delegate and bench runs leave `frontier/*` branches behind. The **Review** screen
+lists them per repo (`listBranchInbox` over the distinct task cwds) with each branch's
+commit subject, distance from HEAD, and per-file `+/-` counts measured from the merge base
+(`HEAD...branch`), then offers a diff view, **Merge**, and **Delete**.
+
+Safety rules, all unit-tested: only branch names starting with `frontier/` can ever be
+diffed, merged, or deleted (`assertTaskBranch`); merging is refused while the checkout is
+dirty; a conflicting merge is aborted and reported rather than left half-applied. Merge and
+delete are both behind an explicit confirmation dialog in the UI.
 
 ## Conversations (multi-turn continuation)
 

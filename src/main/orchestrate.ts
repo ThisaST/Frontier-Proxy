@@ -57,12 +57,20 @@ export function parsePlan(text: string): PlannedSubtask[] {
 export function buildSynthesisPrompt(taskPrompt: string, subtasks: SubTask[]): string {
   const sections = subtasks.map((subtask) => {
     const body = subtask.status === 'completed' ? subtask.output.trim() || '(no output)' : `(did not complete: ${subtask.error ?? subtask.status})`
-    return `## ${subtask.title}\n${body}`
+    const branch = subtask.branch ? ` (committed to branch \`${subtask.branch}\`)` : ''
+    return `## ${subtask.title}${branch}\n${body}`
   })
+  const committed = subtasks.filter((subtask) => subtask.committed && subtask.branch)
   return [
-    'You are synthesizing the results of several subtasks completed by different agents.',
-    'Combine them into a single cohesive, de-duplicated final result that fully addresses the ORIGINAL GOAL.',
+    'You are writing the final report for several subtasks already completed by other agents.',
+    'Combine their results into a single cohesive, de-duplicated summary that addresses the ORIGINAL GOAL.',
     'Resolve any conflicts between subtask outputs and note anything left unfinished.',
+    '',
+    'IMPORTANT — this is a read-only reporting step. Do NOT create, edit, or delete any file, and do NOT',
+    'redo the subtasks. Each subtask ran in its own isolated git worktree, so its files are committed on',
+    'its own branch and are deliberately absent from the current working tree. Files "missing" here is the',
+    'expected state, not a problem to fix. Report on the work; the user merges the branches themselves.',
+    ...(committed.length ? ['', 'Committed branches:', ...committed.map((subtask) => `- ${subtask.branch} — ${subtask.title}`)] : []),
     '',
     'ORIGINAL GOAL:',
     taskPrompt,

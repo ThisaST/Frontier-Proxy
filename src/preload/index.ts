@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
+import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
@@ -14,6 +14,10 @@ const api: FrontierApi = {
   chooseImages: () => ipcRenderer.invoke('frontier:choose-images') as Promise<SelectedImage[]>,
   savePastedImage: (input: { dataUrl: string; name?: string }) => ipcRenderer.invoke('frontier:save-pasted-image', input) as Promise<SelectedImage>,
   getAttachmentPreview: (taskId: string, attachmentId: string) => ipcRenderer.invoke('frontier:attachment-preview', taskId, attachmentId) as Promise<string>,
+  listBranchInbox: () => ipcRenderer.invoke('frontier:branch-inbox') as Promise<BranchRepo[]>,
+  readBranchFile: (cwd: string, branch: string, path: string) => ipcRenderer.invoke('frontier:branch-file', cwd, branch, path) as Promise<string>,
+  mergeBranch: (cwd: string, branch: string) => ipcRenderer.invoke('frontier:merge-branch', cwd, branch) as Promise<BranchRepo[]>,
+  deleteBranch: (cwd: string, branch: string) => ipcRenderer.invoke('frontier:delete-branch', cwd, branch) as Promise<BranchRepo[]>,
   clearFinishedTasks: () => ipcRenderer.invoke('frontier:clear-finished') as Promise<void>,
   checkProviders: () => ipcRenderer.invoke('frontier:check-providers') as Promise<AppSnapshot>,
   updateProvider: (patch: ProviderPatch) => ipcRenderer.invoke('frontier:update-provider', patch) as Promise<AppSnapshot>,

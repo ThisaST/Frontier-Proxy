@@ -475,7 +475,10 @@ export async function checkProvider(provider: ProviderConfig): Promise<{ availab
 // "list models" command, so we ship a sensible default set; the user can still
 // type any model id via the "Custom model" option in the New Task dialog.
 const KNOWN_MODELS: Partial<Record<ProviderConfig['kind'], string[]>> = {
-  claude: ['claude-opus-4-8', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
+  // Verified accepted by Claude Code 2.1.x. Fable is deliberately omitted: the
+  // CLI knows the id but rejects it without usage credits, so offering it in the
+  // picker would hand most users a model that always fails.
+  claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-5'],
   codex: ['gpt-5-codex', 'gpt-5', 'o4-mini'],
   copilot: ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'o3']
 }

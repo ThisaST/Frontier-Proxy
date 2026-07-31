@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
+  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -21,9 +21,10 @@ function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
 }
 import { buildProviderCommand, checkProvider, discoverModels, runProvider } from './providers'
 import { hydrateExecutablePath } from './env'
-import { rankProviders } from './router'
+import { rankProviders, routeTask } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
+import { branchFileDiff, deleteTaskBranch, listBranchInbox, mergeTaskBranch } from './branches'
 import { JsonStore } from './store'
 import { contextPrompt, listWorkspaceEntries, loadTaskFile, loadTaskWorkspace, validateChatContext } from './taskfiles'
 import type { McpAuthManager } from './mcp-auth'
@@ -92,6 +93,8 @@ export class OrchestrationEngine extends EventEmitter {
     }
     const attachments = await validateChatContext(input.cwd, input.attachments)
     const prompt = input.prompt.trim() || 'Please inspect the attached image.'
+    const benchIds = [...new Set(input.benchProviderIds ?? [])].filter((id) => this.settings.providers.some((provider) => provider.id === id))
+    if (input.benchProviderIds?.length && benchIds.length < 2) throw new Error('Choose at least two installed agents to compare.')
     const task: ProxyTask = {
       id: randomUUID(),
       prompt,
@@ -108,8 +111,15 @@ export class OrchestrationEngine extends EventEmitter {
       estimatedOutputTokens: 0,
       activity: [],
       filesChanged: [],
-      orchestrated: input.orchestrate || undefined,
-      subtasks: input.orchestrate ? [] : undefined,
+      orchestrated: input.orchestrate && !benchIds.length ? true : undefined,
+      bench: benchIds.length ? true : undefined,
+      subtasks: benchIds.length
+        ? benchIds.map((providerId) => ({
+          id: randomUUID(),
+          title: this.settings.providers.find((provider) => provider.id === providerId)?.name ?? providerId,
+          prompt, type: classifyTask(prompt), status: 'queued' as const, output: '', providerId
+        }))
+        : input.orchestrate ? [] : undefined,
       turns: [{ id: randomUUID(), role: 'user', content: prompt, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }]
     }
     this.tasks.unshift(task)
@@ -192,6 +202,26 @@ export class OrchestrationEngine extends EventEmitter {
       .find((item) => item.id === attachmentId && item.kind === 'image')
     if (!attachment) throw new Error('Unknown image attachment.')
     return attachment.path
+  }
+
+  // Branches left behind by orchestrated tasks, grouped by the repo they belong
+  // to, so subtask work can be reviewed and merged without leaving the app.
+  async listBranchInbox(): Promise<BranchRepo[]> {
+    return await listBranchInbox(this.tasks.map((task) => task.cwd))
+  }
+
+  async readBranchFile(cwd: string, branch: string, path: string): Promise<string> {
+    return await branchFileDiff(cwd, branch, path)
+  }
+
+  async mergeBranch(cwd: string, branch: string): Promise<BranchRepo[]> {
+    await mergeTaskBranch(cwd, branch)
+    return await this.listBranchInbox()
+  }
+
+  async deleteBranch(cwd: string, branch: string): Promise<BranchRepo[]> {
+    await deleteTaskBranch(cwd, branch)
+    return await this.listBranchInbox()
   }
 
   async clearFinishedTasks(): Promise<void> {
@@ -316,7 +346,10 @@ export class OrchestrationEngine extends EventEmitter {
       while (this.tasks.filter((task) => task.status === 'running').length < this.settings.maxParallelTasks) {
         const task = [...this.tasks].reverse().find((item) => item.status === 'queued')
         if (!task) break
-        const ranked = rankProviders(task, this.snapshot().providers)
+        // A bench run targets its chosen agents directly, so it does not compete
+        // for the router's ranking — only for the lanes each provider allows.
+        if (task.bench) { void this.runBench(task); await new Promise((resolve) => setTimeout(resolve, 0)); continue }
+        const ranked = this.route(task)
         if (!ranked.length) break
         if (task.orchestrated) void this.orchestrate(task)
         else void this.execute(task, ranked.map((provider) => provider.id))
@@ -457,10 +490,12 @@ export class OrchestrationEngine extends EventEmitter {
     // message must not silently move to another platform. Users can explicitly
     // choose a replacement with changeTaskProvider.
     const requestedProviderId = task.continuationProviderId ?? task.selectedProviderId
-    const ranked = rankProviders(
+    const routed = routeTask(
       { ...task, preferredProviderId: requestedProviderId, orchestrated: false },
       this.snapshot().providers
     )
+    const ranked = routed.ranked
+    task.routing = routed.decision
     if (requestedProviderId && !ranked.some((item) => item.id === requestedProviderId)) {
       const requested = this.settings.providers.find((item) => item.id === requestedProviderId)
       throw new Error(`${requested?.name ?? 'The selected provider'} is not currently available. Choose another provider before continuing.`)
@@ -619,6 +654,94 @@ export class OrchestrationEngine extends EventEmitter {
     }
   }
 
+  // Head-to-head: the identical prompt goes to every chosen agent at once, each
+  // in its own worktree so their edits cannot collide. Deliberately no failover
+  // — a lane that fails is a result about that agent, not something to reroute.
+  private async runBench(task: ProxyTask): Promise<void> {
+    task.status = 'running'
+    task.startedAt = new Date().toISOString()
+    const controller = new AbortController()
+    this.controllers.set(task.id, controller)
+    this.startAssistantTurn(task)
+    await this.persistAndEmit()
+
+    const attachments = task.turns?.find((turn) => turn.role === 'user')?.attachments ?? []
+    const prompt = this.promptWithMemory(this.messageWithContext(task.prompt, task.cwd, attachments))
+    const imagePaths = this.imagePaths(attachments)
+    const git = await isGitRepo(task.cwd)
+
+    await Promise.all((task.subtasks ?? []).map(async (lane) => {
+      const provider = this.settings.providers.find((item) => item.id === lane.providerId)
+      const runtime = provider ? this.runtimes.get(provider.id) : undefined
+      if (!provider || !runtime) { lane.status = 'failed'; lane.error = 'This agent is no longer configured.'; this.emitSnapshot(); return }
+
+      let workdir = task.cwd
+      if (git) {
+        const branch = `frontier/${task.id.slice(0, 8)}/bench-${branchSlug(provider.name)}`
+        try { workdir = await createWorktree(task.cwd, branch); lane.branch = branch } catch { /* share the cwd */ }
+      }
+      lane.status = 'running'
+      runtime.running += 1
+      const started = Date.now()
+      this.emitSnapshot()
+      try {
+        const result = await runProvider(this.withModel(provider, task.modelOverride), {
+          prompt, cwd: workdir, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
+          onOutput: (text) => { lane.output += text; this.emitSnapshot() },
+          onModel: (model) => { lane.model = model; this.emitSnapshot() },
+          // Lanes run concurrently, so every event is attributed to its agent.
+          onActivity: (event) => {
+            task.activity = [...(task.activity ?? []), { ...event, label: `${provider.name}: ${event.label}` }].slice(-100)
+            this.emitSnapshot()
+          },
+          onUsage: (usage) => { this.applyUsage(runtime, usage, task) },
+          onSession: (session) => { this.applySession(runtime, session) }
+        })
+        if (!lane.output.trim()) lane.output = result.output
+        if (!lane.model) lane.model = result.model ?? provider.model
+        lane.status = controller.signal.aborted || result.failureKind === 'cancelled' ? 'cancelled' : result.ok ? 'completed' : 'failed'
+        if (!result.ok && lane.status !== 'cancelled') lane.error = result.error
+        if (lane.branch && result.ok) lane.committed = await commitWorktree(workdir, `Frontier bench (${provider.name}): ${task.prompt.slice(0, 60)}`)
+      } catch (error) {
+        lane.status = 'failed'
+        lane.error = error instanceof Error ? error.message : String(error)
+      } finally {
+        runtime.running = Math.max(0, runtime.running - 1)
+        runtime.usage.tasks += 1
+        runtime.usage.elapsedMs += Date.now() - started
+        runtime.usage.estimatedInputTokens += estimateTokens(prompt)
+        runtime.usage.estimatedOutputTokens += estimateTokens(lane.output)
+        if (workdir !== task.cwd) await removeWorktree(task.cwd, workdir)
+        this.emitSnapshot()
+      }
+    }))
+
+    const lanes = task.subtasks ?? []
+    task.output = this.benchSummary(lanes)
+    task.estimatedOutputTokens = estimateTokens(task.output)
+    const finished = lanes.filter((lane) => lane.status === 'completed')
+    this.finishTask(
+      task,
+      controller.signal.aborted ? 'cancelled' : finished.length ? 'completed' : 'failed',
+      controller.signal.aborted ? 'Task cancelled.' : finished.length ? undefined : 'No agent completed this comparison.'
+    )
+    this.finalizeAssistantTurn(task)
+    this.controllers.delete(task.id)
+    await this.persistAndEmit()
+    void this.pump()
+  }
+
+  // A factual scoreboard built from what actually happened — no extra model call.
+  private benchSummary(lanes: SubTask[]): string {
+    const rows = lanes.map((lane) => {
+      const parts = [lane.model, lane.status]
+      if (lane.branch) parts.push(lane.committed ? `committed to \`${lane.branch}\`` : 'no file changes')
+      if (lane.error) parts.push(lane.error)
+      return `- **${lane.title}** — ${parts.filter(Boolean).join(' · ')}`
+    })
+    return [`### Head-to-head results`, '', ...rows].join('\n')
+  }
+
   private async runSubtasks(task: ProxyTask, controller: AbortController): Promise<void> {
     const subtasks = task.subtasks ?? []
     const imagePaths = this.imagePaths(task.turns?.find((turn) => turn.role === 'user')?.attachments ?? [])
@@ -640,9 +763,11 @@ export class OrchestrationEngine extends EventEmitter {
     const runNext = async (): Promise<void> => {
       const subtask = queue.shift()
       if (!subtask || controller.signal.aborted) return
-      const ranked = rankProviders({ ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false }, this.snapshot().providers)
-      const provider = this.settings.providers.find((item) => item.id === ranked[0]?.id)
-      if (!provider) { subtask.status = 'failed'; subtask.error = 'No eligible provider.'; this.emitSnapshot(); return runNext() }
+      const provider = await this.awaitSubtaskProvider(task, subtask, controller)
+      if (!provider) {
+        if (controller.signal.aborted) return
+        subtask.status = 'failed'; subtask.error = 'No eligible provider.'; this.emitSnapshot(); return runNext()
+      }
       subtask.status = 'running'; subtask.providerId = provider.id; this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
@@ -665,6 +790,25 @@ export class OrchestrationEngine extends EventEmitter {
       await Promise.all(Array.from({ length: lanes }, () => runNext()))
     } finally {
       for (const dir of worktrees.values()) await removeWorktree(task.cwd, dir)
+    }
+  }
+
+  // A subtask lane must wait for a provider slot rather than give up. With a
+  // single installed CLI at maxConcurrent 1 — the shipped default — the second
+  // lane would otherwise find every provider busy the instant the first lane
+  // started, and abandon its subtask before it ever ran. Only a subtask that no
+  // provider could take even when idle (no capability, cooldown, usage limit,
+  // offline) is a genuine failure.
+  private async awaitSubtaskProvider(task: ProxyTask, subtask: SubTask, controller: AbortController): Promise<ProviderConfig | undefined> {
+    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false }
+    for (;;) {
+      if (controller.signal.aborted) return undefined
+      const providers = this.snapshot().providers
+      const ranked = rankProviders(routing, providers)
+      if (ranked.length) return this.settings.providers.find((item) => item.id === ranked[0].id)
+      const idle = providers.map((provider) => ({ ...provider, runtime: { ...provider.runtime, running: 0 } }))
+      if (!rankProviders(routing, idle).length) return undefined
+      await new Promise((resolve) => setTimeout(resolve, 200))
     }
   }
 
@@ -729,6 +873,14 @@ export class OrchestrationEngine extends EventEmitter {
     return final
   }
 
+  // Rank providers for a task and keep the explanation on the task, so the UI
+  // can show why this agent won and what disqualified the others.
+  private route(task: ProxyTask): ReturnType<typeof routeTask>['ranked'] {
+    const { ranked, decision } = routeTask(task, this.snapshot().providers)
+    task.routing = decision
+    return ranked
+  }
+
   private pickProvider(task: ProxyTask): ProviderConfig | undefined {
     const ranked = rankProviders({ ...task, orchestrated: false }, this.snapshot().providers)
     return this.settings.providers.find((item) => item.id === ranked[0]?.id)
@@ -774,6 +926,8 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   private selectTaskProvider(task: ProxyTask, providerId: string): void {
+    // Failover can land on a provider other than the router's first choice.
+    if (task.routing) task.routing.chosenProviderId = providerId
     if (task.selectedProviderId && task.selectedProviderId !== providerId) {
       task.contextTokens = undefined
       task.contextWindow = undefined

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { rankProviders, type RoutableProvider } from '../src/main/router'
+import { rankProviders, routeTask, type RoutableProvider } from '../src/main/router'
 import type { ProviderKind, ProxyTask, TaskType } from '../src/shared/types'
 
 function provider(id: string, kind: ProviderKind, tasks = 0, available = true): RoutableProvider {
@@ -71,5 +71,53 @@ describe('provider routing', () => {
   it('spreads otherwise similar subscription usage', () => {
     const ranked = rankProviders(task('balanced', 'general'), [provider('used', 'codex', 20), provider('fresh', 'codex', 0)])
     expect(ranked[0].id).toBe('fresh')
+  })
+})
+
+describe('routing explanation', () => {
+  it('breaks the winning score into factors that sum to it', () => {
+    const chosen = task('quality', 'review')
+    const { ranked, decision } = routeTask(chosen, [provider('claude', 'claude'), provider('codex', 'codex')])
+    const winner = decision.candidates.find((candidate) => candidate.providerId === ranked[0].id)!
+    expect(decision.chosenProviderId).toBe('claude')
+    expect(winner.eligible).toBe(true)
+    expect(winner.factors?.reduce((sum, factor) => sum + factor.points, 0)).toBeCloseTo(winner.score!)
+    expect(winner.factors).toEqual(expect.arrayContaining([
+      { label: 'Configured priority', points: 80 },
+      { label: 'review affinity', points: 18 },
+      { label: 'Quality first policy', points: 18 }
+    ]))
+  })
+
+  it('credits an explicit override to the user', () => {
+    const chosen = task('balanced')
+    chosen.preferredProviderId = 'claude'
+    const { decision } = routeTask(chosen, [provider('claude', 'claude'), provider('codex', 'codex')])
+    const winner = decision.candidates.find((candidate) => candidate.providerId === 'claude')!
+    expect(winner.factors).toContainEqual({ label: 'Chosen by you', points: 1_000 })
+  })
+
+  it('records a plain-language reason for every skipped provider', () => {
+    const offline = provider('offline', 'codex', 0, false)
+    const cooling = provider('cooling', 'claude'); cooling.runtime.cooldownUntil = new Date(Date.now() + 60_000).toISOString()
+    const busy = provider('busy', 'copilot'); busy.runtime.running = 1
+    const narrow = provider('narrow', 'ollama'); narrow.capabilities = ['documentation']
+    const off = provider('off', 'codex'); off.enabled = false
+
+    const { ranked, decision } = routeTask(task('balanced', 'coding'), [offline, cooling, busy, narrow, off])
+    expect(ranked).toEqual([])
+    const reasons = Object.fromEntries(decision.candidates.map((candidate) => [candidate.providerId, candidate.skippedReason]))
+    expect(reasons.offline).toBe('CLI not detected on this machine')
+    expect(reasons.cooling).toBe('Cooling down after a usage limit')
+    expect(reasons.busy).toBe('Already running 1 of 1 allowed tasks')
+    expect(reasons.narrow).toBe('Not enabled for coding work')
+    expect(reasons.off).toBe('Turned off in Providers')
+    expect(decision.candidates.every((candidate) => candidate.eligible === false)).toBe(true)
+  })
+
+  it('lists eligible providers ahead of skipped ones, best first', () => {
+    const offline = provider('offline', 'codex', 0, false)
+    const { decision } = routeTask(task('saver'), [offline, provider('cloud', 'claude'), provider('local', 'codex-oss')])
+    expect(decision.candidates.map((candidate) => candidate.providerId)).toEqual(['local', 'cloud', 'offline'])
   })
 })

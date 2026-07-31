@@ -25,6 +25,14 @@ let detailWorkspaceLoadingKey: string | undefined
 // Avoids re-parsing markdown for a finished task on every unrelated snapshot.
 let lastBodyRender = { id: '', status: '', length: -1 }
 
+// Queue/surface split. Widths are clamped against the live grid width, so a
+// value saved on a small window can never collapse the layout later.
+const QUEUE_MIN_WIDTH = 260
+const SURFACE_MIN_WIDTH = 380
+const GUTTER_WIDTH = 7
+let queueWidth: number | undefined
+let applyQueueWidth: () => void = () => undefined
+
 // Review inbox
 let reviewRepos: BranchRepo[] = []
 let reviewLoaded = false
@@ -1676,9 +1684,13 @@ function renderControlPlane(): void {
 // --- Shell ---
 
 function render(): void {
+  // Every renderer below reads the snapshot. It arrives asynchronously, and the
+  // user can click a nav item before it does.
+  if (typeof snapshot === 'undefined') return
   renderMiniProviders(); renderTasks(); renderTaskProviderOptions(); renderSettings()
   if (currentView === 'home') renderHome()
   if (currentView === 'agents') renderAgentsTab()
+  if (currentView === 'review') renderReview()
 }
 
 const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
@@ -1703,12 +1715,16 @@ function switchView(view: string): void {
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
   byId('new-task-button').style.display = view === 'review' || view === 'control' ? 'none' : ''
+  // The first snapshot may still be in flight — clicking a nav item before it
+  // lands used to throw here and leave the view empty. render() repaints the
+  // active view as soon as the snapshot arrives.
+  if (typeof snapshot === 'undefined') return
   // Render the control plane from the draft only on entry so streaming snapshots
   // never clobber in-progress edits.
   if (view === 'control') renderControlPlane()
   if (view === 'agents') renderAgentsTab()
   if (view === 'home') renderHome()
-  if (view === 'tasks') renderTasks()
+  if (view === 'tasks') { renderTasks(); applyQueueWidth() }
   if (view === 'review') { renderReview(); void loadReview(true) }
 }
 
@@ -1874,22 +1890,52 @@ window.addEventListener('keydown', (event) => {
 ;(function setupResizer(): void {
   const grid = byId('content-grid')
   const gutter = byId('grid-gutter')
-  const stored = Number(localStorage.getItem('fp-wq-width'))
-  if (stored > 0) grid.style.gridTemplateColumns = `${stored}px 7px minmax(430px, 1.1fr)`
   let dragging = false
+
+  // Clamp the queue column so the task surface always keeps room. On a narrow
+  // window the upper bound can fall below the lower one; that range is unusable,
+  // and the previous `Math.min(Math.max(...))` silently returned a width under
+  // the minimum — sometimes zero or negative. Because the result was persisted,
+  // one drag in a small window collapsed the queue on every later launch.
+  // An unusable range now falls back to the stylesheet's proportional columns.
+  const clampQueueWidth = (width: number): number | undefined => {
+    const available = grid.getBoundingClientRect().width
+    const widest = available - GUTTER_WIDTH - SURFACE_MIN_WIDTH
+    if (!Number.isFinite(width) || width <= 0 || widest < QUEUE_MIN_WIDTH) return undefined
+    return Math.round(Math.min(Math.max(QUEUE_MIN_WIDTH, width), widest))
+  }
+
+  applyQueueWidth = (): void => {
+    // The grid has no width while the Tasks view is hidden, so a stored width is
+    // applied when the view is shown rather than at startup.
+    if (queueWidth === undefined) { grid.style.gridTemplateColumns = ''; return }
+    const clamped = clampQueueWidth(queueWidth)
+    grid.style.gridTemplateColumns = clamped === undefined
+      ? ''
+      : `${clamped}px ${GUTTER_WIDTH}px minmax(${SURFACE_MIN_WIDTH}px, 1.1fr)`
+  }
+
+  const stored = Number(localStorage.getItem('fp-wq-width'))
+  queueWidth = Number.isFinite(stored) && stored > 0 ? stored : undefined
+
   gutter.addEventListener('mousedown', (event) => { dragging = true; gutter.classList.add('dragging'); document.body.style.userSelect = 'none'; event.preventDefault() })
   window.addEventListener('mousemove', (event) => {
     if (!dragging) return
-    const rect = grid.getBoundingClientRect()
-    const left = Math.min(Math.max(280, event.clientX - rect.left), rect.width - 420)
-    grid.style.gridTemplateColumns = `${left}px 7px minmax(400px, 1.1fr)`
+    const clamped = clampQueueWidth(event.clientX - grid.getBoundingClientRect().left)
+    if (clamped === undefined) return
+    queueWidth = clamped
+    applyQueueWidth()
   })
   window.addEventListener('mouseup', () => {
     if (!dragging) return
     dragging = false; gutter.classList.remove('dragging'); document.body.style.userSelect = ''
-    const left = Math.round(byId('task-list').closest('.task-panel')!.getBoundingClientRect().width)
-    localStorage.setItem('fp-wq-width', String(left))
+    // Only a width that survives clamping is worth remembering.
+    const clamped = queueWidth === undefined ? undefined : clampQueueWidth(queueWidth)
+    if (clamped === undefined) localStorage.removeItem('fp-wq-width')
+    else localStorage.setItem('fp-wq-width', String(clamped))
   })
+  // Shrinking the window can invalidate a width that used to fit.
+  window.addEventListener('resize', () => { if (currentView === 'tasks') applyQueueWidth() })
 })()
 
 for (const inputId of ['composer-input', 'prompt']) {

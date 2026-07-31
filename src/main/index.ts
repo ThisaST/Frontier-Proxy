@@ -1,16 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, delimiter, extname, join } from 'node:path'
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { basename, extname, join } from 'node:path'
 import { OrchestrationEngine } from './engine'
 import { JsonStore } from './store'
 import { McpAuthManager } from './mcp-auth'
+import { hydrateExecutablePath } from './env'
 import type { ChatContextItem, CreateTaskInput, ProviderPatch, SelectedImage } from '../shared/types'
 
 let engine: OrchestrationEngine
-const execFileAsync = promisify(execFile)
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
 
@@ -24,20 +22,6 @@ async function selectedImage(path: string, name = basename(path), id: string = r
     attachment: { id, kind: 'image', name, path, mimeType },
     previewUrl: `data:${mimeType};base64,${data.toString('base64')}`
   }
-}
-
-async function hydrateExecutablePath(): Promise<void> {
-  if (process.platform === 'win32') return
-  const paths = new Set((process.env.PATH ?? '').split(delimiter).filter(Boolean))
-  for (const common of ['/usr/local/bin', '/opt/homebrew/bin', '/Applications/ChatGPT.app/Contents/Resources']) paths.add(common)
-  try {
-    const shell = process.env.SHELL || '/bin/zsh'
-    const { stdout } = await execFileAsync(shell, ['-ilc', 'printf %s "$PATH"'], { timeout: 5_000, encoding: 'utf8' })
-    for (const entry of stdout.split(delimiter).filter(Boolean)) paths.add(entry)
-  } catch {
-    // Common locations above still make packaged GUI launches useful when shell startup fails.
-  }
-  process.env.PATH = [...paths].join(delimiter)
 }
 
 function broadcast(channel: string, payload: unknown): void {
@@ -126,6 +110,23 @@ function registerIpc(): void {
   })
 }
 
+// Only one Frontier instance may run: a second process would share the same
+// frontier-state.json and clobber it (last-writer-wins), silently dropping tasks
+// and usage. Refuse the second launch and focus the existing window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const existing = BrowserWindow.getAllWindows()[0]
+    if (existing) {
+      if (existing.isMinimized()) existing.restore()
+      existing.focus()
+    }
+  })
+  startApp()
+}
+
+function startApp(): void {
 app.whenReady().then(async () => {
   await hydrateExecutablePath()
   const userData = app.getPath('userData')
@@ -158,3 +159,4 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+}

@@ -45,6 +45,13 @@ export interface StreamHandlers {
 
 const QUOTA_PATTERN = /(rate.?limit|usage.?limit|request.?limit|premium requests?|monthly limit|quota|overloaded|capacity|too many requests|credits? exhausted)/i
 
+// A CLI that is installed but not authenticated (logged out, expired session,
+// missing/invalid credentials) is *unavailable*, not broken — the fix is to log
+// that CLI in, and Frontier should cool it down and fail over rather than fail
+// the task. The green "Ready" badge only confirms the binary exists, so this is
+// the common real-world failure. Matched only on a non-zero exit.
+const AUTH_PATTERN = /(not logged ?in|please run\s+\S{0,12}login|\blogin\b.{0,20}(required|expired)|unauthor(ised|ized)|authentication (failed|required|error)|no authentication|invalid api key|session (expired|has expired)|token (expired|has expired)|\b401\b|not authenticated)/i
+
 const COPILOT_SAFE_TOOLS = 'write, shell(git:*), shell(npm:*), shell(npx:*), shell(pnpm:*), shell(yarn:*), shell(bun:*), shell(cargo:*), shell(go:*), shell(pytest:*)'
 
 function copilotGithubMcpArgs(provider: ProviderConfig): string[] {
@@ -275,14 +282,16 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
     const usage = event.usage as Dict | undefined
     if (usage) {
       const input = Number(usage.input_tokens ?? 0)
+      const output = Number(usage.output_tokens ?? 0)
       const contextWindow = finiteNumber(usage.context_window ?? event.context_window ?? event.model_context_window)
-      handlers.onUsage?.({
-        inputTokens: input,
-        outputTokens: Number(usage.output_tokens ?? 0),
-        costUsd: 0
-      })
+      handlers.onUsage?.({ inputTokens: input, outputTokens: output, costUsd: 0 })
+      // Codex exposes no dedicated context field; its per-turn `input_tokens` is
+      // the conversation currently occupying the model's context window (cached
+      // tokens included). Use it as the occupancy so the context meter tracks
+      // real usage. Codex rarely reports the window itself, so the engine pairs
+      // this with the provider's configured/known window as an estimate.
       const explicitContext = finiteNumber(usage.context_tokens ?? usage.current_context_tokens ?? event.context_tokens)
-      if (explicitContext !== undefined) handlers.onContext?.({ tokens: explicitContext, window: contextWindow })
+      handlers.onContext?.({ tokens: explicitContext ?? input + output, window: contextWindow })
     }
   }
   if (event.type === 'item.completed' || event.type === 'item.updated') {
@@ -409,7 +418,14 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
       const sessionId = collected.getSessionId()
       if (options.signal.aborted || signal) resolve({ ok: false, output, error: 'Task cancelled.', failureKind: 'cancelled', model, usage, session, sessionId })
       else if (code === 0) resolve({ ok: true, output, model, usage, session, sessionId })
-      else resolve({ ok: false, output, error: error || `Provider exited with code ${code}.`, failureKind: QUOTA_PATTERN.test(`${error}\n${output}`) ? 'quota' : 'failed', model, usage, session, sessionId })
+      else {
+        const haystack = `${error}\n${output}`
+        // Auth failures are treated as `unavailable` so the engine cools the
+        // provider down and fails over to another logged-in CLI, instead of
+        // stopping the whole task on a fixable login problem.
+        const failureKind: RunFailureKind = QUOTA_PATTERN.test(haystack) ? 'quota' : AUTH_PATTERN.test(haystack) ? 'unavailable' : 'failed'
+        resolve({ ok: false, output, error: error || `Provider exited with code ${code}.`, failureKind, model, usage, session, sessionId })
+      }
     })
 
     const stdinPrompt = command.promptPrefix ? `${command.promptPrefix}\n\n${options.prompt}` : options.prompt

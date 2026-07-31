@@ -16,6 +16,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
     {
       id: 'codex', name: 'Codex', kind: 'codex', enabled: true, executable: 'codex',
       priority: 80, maxConcurrent: 1,
+      // Codex's stream reports context occupancy but not the model's window, so
+      // pair it with a GPT-5-family default (~400k) as a fallback the context
+      // meter can use. Shown as an estimate; override per provider if it differs.
+      contextWindow: 400_000,
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
     },
     {

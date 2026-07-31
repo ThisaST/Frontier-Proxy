@@ -588,6 +588,15 @@ function renderOutputBody(task: ProxyTask): void {
   if (streaming || atBottom) output.scrollTop = output.scrollHeight
 }
 
+// Prefer the CLI's real reported tokens; fall back to character-count estimates
+// (labelled as such) when the provider reports none.
+function taskTokens(task: ProxyTask): { input: number; output: number; estimated: boolean } {
+  if (task.usageInputTokens !== undefined || task.usageOutputTokens !== undefined) {
+    return { input: task.usageInputTokens ?? 0, output: task.usageOutputTokens ?? 0, estimated: false }
+  }
+  return { input: task.estimatedInputTokens, output: task.estimatedOutputTokens, estimated: true }
+}
+
 function renderOutput(): void {
   const task = snapshot.tasks.find((item) => item.id === selectedTaskId)
   const title = byId('output-title')
@@ -610,10 +619,11 @@ function renderOutput(): void {
   title.textContent = providerName(task.selectedProviderId)
   status.textContent = task.status; status.className = `status-pill ${task.status}`
 
+  const tokens = taskTokens(task)
   const chips = [
     metaChip('Directory', task.cwd),
-    metaChip('Input', `${formatNumber(task.estimatedInputTokens)} tok`),
-    metaChip('Output', `${formatNumber(task.estimatedOutputTokens)} tok`),
+    metaChip(tokens.estimated ? 'Input (est.)' : 'Input', `${formatNumber(tokens.input)} tok`),
+    metaChip(tokens.estimated ? 'Output (est.)' : 'Output', `${formatNumber(tokens.output)} tok`),
     metaChip('Elapsed', taskElapsed(task))
   ]
   if (task.model) { const modelChip = metaChip('Model', task.model); modelChip.classList.add('model'); chips.unshift(modelChip) }
@@ -1166,9 +1176,10 @@ function renderTaskDetailSummary(task: ProxyTask): void {
   const summary = byId('task-detail-summary')
   const provider = providerName(task.selectedProviderId)
   const meta = document.createElement('div'); meta.className = 'task-detail-meta'
+  const tokens = taskTokens(task)
   const values = [
     { label: 'Model', value: task.model ?? provider },
-    { label: 'Tokens', value: `${formatNumber(task.estimatedInputTokens)} in · ${formatNumber(task.estimatedOutputTokens)} out` },
+    { label: tokens.estimated ? 'Tokens (est.)' : 'Tokens', value: `${formatNumber(tokens.input)} in · ${formatNumber(tokens.output)} out` },
     { label: 'Elapsed', value: taskElapsed(task) }
   ]
   for (const item of values) {

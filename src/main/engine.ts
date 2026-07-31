@@ -20,6 +20,7 @@ function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
   task.filesChanged = [...existing, { path, action, at: event.at }].slice(-50)
 }
 import { buildProviderCommand, checkProvider, discoverModels, runProvider } from './providers'
+import { hydrateExecutablePath } from './env'
 import { rankProviders } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
@@ -199,6 +200,11 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   async checkProviders(): Promise<AppSnapshot> {
+    // Re-derive PATH first: a CLI may have been installed or a version manager
+    // initialized since launch, and health checks resolve executables against
+    // this process's PATH. Without this, a provider missing at startup would
+    // stay "Not detected" for the whole session even after the user fixes it.
+    await hydrateExecutablePath()
     await Promise.all(this.settings.providers.map(async (provider) => {
       const runtime = this.runtimes.get(provider.id) ?? blankRuntime()
       this.runtimes.set(provider.id, runtime)
@@ -361,7 +367,7 @@ export class OrchestrationEngine extends EventEmitter {
           recordFileChange(task, event)
           this.emitSnapshot()
         },
-        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
@@ -507,7 +513,7 @@ export class OrchestrationEngine extends EventEmitter {
         onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
@@ -694,7 +700,7 @@ export class OrchestrationEngine extends EventEmitter {
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { this.applyUsage(runtime, usage) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
@@ -736,10 +742,17 @@ export class OrchestrationEngine extends EventEmitter {
     return this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
   }
 
-  private applyUsage(runtime: ProviderRuntime, usage: UsageSample): void {
+  private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask): void {
     runtime.usage.inputTokens += usage.inputTokens
     runtime.usage.outputTokens += usage.outputTokens
     runtime.usage.costUsd += usage.costUsd
+    // Record the CLI's real reported tokens on the task too, so per-task views
+    // show actual usage instead of the crude character-count estimate.
+    if (task) {
+      task.usageInputTokens = (task.usageInputTokens ?? 0) + usage.inputTokens
+      task.usageOutputTokens = (task.usageOutputTokens ?? 0) + usage.outputTokens
+      task.usageCostUsd = (task.usageCostUsd ?? 0) + usage.costUsd
+    }
     this.emitSnapshot()
   }
 
@@ -747,7 +760,9 @@ export class OrchestrationEngine extends EventEmitter {
     task.contextTokens = Math.max(0, context.tokens)
     const window = context.window ?? provider.contextWindow
     if (window) task.contextWindow = window
-    task.contextSource = 'reported'
+    // The occupancy is real, but when the CLI does not report its own window we
+    // fall back to the configured/known one — mark that pairing as an estimate.
+    task.contextSource = context.window ? 'reported' : 'estimated'
     this.emitSnapshot()
   }
 

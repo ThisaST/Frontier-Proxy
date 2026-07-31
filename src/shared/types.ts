@@ -234,6 +234,11 @@ export interface ProxyTask {
   attempts: TaskAttempt[]
   estimatedInputTokens: number
   estimatedOutputTokens: number
+  // Real tokens/cost reported by the CLI for this task (undefined when the CLI
+  // reports none). Preferred over the character-count estimates for display.
+  usageInputTokens?: number
+  usageOutputTokens?: number
+  usageCostUsd?: number
   // The underlying model the routed CLI actually ran (e.g. "claude-opus-4-8").
   model?: string
   // Live activity feed surfaced from the agent's stream.

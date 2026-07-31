@@ -160,9 +160,12 @@ even when that CLI has no resumable session id.
 - **Context window** — usage and context are separate streams. `parseClaudeLine` reads the
   latest `message_start` input/cache usage plus `message_delta` output usage for current
   conversation occupancy, then pairs it with the active model's `modelUsage[*].contextWindow`.
-  Cumulative `result.usage` is never used as context. Codex `turn.completed.usage` is treated
-  as cumulative turn usage unless explicit context fields appear; configured fallbacks are
-  stored with `task.contextSource = "estimated"`. The UI labels estimates accordingly.
+  Cumulative `result.usage` is never used as context. Codex exposes no dedicated context field,
+  so its per-turn `turn.completed.usage` input+output tokens are used as the current context
+  occupancy (cumulative usage is accumulated separately via `onUsage`). Because Codex does not
+  report its window, the engine pairs the occupancy with the provider's configured/known
+  `contextWindow` (default 400k for the GPT-5 family) and stores `task.contextSource = "estimated"`.
+  The UI labels estimates accordingly.
 - **Task workspace** — **Open details** (or double-clicking a task) opens the `task-detail`
   view with a large conversation pane, provider route/work log, task context meter, and a
   **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
@@ -189,7 +192,9 @@ The Usage view shows session/plan usage, reset countdown, tracked tokens, and au
 fallback state for every provider.
 
 Quota/unavailable failures fail over during first turns, follow-up conversations, and every
-orchestration stage. A follow-up that leaves its owning CLI replays the conversation transcript
+orchestration stage. A logged-out/unauthenticated CLI (matched by `AUTH_PATTERN` in
+`providers.ts` on a non-zero exit) is classified as `unavailable`, so it cools down and fails
+over rather than failing the whole task — the fix is still to log that CLI in. A follow-up that leaves its owning CLI replays the conversation transcript
 to the replacement provider. Reported 100% plan utilization and configured tracked-usage
 limits also remove a provider from routing before launch.
 

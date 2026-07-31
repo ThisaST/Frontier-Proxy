@@ -86,7 +86,10 @@ describe('claude stream parsing', () => {
 })
 
 describe('codex stream parsing', () => {
-  it('does not mislabel cumulative turn usage as context occupancy', () => {
+  it('derives context occupancy from per-turn tokens when Codex reports no context field', () => {
+    // Codex exposes no dedicated context field, so its per-turn input+output IS
+    // the current occupancy. Usage (cumulative) and context (latest occupancy)
+    // stay distinct; the engine supplies the window from provider config.
     let usage: UsageSample | undefined
     let context: ContextSample | undefined
     parseCodexLine({ type: 'turn.completed', usage: { input_tokens: 1200, output_tokens: 80 } }, {
@@ -97,7 +100,7 @@ describe('codex stream parsing', () => {
       onContext: (value) => { context = value }
     })
     expect(usage).toEqual({ inputTokens: 1200, outputTokens: 80, costUsd: 0 })
-    expect(context).toBeUndefined()
+    expect(context).toEqual({ tokens: 1280, window: undefined })
   })
 
   it('uses explicit Codex context fields when a future CLI exposes them', () => {

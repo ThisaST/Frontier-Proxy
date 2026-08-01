@@ -201,7 +201,11 @@ even when that CLI has no resumable session id.
   **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
   `filesChanged`; it enforces workspace containment, caps text at 1 MB, identifies binary
   files, and returns a Git working-tree diff. The renderer uses `highlight.js` for language-
-  aware source/diff highlighting.
+  aware source/diff highlighting. The file tree comes from `git ls-files --cached --others
+  --exclude-standard` when the cwd is a repo, so it respects the project's own `.gitignore`
+  (non-Git folders fall back to a directory walk filtered by `IGNORED_TASK_TREE_NAMES`);
+  `entriesFromPaths` rebuilds the folder hierarchy from those paths. Folders in the tree are
+  collapsible and start collapsed except the branches holding this task's changed files.
 - **Frontier memory** — `AppSettings.memory` (edited in Settings) is prepended by
   `promptWithMemory` as shared context to every new task's first turn and the planner
   prompt, so knowledge carries across tasks. Continuations inherit it via the resumed session.

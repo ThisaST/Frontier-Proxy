@@ -483,6 +483,30 @@ const KNOWN_MODELS: Partial<Record<ProviderConfig['kind'], string[]>> = {
   copilot: ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'o3']
 }
 
+// The identity a model id can be matched against: what a provider is configured
+// to run plus everything its CLI is known/discovered to offer.
+export interface ModelOwner { id: string; kind: ProviderConfig['kind']; model?: string; models?: string[] }
+
+export function providerServesModel(owner: ModelOwner, model: string): boolean {
+  const known = new Set([...(owner.models ?? []), ...(KNOWN_MODELS[owner.kind] ?? [])])
+  if (owner.model?.trim()) known.add(owner.model.trim())
+  return known.has(model)
+}
+
+// Which model a provider should actually run for a task. Model ids are
+// CLI-specific — Codex rejects `claude-opus-5` outright — so a per-task override
+// picked for one agent is never handed to another when routing or failover moves
+// the task. `ownerId` is the agent it was picked for; without one (older tasks,
+// or a typed custom id) the override still applies unless some *other* agent
+// owns it, which keeps unrecognized custom ids working.
+export function resolveTaskModel(provider: ModelOwner, override: string | undefined, ownerId: string | undefined, all: ModelOwner[]): string | undefined {
+  const wanted = override?.trim()
+  if (!wanted) return provider.model
+  if (ownerId) return ownerId === provider.id ? wanted : provider.model
+  if (providerServesModel(provider, wanted)) return wanted
+  return all.some((owner) => providerServesModel(owner, wanted)) ? provider.model : wanted
+}
+
 // Run a command and capture its full stdout (unlike checkCommand's first line).
 function captureCommand(executable: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {

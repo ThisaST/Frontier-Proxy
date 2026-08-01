@@ -249,6 +249,8 @@ export interface ProxyTask {
   type: TaskType
   preferredProviderId?: string
   modelOverride?: string
+  // The agent the override was picked for; other agents keep their own model.
+  modelOverrideProviderId?: string
   status: TaskStatus
   selectedProviderId?: string
   createdAt: string
@@ -345,8 +347,9 @@ export interface CreateTaskInput {
   cwd: string
   mode: RoutingMode
   preferredProviderId?: string
-  // Per-task model override, applied to whichever provider runs it.
+  // Per-task model override, applied only to the agent it was picked for.
   model?: string
+  modelProviderId?: string
   // Run as a multi-provider orchestration (planner decomposes → delegates → synthesizes).
   orchestrate?: boolean
   // Run the same prompt head-to-head on these providers instead of routing it.

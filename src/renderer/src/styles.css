@@ -154,7 +154,9 @@ button { border-radius: 7px; border: 1px solid transparent; padding: 9px 13px; f
 
 /* ---------- Tasks: queue + unified surface ---------- */
 .content-grid { display: grid; grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(430px, 1.2fr); gap: 0; flex: 1 1 auto; min-height: 0; }
-.content-grid.focus-mode { grid-template-columns: 0 0 minmax(0, 1fr); }
+/* The queue and the gutter are hidden, so the surface is the only grid item left
+   and auto-places into the first column — it must be the full-width one. */
+.content-grid.focus-mode { grid-template-columns: minmax(0, 1fr); }
 .content-grid.focus-mode .task-panel, .content-grid.focus-mode .grid-gutter { display: none; }
 .grid-gutter { cursor: col-resize; margin: 0 4px; border-radius: 3px; background: transparent; transition: background .15s; }
 .grid-gutter:hover, .grid-gutter.dragging { background: var(--line); }

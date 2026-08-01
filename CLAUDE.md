@@ -131,7 +131,7 @@ instead of `execute(task)`:
    are committed on their worktree branches) and redoes all the work in the main tree.
 `task.orchestrationStage` (planning→delegating→synthesizing→done) and `task.subtasks[]`
 drive the UI stage bar + subtask cards. `task.modelOverride` (from the New Task dialog)
-is applied to every run via `withModel`.
+is applied to every run via `withModel`, but only on the agent that owns it.
 
 **Worktree isolation** (`src/main/worktree.ts`, integration-tested against real git): when
 the task cwd is a git repo, `runSubtasks` gives each subtask its own `git worktree` off HEAD
@@ -244,6 +244,16 @@ The **New Task** dialog's model field is a dropdown (`#task-model-select`) popul
 (or grouped by provider under Automatic via `<optgroup>`). "Provider default" (blank) and
 "Custom model…" (reveals the `#task-model` free-text input for any id) bracket the list.
 The selection flows through `CreateTaskInput.model` → `task.modelOverride` → `withModel`.
+
+**Model ids are CLI-specific and never travel between agents.** Codex fails the whole
+run on `claude-opus-5` ("not supported when using Codex with a ChatGPT account"), so the
+picked model is tagged with the agent it came from (`CreateTaskInput.modelProviderId` →
+`task.modelOverrideProviderId`) and `resolveTaskModel` (pure, unit-tested in
+`tests/providers.test.ts`) hands it only to that agent — every other provider reached by
+routing, failover, a bench lane, a subtask, or a provider switch runs its own model, with
+a note in the transcript. An id no configured agent claims is treated as a custom id and
+still passes through. The router also gives the owning agent +60 so Automatic tries it
+first without making it the only option.
 
 ## Provider invocation (in `buildProviderCommand`)
 

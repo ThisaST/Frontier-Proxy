@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProviderCommand, discoverModels, runProvider } from '../src/main/providers'
+import { buildProviderCommand, discoverModels, resolveTaskModel, runProvider, type ModelOwner } from '../src/main/providers'
 import type { ControlPlaneProfile, ProviderConfig } from '../src/shared/types'
 
 function custom(args: string[]): ProviderConfig {
@@ -171,5 +171,33 @@ describe('local provider process adapter', () => {
     expect(models.filter((m) => m === 'claude-opus-4-8')).toHaveLength(1)
     // A custom provider with no known set falls back to just its configured model.
     expect(await discoverModels({ ...custom([]), model: 'my-local-model' })).toEqual(['my-local-model'])
+  })
+})
+
+describe('per-task model override scoping', () => {
+  const claude: ModelOwner = { id: 'claude', kind: 'claude', models: ['claude-opus-5', 'claude-sonnet-5'] }
+  const codex: ModelOwner = { id: 'codex', kind: 'codex', model: 'gpt-5-codex' }
+  const all = [claude, codex]
+
+  it('keeps the override on the agent it was picked for', () => {
+    expect(resolveTaskModel(claude, 'claude-opus-5', 'claude', all)).toBe('claude-opus-5')
+  })
+
+  it('never hands another CLI\'s model id to a failover target', () => {
+    expect(resolveTaskModel(codex, 'claude-opus-5', 'claude', all)).toBe('gpt-5-codex')
+    // Same protection without a recorded owner (tasks created before the fix).
+    expect(resolveTaskModel(codex, 'claude-opus-5', undefined, all)).toBe('gpt-5-codex')
+    expect(resolveTaskModel(claude, 'claude-opus-5', undefined, all)).toBe('claude-opus-5')
+  })
+
+  it('passes through a custom id no agent claims', () => {
+    expect(resolveTaskModel(codex, 'gpt-6-preview', undefined, all)).toBe('gpt-6-preview')
+    expect(resolveTaskModel(codex, 'gpt-6-preview', 'codex', all)).toBe('gpt-6-preview')
+    expect(resolveTaskModel(claude, 'gpt-6-preview', 'codex', all)).toBeUndefined()
+  })
+
+  it('falls back to the provider default when there is no override', () => {
+    expect(resolveTaskModel(codex, undefined, undefined, all)).toBe('gpt-5-codex')
+    expect(resolveTaskModel(codex, '  ', undefined, all)).toBe('gpt-5-codex')
   })
 })

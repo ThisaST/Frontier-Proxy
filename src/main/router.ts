@@ -57,6 +57,9 @@ function scoreFactors(task: ProxyTask, provider: RoutableProvider): RoutingFacto
   const modePoints = task.mode === 'saver' ? (isLocal ? 55 : -12) : task.mode === 'quality' ? (isLocal ? -20 : 18) : isLocal ? 10 : 0
   if (modePoints) factors.push({ label: `${MODE_LABEL[task.mode]} policy`, points: modePoints })
   if (task.preferredProviderId === provider.id) factors.push({ label: 'Chosen by you', points: 1_000 })
+  // Only this agent can serve the model the user picked; others would have to
+  // fall back to their own, so try it first while still allowing failover.
+  if (task.modelOverrideProviderId === provider.id) factors.push({ label: 'Runs the model you picked', points: 60 })
 
   const used = trackedTokens(provider.runtime)
   const utilization = provider.dailyTokenBudget ? used / provider.dailyTokenBudget : provider.runtime.usage.tasks / 20

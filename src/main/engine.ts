@@ -19,7 +19,7 @@ function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
   const existing = (task.filesChanged ?? []).filter((change) => change.path !== path)
   task.filesChanged = [...existing, { path, action, at: event.at }].slice(-50)
 }
-import { buildProviderCommand, checkProvider, discoverModels, runProvider } from './providers'
+import { buildProviderCommand, checkProvider, discoverModels, resolveTaskModel, runProvider, type ModelOwner } from './providers'
 import { hydrateExecutablePath } from './env'
 import { rankProviders, routeTask } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
@@ -103,6 +103,7 @@ export class OrchestrationEngine extends EventEmitter {
       type: classifyTask(prompt),
       preferredProviderId: input.preferredProviderId || undefined,
       modelOverride: input.model?.trim() || undefined,
+      modelOverrideProviderId: input.model?.trim() ? input.modelProviderId || input.preferredProviderId || undefined : undefined,
       status: 'queued',
       createdAt: new Date().toISOString(),
       output: '',
@@ -382,7 +383,9 @@ export class OrchestrationEngine extends EventEmitter {
       const attachments = task.turns?.find((turn) => turn.role === 'user')?.attachments ?? []
       const runPrompt = this.promptWithMemory(this.messageWithContext(task.prompt, task.cwd, attachments))
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task.modelOverride), {
+      const runConfig = this.withModel(provider, task)
+      this.noteModelFallback(task, provider, runConfig)
+      const result = await runProvider(runConfig, {
         prompt: runPrompt,
         cwd: task.cwd,
         signal: controller.signal,
@@ -541,7 +544,9 @@ export class OrchestrationEngine extends EventEmitter {
       this.emitSnapshot()
 
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task.modelOverride), {
+      const runConfig = this.withModel(provider, task)
+      this.noteModelFallback(task, provider, runConfig)
+      const result = await runProvider(runConfig, {
         prompt, cwd: task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
         resumeSessionId: resumable ? task.sessionId : undefined,
         imagePaths: this.imagePaths(attachments),
@@ -685,7 +690,9 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       this.emitSnapshot()
       try {
-        const result = await runProvider(this.withModel(provider, task.modelOverride), {
+        const runConfig = this.withModel(provider, task)
+        if (task.modelOverride && runConfig.model !== task.modelOverride) lane.output += `[${provider.name} cannot run ${task.modelOverride}; using ${runConfig.model ?? 'its default model'}.]\n\n`
+        const result = await runProvider(runConfig, {
           prompt, cwd: workdir, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
           onOutput: (text) => { lane.output += text; this.emitSnapshot() },
           onModel: (model) => { lane.model = model; this.emitSnapshot() },
@@ -839,7 +846,7 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       let output = ''
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task.modelOverride), {
+      const result = await runProvider(this.withModel(provider, task), {
         prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
@@ -886,8 +893,21 @@ export class OrchestrationEngine extends EventEmitter {
     return this.settings.providers.find((item) => item.id === ranked[0]?.id)
   }
 
-  private withModel(provider: ProviderConfig, model?: string): ProviderConfig {
-    return model ? { ...provider, model } : provider
+  private modelOwner(provider: ProviderConfig): ModelOwner {
+    return { id: provider.id, kind: provider.kind, model: provider.model, models: this.runtimes.get(provider.id)?.models }
+  }
+
+  // Never hand a provider a model id belonging to another CLI: Codex fails the
+  // whole run on `claude-opus-5` rather than ignoring it.
+  private withModel(provider: ProviderConfig, task: ProxyTask): ProviderConfig {
+    const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.settings.providers.map((item) => this.modelOwner(item)))
+    return model === provider.model ? provider : { ...provider, model }
+  }
+
+  // Say so in the transcript when the picked model could not travel with the task.
+  private noteModelFallback(task: ProxyTask, provider: ProviderConfig, effective: ProviderConfig): void {
+    if (!task.modelOverride || effective.model === task.modelOverride) return
+    task.output += `\n\n[${provider.name} cannot run ${task.modelOverride}; using ${effective.model ?? 'its default model'}.]\n\n`
   }
 
   private async activeControlPlane(): Promise<ControlPlaneProfile> {

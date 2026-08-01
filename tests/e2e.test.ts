@@ -106,6 +106,25 @@ describe('end-to-end task lifecycle', () => {
     expect(exhausted?.runtime.cooldownUntil).toBeTruthy()
   })
 
+  it('leaves a per-task model behind when failover moves to an agent that cannot run it', async () => {
+    // The failover target echoes whatever model it was actually launched with.
+    const echoModel = fakeProvider('healthy', 10, succeedWith('ran'))
+    echoModel.args = ['-e', 'process.stdout.write("model=[" + process.argv[1] + "]")', '{model}']
+    echoModel.model = 'its-own-model'
+    const { engine, cwd } = await makeEngine([
+      fakeProvider('exhausted', 100, failWith('Error: usage limit reached for this account')),
+      echoModel
+    ])
+    const created = await engine.createTask({ prompt: 'anything', cwd, mode: 'balanced', model: 'claude-opus-5', modelProviderId: 'exhausted' })
+    const task = await waitForTask(engine, created.id)
+
+    expect(task.status).toBe('completed')
+    expect(task.selectedProviderId).toBe('healthy')
+    expect(task.output).toContain('model=[its-own-model]')
+    expect(task.output).not.toContain('model=[claude-opus-5]')
+    expect(task.output).toContain('cannot run claude-opus-5')
+  })
+
   it('fails over when a CLI is logged out, and cools the logged-out provider down', async () => {
     // Observed live: a logged-out Claude CLI exits 1 with "Not logged in · Please
     // run /login". That is a fixable auth problem, not a broken task, so Frontier

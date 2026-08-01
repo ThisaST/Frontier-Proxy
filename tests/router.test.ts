@@ -121,3 +121,13 @@ describe('routing explanation', () => {
     expect(decision.candidates.map((candidate) => candidate.providerId)).toEqual(['local', 'cloud', 'offline'])
   })
 })
+
+describe('model-aware routing', () => {
+  it('tries the agent that can run the picked model first, without excluding others', () => {
+    const value = task('balanced')
+    value.modelOverride = 'claude-opus-5'
+    value.modelOverrideProviderId = 'claude'
+    const ranked = rankProviders(value, [provider('codex', 'codex'), provider('claude', 'claude')])
+    expect(ranked.map((item) => item.id)).toEqual(['claude', 'codex'])
+  })
+})

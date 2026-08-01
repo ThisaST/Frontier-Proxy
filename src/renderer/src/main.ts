@@ -27,8 +27,10 @@ let lastBodyRender = { id: '', status: '', length: -1 }
 
 // Queue/surface split. Widths are clamped against the live grid width, so a
 // value saved on a small window can never collapse the layout later.
+// SURFACE_MIN_WIDTH and GUTTER_WIDTH mirror the stylesheet's own track sizes for
+// `.content-grid`; a queue width clamped against smaller numbers would overflow.
 const QUEUE_MIN_WIDTH = 260
-const SURFACE_MIN_WIDTH = 380
+const SURFACE_MIN_WIDTH = 430
 const GUTTER_WIDTH = 7
 let queueWidth: number | undefined
 let applyQueueWidth: () => void = () => undefined
@@ -1479,11 +1481,17 @@ function renderTaskModelOptions(): void {
   const overrideId = byId<HTMLSelectElement>('provider-override').value
   const providers = snapshot.providers.filter((provider) => provider.enabled && (!overrideId || provider.id === overrideId))
   const groups = providers
-    .map((provider) => ({ name: provider.name, models: provider.runtime.models ?? [] }))
+    .map((provider) => ({ id: provider.id, name: provider.name, models: provider.runtime.models ?? [] }))
     .filter((group) => group.models.length)
     .map((group) => {
       const node = document.createElement('optgroup'); node.label = group.name
-      for (const model of group.models) node.append(new Option(model, model))
+      // The owning agent travels with the id: model ids are CLI-specific, so the
+      // main process must not hand this one to a different agent on failover.
+      for (const model of group.models) {
+        const option = new Option(model, model)
+        option.dataset.providerId = group.id
+        node.append(option)
+      }
       return node
     })
   select.replaceChildren(new Option('Provider default', ''), ...groups, new Option('Custom model…', '__custom__'))
@@ -1906,13 +1914,15 @@ window.addEventListener('keydown', (event) => {
   }
 
   applyQueueWidth = (): void => {
+    // Only the queue column is written, and as the `--wq-col` custom property the
+    // stylesheet already reads. Setting the whole `grid-template-columns` inline
+    // used to outrank `.focus-mode`'s own columns, so focusing a task hid the
+    // queue and left the surface auto-placed in the queue's column.
     // The grid has no width while the Tasks view is hidden, so a stored width is
     // applied when the view is shown rather than at startup.
-    if (queueWidth === undefined) { grid.style.gridTemplateColumns = ''; return }
-    const clamped = clampQueueWidth(queueWidth)
-    grid.style.gridTemplateColumns = clamped === undefined
-      ? ''
-      : `${clamped}px ${GUTTER_WIDTH}px minmax(${SURFACE_MIN_WIDTH}px, 1.1fr)`
+    const clamped = queueWidth === undefined ? undefined : clampQueueWidth(queueWidth)
+    if (clamped === undefined) grid.style.removeProperty('--wq-col')
+    else grid.style.setProperty('--wq-col', `${clamped}px`)
   }
 
   const stored = Number(localStorage.getItem('fp-wq-width'))
@@ -2113,6 +2123,14 @@ function selectedModel(): string | undefined {
   return choice || undefined
 }
 
+// The agent a listed model was picked from; a typed custom id belongs to the
+// chosen agent, or to nobody in particular under Automatic.
+function selectedModelProvider(): string | undefined {
+  const select = byId<HTMLSelectElement>('task-model-select')
+  if (select.value === '__custom__') return byId<HTMLSelectElement>('provider-override').value || undefined
+  return select.selectedOptions[0]?.dataset.providerId || undefined
+}
+
 byId<HTMLFormElement>('task-form').addEventListener('submit', async (event) => {
   event.preventDefault()
   const errorNode = byId('form-error'); errorNode.textContent = ''
@@ -2127,6 +2145,7 @@ byId<HTMLFormElement>('task-form').addEventListener('submit', async (event) => {
       mode: byId<HTMLSelectElement>('routing-mode').value as 'balanced' | 'quality' | 'saver',
       preferredProviderId: runMode === 'single' ? byId<HTMLSelectElement>('provider-override').value || undefined : undefined,
       model: runMode === 'bench' ? undefined : selectedModel(),
+      modelProviderId: runMode === 'bench' ? undefined : selectedModelProvider(),
       orchestrate: runMode === 'orchestrate',
       benchProviderIds: benchIds,
       attachments: messageContext('prompt', prompt)

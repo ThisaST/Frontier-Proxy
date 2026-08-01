@@ -22,6 +22,11 @@ let detailFileRequest = 0
 let detailFileLoadingKey: string | undefined
 let detailWorkspaceState: { taskId: string; version: string; workspace: TaskWorkspaceSnapshot } | undefined
 let detailWorkspaceLoadingKey: string | undefined
+// A project tree is thousands of rows, so folders start collapsed and only the
+// branches holding this task's changes (and the open file) are revealed.
+let detailTreeTaskId: string | undefined
+let detailTreeRevealed: string | undefined
+let detailOpenFolders = new Set<string>()
 // Avoids re-parsing markdown for a finished task on every unrelated snapshot.
 let lastBodyRender = { id: '', status: '', length: -1 }
 
@@ -361,6 +366,11 @@ function countdown(iso?: string): string {
 function baseName(path: string): string {
   const parts = path.split(/[\\/]/)
   return parts[parts.length - 1] || path
+}
+
+function ancestorFolders(path = ''): string[] {
+  const parts = path.split('/')
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join('/'))
 }
 
 // Prefer the CLI's real reported tokens; fall back to character-count estimates
@@ -890,6 +900,20 @@ function renderFilesTab(task: ProxyTask): void {
   if (!detailFilePath || !entries.has(detailFilePath) || entries.get(detailFilePath)?.kind !== 'file') {
     detailFilePath = changes[0]?.path ?? files[0].path
   }
+  // Folders a changed file lives in are worth counting even when collapsed.
+  const changedInFolder = new Map<string, number>()
+  for (const change of changes) for (const folder of ancestorFolders(change.path)) changedInFolder.set(folder, (changedInFolder.get(folder) ?? 0) + 1)
+  if (detailTreeTaskId !== task.id) {
+    detailTreeTaskId = task.id
+    detailTreeRevealed = undefined
+    detailOpenFolders = new Set(changes.flatMap((change) => ancestorFolders(change.path)))
+  }
+  // Reveal a newly selected file once; re-revealing every render would make the
+  // folder holding the open file impossible to collapse.
+  if (detailTreeRevealed !== detailFilePath) {
+    detailTreeRevealed = detailFilePath
+    for (const folder of ancestorFolders(detailFilePath)) detailOpenFolders.add(folder)
+  }
   const children = new Map<string, WorkspaceEntry[]>()
   for (const entry of allEntries) {
     const separator = entry.path.lastIndexOf('/')
@@ -902,9 +926,20 @@ function renderFilesTab(task: ProxyTask): void {
   const appendRows = (parent: string, depth: number): void => {
     for (const entry of children.get(parent) ?? []) {
       if (entry.kind === 'folder') {
-        const folder = element('div', 'task-detail-folder'); folder.style.setProperty('--tree-depth', String(depth))
-        folder.append(element('span', undefined, '▾'), element('strong', undefined, entry.name))
-        rows.push(folder); appendRows(entry.path, depth + 1); continue
+        const open = detailOpenFolders.has(entry.path)
+        const folder = element('button', `task-detail-folder ${open ? 'open' : ''}`)
+        folder.style.setProperty('--tree-depth', String(depth))
+        folder.setAttribute('aria-expanded', String(open))
+        folder.append(element('span', 'tree-caret', open ? '▾' : '▸'), element('strong', undefined, entry.name))
+        const changed = changedInFolder.get(entry.path)
+        if (changed) folder.append(element('small', 'tree-changed-count', String(changed)))
+        folder.addEventListener('click', () => {
+          if (open) detailOpenFolders.delete(entry.path); else detailOpenFolders.add(entry.path)
+          renderFilesTab(task)
+        })
+        rows.push(folder)
+        if (open) appendRows(entry.path, depth + 1)
+        continue
       }
       const change = changeByPath.get(entry.path)
       const button = element('button', `task-detail-file ${change ? 'changed' : ''} ${entry.path === detailFilePath ? 'active' : ''}`)
@@ -913,8 +948,9 @@ function renderFilesTab(task: ProxyTask): void {
         ? element('span', `file-badge ${change.action}`, change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT')
         : element('span', 'file-tree-icon', '·')
       const body = element('span')
-      body.append(element('strong', undefined, entry.name), element('small', undefined, entry.path))
+      body.append(element('strong', undefined, entry.name))
       button.append(badge, body)
+      button.title = entry.path
       button.addEventListener('click', () => {
         detailFilePath = entry.path; detailFileMode = change ? 'diff' : 'source'; detailFileState = undefined; renderFilesTab(task)
       })

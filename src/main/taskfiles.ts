@@ -8,8 +8,16 @@ const execFileAsync = promisify(execFile)
 const MAX_FILE_BYTES = 1_000_000
 const MAX_CONTEXT_ITEMS = 12
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
-const IGNORED_WORKSPACE_NAMES = new Set(['.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'coverage', '.next', '.turbo', '.cache'])
-const IGNORED_TASK_TREE_NAMES = new Set(['.git', '.hg', '.svn', 'node_modules', 'dist', 'coverage', '.next', '.turbo', '.cache', 'out', 'release'])
+// Generated trees the user never browses: dependency stores, build output, tool
+// caches. `.pnpm-store` alone can outnumber the real project files.
+const IGNORED_NAMES = [
+  '.git', '.hg', '.svn', 'node_modules', '.pnpm-store', '.yarn', '.pnpm', 'dist', 'coverage',
+  '.next', '.nuxt', '.svelte-kit', '.turbo', '.cache', '.parcel-cache', '.output', '.venv',
+  'venv', '__pycache__', '.pytest_cache', '.mypy_cache', '.gradle', '.idea', 'vendor', 'target'
+]
+const IGNORED_WORKSPACE_NAMES = new Set([...IGNORED_NAMES, 'build'])
+const IGNORED_TASK_TREE_NAMES = new Set([...IGNORED_NAMES, 'out', 'release'])
+const MAX_TREE_FILES = 20_000
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 const LANGUAGES: Record<string, string> = {
@@ -62,6 +70,40 @@ export async function listWorkspaceEntries(cwd: string, query: string): Promise<
   return (await collectWorkspaceEntries(cwd, query, IGNORED_WORKSPACE_NAMES, 4_000)).slice(0, 40)
 }
 
+// Every file path implies its parent folders, so the tree is rebuilt from paths
+// alone — that is what Git hands back, and what the renderer needs to nest rows.
+export function entriesFromPaths(paths: string[], ignoredNames: Set<string> = IGNORED_TASK_TREE_NAMES): WorkspaceEntry[] {
+  const entries = new Map<string, WorkspaceEntry>()
+  let files = 0
+  for (const raw of paths) {
+    const path = raw.replaceAll('\\', '/').replace(/\/+$/, '')
+    if (!path || path.startsWith('/') || path.split('/').some((part) => !part || part === '..' || ignoredNames.has(part))) continue
+    const parts = path.split('/')
+    if (files >= MAX_TREE_FILES) break
+    files += 1
+    for (let depth = 1; depth <= parts.length; depth += 1) {
+      const current = parts.slice(0, depth).join('/')
+      if (!entries.has(current)) entries.set(current, { kind: depth === parts.length ? 'file' : 'folder', name: parts[depth - 1], path: current })
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+// A project's real file tree is the one its VCS shows. Walking the directory
+// surfaced dependency stores and build output the user never opens; `git
+// ls-files` applies the repo's own .gitignore (tracked + untracked-not-ignored),
+// so the tree matches what the user sees in their editor. Non-Git folders fall
+// back to the manual walk.
+async function gitTreePaths(cwd: string): Promise<string[] | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', cwd, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
+      encoding: 'utf8', maxBuffer: 16_000_000
+    })
+    const paths = stdout.split('\0').filter(Boolean)
+    return paths.length ? paths : undefined
+  } catch { return undefined }
+}
+
 async function workingTreeChanges(cwd: string): Promise<FileChange[]> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', cwd, 'status', '--porcelain=v1', '-z', '--untracked-files=all'], {
@@ -108,11 +150,8 @@ function workspaceRelative(roots: string[], candidate: string): string | undefin
 }
 
 export async function loadTaskWorkspace(cwd: string, recordedChanges: FileChange[]): Promise<TaskWorkspaceSnapshot> {
-  const [entries, gitChanges, roots] = await Promise.all([
-    collectWorkspaceEntries(cwd, '', IGNORED_TASK_TREE_NAMES, 20_000),
-    workingTreeChanges(cwd),
-    workspaceRoots(cwd)
-  ])
+  const [tracked, gitChanges, roots] = await Promise.all([gitTreePaths(cwd), workingTreeChanges(cwd), workspaceRoots(cwd)])
+  const entries = tracked ? entriesFromPaths(tracked) : await collectWorkspaceEntries(cwd, '', IGNORED_TASK_TREE_NAMES, MAX_TREE_FILES)
   const changes = new Map<string, FileChange>()
   for (const change of recordedChanges) {
     const workspacePath = workspaceRelative(roots, change.path)

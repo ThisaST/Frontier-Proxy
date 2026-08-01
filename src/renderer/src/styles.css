@@ -350,10 +350,14 @@ button { border-radius: 7px; border: 1px solid transparent; padding: 9px 13px; f
 .task-file-sidebar-head, .task-file-viewer-head { flex: 0 0 auto; padding: 13px 15px; border-bottom: 1px solid var(--line); }
 .task-file-sidebar-head h3, .task-file-viewer-head h3 { margin: 0; font: 15px Georgia, serif; }
 .task-detail-file-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.task-detail-folder { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 5px 12px 5px calc(12px + var(--tree-depth) * 14px); color: var(--muted); }
-.task-detail-folder > span { width: 11px; color: #657069; font-size: 8px; text-align: center; }
-.task-detail-folder strong { color: #aeb7b0; font-size: 10px; font-weight: 600; }
-.task-detail-file { width: 100%; border: 0; border-radius: 0; background: transparent; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 12px 8px calc(12px + var(--tree-depth) * 14px); text-align: left; }
+.task-detail-folder { width: 100%; border: 0; border-radius: 0; background: transparent; display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 5px 12px 5px calc(12px + var(--tree-depth) * 14px); text-align: left; color: var(--muted); }
+.task-detail-folder:hover { background: var(--surface-2); }
+.task-detail-folder .tree-caret { flex: 0 0 auto; width: 11px; color: #657069; font-size: 8px; text-align: center; }
+.task-detail-folder:hover .tree-caret { color: var(--text); }
+.task-detail-folder strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aeb7b0; font-size: 10px; font-weight: 600; }
+.task-detail-folder .tree-changed-count { flex: 0 0 auto; margin-left: auto; padding: 1px 5px; border-radius: 8px; background: var(--surface-2); color: var(--green); font-size: 8px; font-weight: 700; }
+.task-detail-folder.open .tree-changed-count { opacity: .55; }
+.task-detail-file { width: 100%; border: 0; border-radius: 0; background: transparent; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 12px 6px calc(12px + var(--tree-depth) * 14px); text-align: left; }
 .task-detail-file:hover, .task-detail-file.active { background: var(--surface-2); }
 .task-detail-file.active { box-shadow: inset 2px 0 var(--green); }
 .task-detail-file.changed strong { color: var(--text); font-weight: 650; }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { contextPrompt, languageForPath, listWorkspaceEntries, loadTaskFile, loadTaskWorkspace, resolveRecordedTaskFile, validateChatContext } from '../src/main/taskfiles'
+import { contextPrompt, entriesFromPaths, languageForPath, listWorkspaceEntries, loadTaskFile, loadTaskWorkspace, resolveRecordedTaskFile, validateChatContext } from '../src/main/taskfiles'
 
 const run = promisify(execFile)
 
@@ -45,6 +45,37 @@ describe('task file inspection', () => {
       expect.objectContaining({ path: 'tracked.ts', action: 'edit' }),
       expect.objectContaining({ path: 'new.ts', action: 'create' })
     ]))
+  })
+
+  it('builds every parent folder from file paths and drops generated trees', () => {
+    expect(entriesFromPaths(['src/main/engine.ts', 'src/main/router.ts', 'README.md'])).toEqual([
+      { kind: 'file', name: 'README.md', path: 'README.md' },
+      { kind: 'folder', name: 'src', path: 'src' },
+      { kind: 'folder', name: 'main', path: 'src/main' },
+      { kind: 'file', name: 'engine.ts', path: 'src/main/engine.ts' },
+      { kind: 'file', name: 'router.ts', path: 'src/main/router.ts' }
+    ])
+    const ignored = entriesFromPaths(['.pnpm-store/v11/files/05/abc', 'node_modules/pkg/index.js', '../outside.ts', '/etc/passwd'])
+    expect(ignored).toEqual([])
+  })
+
+  // A repo's own .gitignore is the only reliable answer to "which files does the
+  // user actually work on" — walking the directory showed .pnpm-store and friends.
+  it('takes the project tree from Git so ignored files stay out of it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-git-tree-'))
+    await run('git', ['init', '-b', 'main'], { cwd: directory })
+    await writeFile(join(directory, '.gitignore'), 'ignored-output/\n', 'utf8')
+    await mkdir(join(directory, 'src'), { recursive: true })
+    await mkdir(join(directory, 'ignored-output'), { recursive: true })
+    await writeFile(join(directory, 'src', 'app.ts'), 'export {}\n', 'utf8')
+    await writeFile(join(directory, 'ignored-output', 'bundle.js'), '', 'utf8')
+
+    const workspace = await loadTaskWorkspace(directory, [])
+    expect(workspace.entries).toEqual(expect.arrayContaining([
+      { kind: 'folder', name: 'src', path: 'src' },
+      { kind: 'file', name: 'app.ts', path: 'src/app.ts' }
+    ]))
+    expect(workspace.entries.some((entry) => entry.path.startsWith('ignored-output'))).toBe(false)
   })
 
   // Observed live on macOS: the task cwd came from mkdtemp (/var/folders/…) while

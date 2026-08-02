@@ -1,7 +1,8 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
 import { highlightSourceLine, parseUnifiedDiff } from './syntax'
-import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
+import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SessionInfo, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
+import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 
 let snapshot: AppSnapshot
 let selectedTaskId: string | undefined
@@ -291,29 +292,37 @@ function trackedTokens(provider: SnapshotProvider): number {
   return actual || usage.estimatedInputTokens + usage.estimatedOutputTokens
 }
 
-function providerSessions(provider: SnapshotProvider): NonNullable<SnapshotProvider['runtime']['sessions']> {
-  return provider.runtime.sessions?.length ? provider.runtime.sessions : provider.runtime.session ? [provider.runtime.session] : []
+function providerSessions(provider: SnapshotProvider): SessionInfo[] {
+  return activeSessions(provider.runtime)
 }
 
-function sessionResetAt(session: NonNullable<SnapshotProvider['runtime']['session']>): string | undefined {
-  return session.usingOverage ? session.overageResetsAt ?? session.resetsAt : session.resetsAt ?? session.overageResetsAt
-}
-
-function sessionWindowPercent(session: NonNullable<SnapshotProvider['runtime']['session']>): number | undefined {
-  if (session.utilizationPercent === undefined) return undefined
-  const reset = sessionResetAt(session)
-  return reset && Date.parse(reset) <= Date.now() ? 0 : session.utilizationPercent
-}
-
-function sessionPercent(provider: SnapshotProvider): number | undefined {
-  const reported = providerSessions(provider).map(sessionWindowPercent).filter((value): value is number => value !== undefined)
-  const tracked = provider.dailyTokenBudget ? Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100) : undefined
-  const values = [...reported, ...(tracked === undefined ? [] : [tracked])]
-  return values.length ? Math.max(...values) : undefined
+function trackedBudgetPercent(provider: SnapshotProvider): number | undefined {
+  return provider.dailyTokenBudget ? Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100) : undefined
 }
 
 function providerLimitReached(provider: SnapshotProvider): boolean {
-  return activeCooldown(provider) || (sessionPercent(provider) ?? 0) >= 100
+  if (activeCooldown(provider) || (trackedBudgetPercent(provider) ?? 0) >= 100) return true
+  return providerSessions(provider).some((session) => sessionBlocked(session))
+}
+
+// What the app actually knows about a provider's plan window, in the order the
+// CLIs report it: a real percentage if given, otherwise the named window and how
+// long it has left, otherwise nothing — never a percentage we made up.
+function providerQuota(provider: SnapshotProvider): { text: string; reset?: string; percent?: number; timePercent?: number } {
+  const sessions = providerSessions(provider)
+  // The headline number and the window it names have to be the same window.
+  const worst = sessions.filter((session) => sessionWindowPercent(session) !== undefined)
+    .sort((left, right) => sessionWindowPercent(right)! - sessionWindowPercent(left)!)[0]
+  const worstPercent = worst ? sessionWindowPercent(worst)! : undefined
+  const tracked = trackedBudgetPercent(provider)
+  if (worstPercent !== undefined && (tracked === undefined || worstPercent >= tracked)) {
+    return { text: `${Math.round(worstPercent)}% of ${sessionWindowLabel(worst)} window used`, reset: sessionResetAt(worst), percent: worstPercent }
+  }
+  if (tracked !== undefined) return { text: `${Math.round(tracked)}% of tracked daily budget used`, percent: tracked }
+  const window = sessions.find((session) => sessionResetAt(session)) ?? sessions[0]
+  if (!window) return { text: 'No plan limit reported' }
+  const note = sessionStatusNote(window)
+  return { text: `${sessionWindowLabel(window)} window${note ? ` · ${note}` : ''}`, reset: sessionResetAt(window), timePercent: sessionWindowElapsedPercent(window) }
 }
 
 function providerCapacity(provider: SnapshotProvider): { label: string; tone: string } {
@@ -439,16 +448,16 @@ function renderHome(): void {
       identity.append(element('span', `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`), element('strong', undefined, provider.name))
       head.append(identity, element('span', `capacity-badge ${capacity.tone}`, capacity.label))
 
-      const percent = sessionPercent(provider)
-      const sessions = providerSessions(provider)
-      const reset = sessions.map(sessionResetAt).find(Boolean)
+      const plan = providerQuota(provider)
       const quota = element('div', 'home-agent-quota')
       const quotaHead = element('div', 'home-agent-quota-head')
       quotaHead.append(
-        element('span', undefined, percent === undefined ? 'No plan limit reported' : `${Math.round(percent)}% of plan window used`),
-        element('small', undefined, reset ? `resets in ${countdown(reset)}` : '')
+        element('span', undefined, plan.text),
+        element('small', undefined, plan.reset ? `resets in ${countdown(plan.reset)}` : '')
       )
-      quota.append(quotaHead, gauge(percent, (percent ?? 0) >= 90 ? 'high' : ''))
+      // Without a reported percentage the bar tracks the window's clock, not
+      // usage — a muted tone so it never reads as "how much you have left".
+      quota.append(quotaHead, gauge(plan.percent ?? plan.timePercent, plan.percent === undefined ? 'time' : plan.percent >= 90 ? 'high' : ''))
 
       const running = snapshot.tasks.find((task) => task.status === 'running' && task.selectedProviderId === provider.id)
       const foot = element('div', 'home-agent-foot')
@@ -1427,8 +1436,22 @@ function renderUsage(): void {
     for (const session of sessions) {
       const percent = sessionWindowPercent(session)
       const resetAt = sessionResetAt(session)
-      const detail = resetAt ? `Resets in ${countdown(resetAt)}${session.usingOverage ? ' · overage in use' : ''}` : 'No reset time reported by the CLI'
-      gauges.append(usageGauge(`${session.limitType ?? 'Provider'} usage`, percent, detail, (percent ?? 0) >= 90 ? 'high' : ''))
+      const note = sessionStatusNote(session)
+      const detail = [
+        resetAt ? `Resets in ${countdown(resetAt)}` : 'No reset time reported by the CLI',
+        session.usingOverage ? 'overage in use' : undefined,
+        note
+      ].filter(Boolean).join(' · ')
+      // This CLI may report the window without reporting how much of it is
+      // spent; then the gauge shows elapsed time and says so, rather than
+      // pretending zero usage.
+      const elapsed = percent === undefined ? sessionWindowElapsedPercent(session) : undefined
+      gauges.append(usageGauge(
+        percent === undefined ? `${sessionWindowLabel(session)} window elapsed` : `${sessionWindowLabel(session)} limit used`,
+        percent ?? elapsed,
+        percent === undefined ? `${detail} · this CLI reports no usage percentage` : detail,
+        percent === undefined ? 'time' : percent >= 90 ? 'high' : ''
+      ))
     }
     if (provider.dailyTokenBudget) {
       const trackedPct = Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100)
@@ -1441,12 +1464,15 @@ function renderUsage(): void {
     }
 
     const footer = element('div', 'usage-card-footer')
-    const attention = sessions.find((session) => session.status && session.status !== 'allowed')
+    const attention = sessions.map(sessionStatusNote).find(Boolean)
+    const overage = sessions.find((session) => session.overageStatus && session.overageStatus !== 'allowed')
     footer.append(element('span', 'usage-session', providerLimitReached(provider)
       ? `Frontier will skip ${provider.name} while this limit is active and route work elsewhere.`
-      : attention?.status
-        ? `Provider status: ${attention.status}`
-        : sessions.length ? `${sessions.length} usage window${sessions.length === 1 ? '' : 's'} reported by the CLI.` : 'No plan window has been reported in this app session.'))
+      : attention
+        ? `Plan status: ${attention}`
+        : sessions.length
+          ? `${sessions.length} usage window${sessions.length === 1 ? '' : 's'} in force${overage ? ` · overage ${overage.overageStatus?.replaceAll('_', ' ')}` : ''}.`
+          : 'No plan window has been reported in this app session.'))
 
     card.append(header, gauges, stats, footer)
     return card

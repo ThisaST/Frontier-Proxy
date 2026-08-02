@@ -71,7 +71,7 @@ describe('claude stream parsing', () => {
     ])
     expect(usage).toEqual({ inputTokens: 37_000, outputTokens: 400, costUsd: 0 })
     expect(context).toEqual({ tokens: 1_040, window: 200_000 })
-    expect(sessions[0]).toMatchObject({ limitType: 'five hour', utilizationPercent: 26, status: 'allowed' })
+    expect(sessions[0]).toMatchObject({ limitType: '5-hour', windowMinutes: 300, utilizationPercent: 26, status: 'allowed' })
   })
 
   it('parses multiple plan-window events and snake-case fields independently', () => {
@@ -80,8 +80,22 @@ describe('claude stream parsing', () => {
       { type: 'rate_limit_event', rate_limit_info: { resets_at: '2033-05-18T03:33:20.000Z', rate_limit_type: 'seven_day', utilization_percent: 61, overage_status: 'allowed' } }
     ])
     expect(sessions).toHaveLength(2)
-    expect(sessions.map((session) => session.limitType)).toEqual(['five hour', 'seven day'])
-    expect(sessions[1]).toMatchObject({ utilizationPercent: 61, status: 'allowed' })
+    expect(sessions.map((session) => session.limitType)).toEqual(['5-hour', '7-day'])
+    expect(sessions[1]).toMatchObject({ utilizationPercent: 61, windowMinutes: 10_080 })
+  })
+
+  // Captured verbatim from `claude -p --output-format stream-json`: the CLI
+  // states the window, its status and its reset — and no percentage at all.
+  it('keeps the plan verdict apart from the overage verdict on a real event', () => {
+    const { sessions } = collect([{
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', resetsAt: 1_785_691_200, rateLimitType: 'five_hour', overageStatus: 'rejected', overageDisabledReason: 'org_level_disabled', isUsingOverage: false }
+    }])
+    expect(sessions[0]).toMatchObject({
+      limitType: '5-hour', windowMinutes: 300, status: 'allowed', overageStatus: 'rejected', usingOverage: false,
+      resetsAt: new Date(1_785_691_200 * 1000).toISOString()
+    })
+    expect(sessions[0].utilizationPercent).toBeUndefined()
   })
 })
 

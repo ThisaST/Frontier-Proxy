@@ -68,6 +68,18 @@ describe('provider routing', () => {
     expect(rankProviders(task('balanced'), [providerAfterReset])).toHaveLength(1)
   })
 
+  it('skips a provider whose CLI rejects the window without giving a percentage', () => {
+    const rejected = provider('rejected', 'claude')
+    rejected.runtime.sessions = [{ limitType: '5-hour', status: 'rejected', resetsAt: new Date(Date.now() + 60_000).toISOString(), updatedAt: new Date().toISOString() }]
+    expect(rankProviders(task('balanced'), [rejected])).toEqual([])
+  })
+
+  it('keeps routing to a provider whose overage — not its plan — is rejected', () => {
+    const allowed = provider('allowed', 'claude')
+    allowed.runtime.sessions = [{ limitType: '5-hour', status: 'allowed', overageStatus: 'rejected', resetsAt: new Date(Date.now() + 60_000).toISOString(), updatedAt: new Date().toISOString() }]
+    expect(rankProviders(task('balanced'), [allowed])).toHaveLength(1)
+  })
+
   it('spreads otherwise similar subscription usage', () => {
     const ranked = rankProviders(task('balanced', 'general'), [provider('used', 'codex', 20), provider('fresh', 'codex', 0)])
     expect(ranked[0].id).toBe('fresh')

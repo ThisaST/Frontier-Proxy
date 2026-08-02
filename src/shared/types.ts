@@ -82,16 +82,23 @@ export interface ContextSample {
   window?: number
 }
 
-// Subscription session status parsed from Claude's rate_limit_event.
+// Subscription session status parsed from a CLI's stream (Claude's
+// rate_limit_event, Codex's token_count rate limits).
 export interface SessionInfo {
   resetsAt?: string
   overageResetsAt?: string
   usingOverage?: boolean
+  // Status of the plan window itself ("allowed", "rejected", …).
   status?: string
+  // Overage status is a separate verdict and must not be read as the plan's.
+  overageStatus?: string
   // Plan-window utilization when the CLI exposes it (normalized to 0..100).
+  // Claude reports none, so an active window often has no percentage.
   utilizationPercent?: number
-  // Human-readable window identifier such as "5-hour" or "weekly".
+  // Human-readable window identifier such as "5-hour" or "7-day".
   limitType?: string
+  // Window length, so a reset time can be shown as progress through the window.
+  windowMinutes?: number
   updatedAt: string
 }
 

@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import spawn from 'cross-spawn'
 import type { ActivityEvent, ContextSample, ControlPlaneProfile, ProviderConfig, SessionInfo, UsageSample } from '../shared/types'
+import { parseLimitWindow, windowLabelFromMinutes } from '../shared/sessions'
 import { controlPlaneInjection } from './controlplane'
 
 export type RunFailureKind = 'quota' | 'unavailable' | 'failed' | 'cancelled'
@@ -210,6 +211,54 @@ function summarizeToolInput(input: unknown): string | undefined {
   return undefined
 }
 
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+// Claude's rate_limit_event states which plan window is in force, its status and
+// when it resets — but never a utilization percentage. Keep the plan verdict and
+// the overage verdict apart: "overageStatus: rejected" is not the plan saying no.
+export function claudeSession(info: Dict): SessionInfo {
+  const window = parseLimitWindow(text(info.rateLimitType ?? info.rate_limit_type))
+  return {
+    resetsAt: timestampIso(info.resetsAt ?? info.resets_at),
+    overageResetsAt: timestampIso(info.overageResetsAt ?? info.overage_resets_at),
+    usingOverage: typeof (info.isUsingOverage ?? info.is_using_overage) === 'boolean' ? Boolean(info.isUsingOverage ?? info.is_using_overage) : undefined,
+    status: text(info.status),
+    overageStatus: text(info.overageStatus ?? info.overage_status),
+    utilizationPercent: utilizationPercent(info),
+    limitType: window.label,
+    windowMinutes: window.minutes,
+    updatedAt: new Date().toISOString()
+  }
+}
+
+// Codex carries plan windows on its token_count events — percentage used, window
+// length in minutes, seconds until reset. Best-effort, like the rest of its parse.
+export function codexSessions(event: Dict, now = Date.now()): SessionInfo[] {
+  const info = event.info as Dict | undefined
+  const limits = (event.rate_limits ?? event.rateLimits ?? info?.rate_limits ?? info?.rateLimits) as Dict | undefined
+  if (!limits || typeof limits !== 'object') return []
+  const sessions: SessionInfo[] = []
+  for (const [name, raw] of Object.entries(limits)) {
+    if (!raw || typeof raw !== 'object') continue
+    const value = raw as Dict
+    const percent = utilizationPercent(value)
+    const minutes = finiteNumber(value.window_minutes ?? value.windowMinutes)
+    const resetsIn = finiteNumber(value.resets_in_seconds ?? value.resetsInSeconds)
+    const resetsAt = resetsIn !== undefined ? new Date(now + resetsIn * 1000).toISOString() : timestampIso(value.resets_at ?? value.resetsAt)
+    if (percent === undefined && !resetsAt) continue
+    sessions.push({
+      resetsAt,
+      utilizationPercent: percent,
+      limitType: (minutes ? windowLabelFromMinutes(minutes) : undefined) ?? parseLimitWindow(name).label,
+      windowMinutes: minutes,
+      updatedAt: new Date(now).toISOString()
+    })
+  }
+  return sessions
+}
+
 // Parse one Claude Code stream-json line. Text is streamed incrementally via
 // content_block_delta; tool calls and thinking become activity events.
 export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: ClaudeStreamState): void {
@@ -221,15 +270,7 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: Cl
   }
   if (type === 'rate_limit_event') {
     const info = (event.rate_limit_info ?? event.rateLimitInfo) as Dict | undefined
-    if (info) handlers.onSession?.({
-      resetsAt: timestampIso(info.resetsAt ?? info.resets_at),
-      overageResetsAt: timestampIso(info.overageResetsAt ?? info.overage_resets_at),
-      usingOverage: typeof (info.isUsingOverage ?? info.is_using_overage) === 'boolean' ? Boolean(info.isUsingOverage ?? info.is_using_overage) : undefined,
-      status: typeof info.status === 'string' ? info.status : typeof (info.overageStatus ?? info.overage_status) === 'string' ? String(info.overageStatus ?? info.overage_status) : undefined,
-      utilizationPercent: utilizationPercent(info),
-      limitType: typeof (info.rateLimitType ?? info.rate_limit_type) === 'string' ? String(info.rateLimitType ?? info.rate_limit_type).replaceAll('_', ' ') : 'reported',
-      updatedAt: new Date().toISOString()
-    })
+    if (info) handlers.onSession?.(claudeSession(info))
     return
   }
   if (type === 'stream_event') {
@@ -278,6 +319,7 @@ export function parseClaudeLine(event: Dict, handlers: StreamHandlers, state: Cl
 // Best-effort parse for Codex `exec --json` events (agent text, shell/file/MCP activity).
 export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
   if (typeof event.model === 'string') handlers.onModel(canonicalModel(event.model))
+  for (const session of codexSessions(event)) handlers.onSession?.(session)
   if (event.type === 'turn.completed') {
     const usage = event.usage as Dict | undefined
     if (usage) {

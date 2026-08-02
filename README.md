@@ -41,6 +41,21 @@ Create distributable installers on each target operating system with `pnpm dist`
 
 ## Download builds
 
+Latest release: **[v0.6.2](https://github.com/ThisaST/Frontier-Proxy/releases/latest)**
+
+| Platform | Download |
+| --- | --- |
+| macOS (disk image) | [Frontier.Proxy-0.6.2.dmg](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.dmg) |
+| macOS (zip) | [Frontier.Proxy-0.6.2-mac.zip](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2-mac.zip) |
+| Windows (installer) | [Frontier.Proxy.Setup.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.Setup.0.6.2.exe) |
+| Windows (portable) | [Frontier.Proxy.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.0.6.2.exe) |
+| Linux (AppImage) | [Frontier.Proxy-0.6.2.AppImage](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.AppImage) |
+| Linux (Debian/Ubuntu) | [frontier-proxy_0.6.2_amd64.deb](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/frontier-proxy_0.6.2_amd64.deb) |
+
+Builds are x64 and unsigned. On macOS, open the app the first time with **Control-click → Open**; on Windows, choose **More info → Run anyway** in SmartScreen. Every version is kept on the [releases page](https://github.com/ThisaST/Frontier-Proxy/releases).
+
+### Development builds
+
 GitHub Actions builds Windows, macOS, and Linux installers after every push to `main`, when a `v*` tag is pushed, or when the workflow is started manually. Open the repository's **Actions** tab, select a successful **Build desktop apps** run, and download the artifact for your platform. Build artifacts are retained for 30 days.
 
 Version tags also create a GitHub Release with the installers attached for permanent public downloads. For example:

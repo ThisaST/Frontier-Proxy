@@ -1,6 +1,25 @@
 # Frontier Proxy
 
+[![Latest release](https://img.shields.io/github/v/release/ThisaST/Frontier-Proxy?label=download&sort=semver)](https://github.com/ThisaST/Frontier-Proxy/releases/latest)
+
 Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude Code**, **GitHub Copilot CLI**, and **Ollama-backed coding models**. It sends work to executables already installed and authenticated on your computer; it does not call model APIs or require API keys of its own.
+
+## Download
+
+Latest release: **[v0.6.2](https://github.com/ThisaST/Frontier-Proxy/releases/latest)** — no build step required, just download and run.
+
+| Platform | Download |
+| --- | --- |
+| macOS (disk image) | [Frontier.Proxy-0.6.2.dmg](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.dmg) |
+| macOS (zip) | [Frontier.Proxy-0.6.2-mac.zip](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2-mac.zip) |
+| Windows (installer) | [Frontier.Proxy.Setup.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.Setup.0.6.2.exe) |
+| Windows (portable) | [Frontier.Proxy.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.0.6.2.exe) |
+| Linux (AppImage) | [Frontier.Proxy-0.6.2.AppImage](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.AppImage) |
+| Linux (Debian/Ubuntu) | [frontier-proxy_0.6.2_amd64.deb](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/frontier-proxy_0.6.2_amd64.deb) |
+
+Builds are x64 and unsigned. On macOS, open the app the first time with **Control-click → Open**; on Windows, choose **More info → Run anyway** in SmartScreen. Every version is kept on the [releases page](https://github.com/ThisaST/Frontier-Proxy/releases).
+
+You still need at least one supported CLI installed and signed in — see [Provider setup](#provider-setup).
 
 ![Frontier Proxy architecture](docs/architecture.svg)
 
@@ -20,7 +39,7 @@ Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude
 - Runs Codex in `workspace-write`, Claude Code in `acceptEdits`, and every process with `shell: false`.
 - Packages for macOS, Windows, and Linux with Electron Builder.
 
-## Start it
+## Build from source
 
 Prerequisites: Node.js 22+, pnpm, and at least one supported CLI.
 
@@ -38,21 +57,6 @@ pnpm package
 ```
 
 Create distributable installers on each target operating system with `pnpm dist`. Electron Builder produces DMG/ZIP on macOS, NSIS/portable on Windows, and AppImage/DEB on Linux. Native installers should normally be built on their target OS or in a CI matrix.
-
-## Download builds
-
-Latest release: **[v0.6.2](https://github.com/ThisaST/Frontier-Proxy/releases/latest)**
-
-| Platform | Download |
-| --- | --- |
-| macOS (disk image) | [Frontier.Proxy-0.6.2.dmg](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.dmg) |
-| macOS (zip) | [Frontier.Proxy-0.6.2-mac.zip](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2-mac.zip) |
-| Windows (installer) | [Frontier.Proxy.Setup.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.Setup.0.6.2.exe) |
-| Windows (portable) | [Frontier.Proxy.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.0.6.2.exe) |
-| Linux (AppImage) | [Frontier.Proxy-0.6.2.AppImage](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.AppImage) |
-| Linux (Debian/Ubuntu) | [frontier-proxy_0.6.2_amd64.deb](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/frontier-proxy_0.6.2_amd64.deb) |
-
-Builds are x64 and unsigned. On macOS, open the app the first time with **Control-click → Open**; on Windows, choose **More info → Run anyway** in SmartScreen. Every version is kept on the [releases page](https://github.com/ThisaST/Frontier-Proxy/releases).
 
 ### Development builds
 

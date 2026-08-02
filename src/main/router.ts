@@ -1,4 +1,5 @@
 import type { ProviderConfig, ProviderRuntime, ProxyTask, RoutingCandidate, RoutingDecision, RoutingFactor, TaskType } from '../shared/types'
+import { activeSessions, sessionBlocked } from '../shared/sessions'
 
 export interface RoutableProvider extends ProviderConfig {
   runtime: ProviderRuntime
@@ -20,12 +21,7 @@ function isCoolingDown(runtime: ProviderRuntime, now: number): boolean {
 }
 
 function sessionLimitReached(runtime: ProviderRuntime, now: number): boolean {
-  const sessions = runtime.sessions?.length ? runtime.sessions : runtime.session ? [runtime.session] : []
-  return sessions.some((session) => {
-    if ((session.utilizationPercent ?? 0) < 100) return false
-    const reset = session.usingOverage ? session.overageResetsAt ?? session.resetsAt : session.resetsAt ?? session.overageResetsAt
-    return !reset || Date.parse(reset) > now
-  })
+  return activeSessions(runtime, now).some((session) => sessionBlocked(session, now))
 }
 
 function trackedTokens(runtime: ProviderRuntime): number {

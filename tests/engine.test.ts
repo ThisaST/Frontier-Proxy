@@ -18,6 +18,13 @@ describe('provider session windows', () => {
     expect(merged.find((window) => window.limitType === 'five hour')?.utilizationPercent).toBe(25)
     expect(merged.find((window) => window.limitType === 'seven day')?.utilizationPercent).toBe(60)
   })
+
+  it('forgets a window that has already reset instead of keeping it stale', () => {
+    const now = Date.parse('2026-08-02T12:00:00.000Z')
+    const initial = [{ limitType: '7-day', utilizationPercent: 60, resetsAt: '2026-08-01T09:10:00.000Z', updatedAt: '2026-08-01T07:31:00.000Z' }]
+    const merged = mergeSessionWindows(initial, { limitType: '5-hour', resetsAt: '2026-08-02T14:00:00.000Z', updatedAt: '2026-08-02T11:59:00.000Z' }, now)
+    expect(merged.map((window) => window.limitType)).toEqual(['5-hour'])
+  })
 })
 
 function provider(id: string, priority: number, args: string[] = []): ProviderConfig {

@@ -141,6 +141,8 @@ button { border-radius: 7px; border: 1px solid transparent; padding: 9px 13px; f
 .home-bar { height: 5px; border-radius: 6px; background: #1c211d; overflow: hidden; }
 .home-bar > div { height: 100%; border-radius: inherit; background: var(--green); transition: width .3s; }
 .home-bar.high > div { background: var(--yellow); }
+/* Time through the plan window, not usage — deliberately quieter. */
+.home-bar.time > div { background: #3d4a41; }
 .home-agent-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .home-agent-foot span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-active, .home-review { display: grid; gap: 6px; }
@@ -456,6 +458,8 @@ textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
 .usage-gauge-head strong { font-family: Georgia, serif; font-size: 17px; font-weight: 400; }
 .usage-bar { height: 6px; border-radius: 6px; background: #1c211d; overflow: hidden; }
 .usage-bar-fill { height: 100%; background: var(--green); border-radius: 6px; transition: width .3s; }
+.usage-gauge.time .usage-bar-fill { background: #3d4a41; }
+.usage-gauge.time .usage-gauge-head strong { color: var(--muted); }
 .usage-gauge.high .usage-bar-fill { background: var(--yellow); }
 .usage-gauge.high .usage-gauge-head strong { color: var(--yellow); }
 .usage-card.limited .usage-gauge.high .usage-bar-fill { background: var(--red); }

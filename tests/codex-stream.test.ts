@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCodexLine } from '../src/main/providers'
+import { codexSessions, parseCodexLine } from '../src/main/providers'
 import type { ActivityEvent, ContextSample, UsageSample } from '../src/shared/types'
 
 // Real event shapes captured from codex-cli 0.146 `exec --json` (a task that
@@ -48,5 +48,27 @@ describe('codex stream parsing (real 0.146 events)', () => {
     // Codex exposes no context_tokens/context_window, so the parser uses the
     // per-turn token totals as the occupancy; the engine supplies the window.
     expect(context).toEqual({ tokens: 46023 + 343, window: undefined })
+  })
+})
+
+// Unlike Claude, Codex does report how much of each plan window is spent.
+describe('codex plan windows', () => {
+  it('names each window by its length and turns a countdown into a reset time', () => {
+    const now = Date.parse('2026-08-02T12:00:00.000Z')
+    const sessions = codexSessions({
+      type: 'token_count',
+      rate_limits: {
+        primary: { used_percent: 42.5, window_minutes: 300, resets_in_seconds: 3_600 },
+        secondary: { used_percent: 88, window_minutes: 10_080, resets_in_seconds: 86_400 }
+      }
+    }, now)
+    expect(sessions.map((session) => session.limitType)).toEqual(['5-hour', '7-day'])
+    expect(sessions[0]).toMatchObject({ utilizationPercent: 42.5, windowMinutes: 300, resetsAt: '2026-08-02T13:00:00.000Z' })
+    expect(sessions[1].utilizationPercent).toBe(88)
+  })
+
+  it('ignores events that carry no rate-limit data', () => {
+    expect(codexSessions(TURN_COMPLETED)).toEqual([])
+    expect(codexSessions({ type: 'token_count', info: { rate_limits: { primary: null } } })).toEqual([])
   })
 })

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
+import { activeSessions, sessionWindowExpired } from '../shared/sessions'
 import type {
   ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
 } from '../shared/types'
@@ -41,9 +42,11 @@ function blankRuntime(): ProviderRuntime {
   return { available: false, running: 0, usage: blankUsage() }
 }
 
-export function mergeSessionWindows(windows: SessionInfo[], session: SessionInfo): SessionInfo[] {
+// Windows that have already reset are dropped rather than kept at a stale
+// percentage with a countdown that can only ever read "resetting…".
+export function mergeSessionWindows(windows: SessionInfo[], session: SessionInfo, now = Date.now()): SessionInfo[] {
   const key = session.limitType ?? 'reported'
-  return [...windows.filter((item) => (item.limitType ?? 'reported') !== key), session]
+  return [...windows.filter((item) => (item.limitType ?? 'reported') !== key && !sessionWindowExpired(item, now)), session]
     .sort((left, right) => (left.limitType ?? '').localeCompare(right.limitType ?? ''))
 }
 
@@ -66,7 +69,9 @@ export class OrchestrationEngine extends EventEmitter {
       const runtime = blankRuntime()
       const persisted = state.providerRuntime?.[provider.id]
       if (persisted?.usage?.date === today()) runtime.usage = persisted.usage
-      runtime.sessions = persisted?.sessions ?? (persisted?.session ? [persisted.session] : undefined)
+      // A window persisted from an earlier run may have reset while the app was
+      // closed; only windows still in force survive the reload.
+      runtime.sessions = activeSessions({ ...blankRuntime(), sessions: persisted?.sessions, session: persisted?.session })
       this.runtimes.set(provider.id, runtime)
     }
     await this.checkProviders()

@@ -225,6 +225,25 @@ context-window value can still be configured as a fallback when its CLI does not
 The Usage view shows session/plan usage, reset countdown, tracked tokens, and automatic-
 fallback state for every provider.
 
+**What each CLI actually reports** (`src/shared/sessions.ts`, pure and unit-tested, shared by
+the engine, the router and the renderer so the three cannot drift apart):
+
+- **Claude** names the window (`five_hour` → `5-hour`, with `windowMinutes` derived from that
+  name), gives its `status` and reset time — and **no utilization percentage at all**. The UI
+  therefore shows the window and its countdown, with a muted bar tracking *elapsed time* in the
+  window, explicitly labelled as such. It never invents a usage percentage. `status` (the plan's
+  verdict) and `overageStatus` are kept apart: an overage of `rejected` alongside `allowed` is
+  not the plan saying no, and must not remove the provider from routing.
+- **Codex** carries real percentages on its `token_count` events (`rate_limits.{primary,
+  secondary}` → `used_percent`, `window_minutes`, `resets_in_seconds`); windows are named from
+  their length. Best-effort, like the rest of the Codex parse.
+- **Copilot / Ollama** stream no JSON, so they legitimately report nothing.
+
+A window whose reset time has passed is **dropped**, not held at a stale percentage — on load,
+on merge, and on read. Keeping it produced the old "No plan limit reported · resets in
+resetting…" contradiction. A provider is removed from routing when a live window is ≥100% used
+or its own status rejects (`sessionBlocked`), never on an expired window.
+
 Quota/unavailable failures fail over during first turns, follow-up conversations, and every
 orchestration stage. A logged-out/unauthenticated CLI (matched by `AUTH_PATTERN` in
 `providers.ts` on a non-zero exit) is classified as `unavailable`, so it cools down and fails

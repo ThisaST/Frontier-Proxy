@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -41,6 +41,19 @@ describe('persistent store', () => {
     expect((await store.load()).settings.providers.length).toBeGreaterThan(0)
     // No temp files may be left behind.
     expect((await readdir(directory)).filter((name) => name.includes('.tmp'))).toEqual([])
+  })
+
+  // The top-level-defaulting claim `activeRunProfile`/`initialize` lean on: a
+  // state file written before skills existed must still load with a usable
+  // SkillSettings rather than undefined.
+  it('defaults settings.skills when loading a state file written before skills existed', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-legacy-'))
+    const path = join(directory, 'state.json')
+    const legacy = freshDefaults() as unknown as Record<string, unknown>
+    delete legacy.skills
+    await writeFile(path, JSON.stringify({ settings: legacy, tasks: [] }), 'utf8')
+    const store = new JsonStore(path)
+    expect((await store.load()).settings.skills).toEqual({ disabledIds: [] })
   })
 
   it('persists daily usage and separate provider plan windows', async () => {

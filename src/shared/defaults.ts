@@ -4,6 +4,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   maxParallelTasks: 2,
   quotaCooldownMinutes: 20,
   memory: '',
+  skills: { disabledIds: [] },
   controlPlane: {
     systemPrompt: '',
     addDirs: [],

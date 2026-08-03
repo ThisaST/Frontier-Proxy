@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import spawn from 'cross-spawn'
-import type { ActivityEvent, ContextSample, ControlPlaneProfile, ProviderConfig, SessionInfo, UsageSample } from '../shared/types'
+import type { ActivityEvent, ContextSample, ControlPlaneProfile, ProviderConfig, ResolvedSkill, SessionInfo, UsageSample } from '../shared/types'
 import { parseLimitWindow, windowLabelFromMinutes } from '../shared/sessions'
 import { controlPlaneInjection } from './controlplane'
 
@@ -29,6 +29,7 @@ interface RunOptions {
   onSession?: (session: SessionInfo) => void
   onSessionId?: (sessionId: string) => void
   controlPlane?: ControlPlaneProfile
+  skills?: ResolvedSkill[]
   // Resume a prior CLI session (Claude --resume) to continue in-context.
   resumeSessionId?: string
   imagePaths?: string[]
@@ -75,9 +76,9 @@ export interface ProviderCommand {
   promptPrefix?: string
 }
 
-export function buildProviderCommand(provider: ProviderConfig, cwd: string, prompt: string, profile?: ControlPlaneProfile, resumeSessionId?: string, imagePaths: string[] = []): ProviderCommand {
+export function buildProviderCommand(provider: ProviderConfig, cwd: string, prompt: string, profile?: ControlPlaneProfile, resumeSessionId?: string, imagePaths: string[] = [], skills: ResolvedSkill[] = []): ProviderCommand {
   const extra = provider.args ?? []
-  const cp = profile ? controlPlaneInjection(provider, profile) : { args: [] as string[], promptPrefix: undefined as string | undefined }
+  const cp = profile ? controlPlaneInjection(provider, profile, skills) : { args: [] as string[], promptPrefix: undefined as string | undefined }
   const resume = resumeSessionId && provider.kind === 'claude' ? ['--resume', resumeSessionId] : []
   switch (provider.kind) {
     case 'codex':
@@ -413,7 +414,7 @@ function consumeJsonLines(
 }
 
 export async function runProvider(provider: ProviderConfig, options: RunOptions): Promise<ProviderRunResult> {
-  const command = buildProviderCommand(provider, options.cwd, options.prompt, options.controlPlane, options.resumeSessionId, options.imagePaths)
+  const command = buildProviderCommand(provider, options.cwd, options.prompt, options.controlPlane, options.resumeSessionId, options.imagePaths, options.skills)
   return await new Promise((resolve) => {
     let settled = false
     let child: ChildProcessWithoutNullStreams

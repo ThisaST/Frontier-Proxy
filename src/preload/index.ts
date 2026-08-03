@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
+import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, SkillCatalog, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
@@ -23,12 +23,14 @@ const api: FrontierApi = {
   updateProvider: (patch: ProviderPatch) => ipcRenderer.invoke('frontier:update-provider', patch) as Promise<AppSnapshot>,
   addCustomProvider: () => ipcRenderer.invoke('frontier:add-custom-provider') as Promise<AppSnapshot>,
   removeProvider: (providerId: string) => ipcRenderer.invoke('frontier:remove-provider', providerId) as Promise<AppSnapshot>,
-  updateSettings: (changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes'>>) =>
+  updateSettings: (changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills'>>) =>
     ipcRenderer.invoke('frontier:update-settings', changes) as Promise<AppSnapshot>,
   updateControlPlane: (profile: ControlPlaneProfile) =>
     ipcRenderer.invoke('frontier:update-control-plane', profile) as Promise<AppSnapshot>,
-  previewControlPlane: (providerId: string, profile?: ControlPlaneProfile) =>
-    ipcRenderer.invoke('frontier:preview-control-plane', providerId, profile) as Promise<string[]>,
+  previewControlPlane: (providerId: string, profile?: ControlPlaneProfile, options?: { cwd?: string; skillIds?: string[] }) =>
+    ipcRenderer.invoke('frontier:preview-control-plane', providerId, profile, options) as Promise<string[]>,
+  listSkills: (cwd: string, refresh?: boolean) =>
+    ipcRenderer.invoke('frontier:list-skills', cwd, refresh) as Promise<SkillCatalog>,
   authenticateMcpServer: (serverId: string) =>
     ipcRenderer.invoke('frontier:authenticate-mcp', serverId) as Promise<AppSnapshot>,
   disconnectMcpServer: (serverId: string) =>

@@ -111,6 +111,65 @@ and reach provider processes through environment-backed header placeholders. Cop
 provider card also maps GitHub MCP tool/toolset selections to the CLI's per-session flags.
 See `PLAN.md` for the full roadmap.
 
+## Skills manager (Skills screen)
+
+Agent skills are `SKILL.md` folders the installed CLIs already discover on their own.
+Frontier surfaces them in one catalog, lets you enable/disable them globally and
+per conversation, and translates that choice into each CLI's own mechanism at spawn
+time — the same role the control plane plays for MCP servers.
+
+**Discovery is strictly read-only** (`src/main/skills.ts`, unit-tested). Frontier never
+writes to a skill folder and never runs `copilot skill add|remove` or `claude plugin`;
+those mutate persistent CLI state. The module imports only `readdir`/`stat`/`readFile` —
+keep it that way. It only *chooses which* of the user's existing skills to activate.
+
+Roots scanned, and which CLIs find each one unaided (`nativeFor`):
+
+| root | scope | nativeFor |
+|---|---|---|
+| `~/.claude/skills` | personal | claude |
+| `~/.copilot/skills` | personal | copilot |
+| `~/.agents/skills` | personal | copilot, codex, codex-oss |
+| `~/.codex/skills` | personal | codex, codex-oss |
+| `<cwd>/.claude/skills` | project | claude, copilot |
+| `<cwd>/.github/skills` | project | copilot |
+| `<dir>/.agents/skills`, cwd → repo root | project | copilot, codex, codex-oss |
+
+`.agents/skills` walks upward from cwd, stopping at the first `.git`. Roots are de-duped
+by path (a non-git cwd under `$HOME` otherwise re-adds `~/.agents/skills` as project scope).
+Frontmatter is read by a hand-rolled parser — only unindented top-level keys count, so a
+nested `metadata:` map is skipped rather than misparsed. **Identity is the normalized skill
+name**, not the path: every CLI addresses a skill by name, so copies in several roots collapse
+into one entry carrying every `source`, and its `nativeFor` is the union.
+
+**Translation is tiered** (`controlPlaneInjection(provider, profile, skills)`), because only
+Claude has a verified per-run lever:
+
+- **Claude** — native, and the only CLI where disabling is actually enforced. Both directions
+  are emitted, and each does a different job (verified against the real CLI):
+  - `--allowedTools Skill(<name>)` **pre-approves** invocation headlessly — exactly like
+    `mcp__<name>__*`. It does **not** scope the skill list: `claude -p` with
+    `--allowedTools "Skill(docker-deployment)"` still reports every installed skill.
+  - `--disallowedTools Skill(<name>)` **blocks invocation**. Forcing the call under this flag
+    fails with a permission error; the identical prompt without it succeeds. This is what
+    makes a disabled skill actually disabled, so never drop the deny side as redundant.
+- **Copilot / Codex** — no per-run skill flag exists, so `Skill(...)` is **never** emitted into
+  their args. They get the enabled skills' name, description, and absolute `SKILL.md` path
+  through the existing prompt seams (`promptPrefix` / `developer_instructions`), plus a
+  "do not use" clause for disabled ones. **That exclusion is advisory and unenforceable** —
+  the UI must label it best-effort, never imply a guarantee.
+- A skill is *ambient* for a CLI when none of its sources is native to it; those get the root
+  `--add-dir`'d (Copilot and Claude; Codex has no such flag) so the agent can read the file.
+  The cited path always prefers a source that CLI can actually reach.
+
+`AppSettings.skills` persists a **disabled**-set, not an enabled-set: a new skill is on by
+default, and an empty `disabledIds` reproduces the CLIs' own behaviour exactly. Per-task,
+`ProxyTask.skillIds` stores the absolute resolved set (`undefined` = inherit the global
+default), so a retry or continuation keeps what it originally ran with. `activeRunProfile(task)`
+resolves the catalog from **`task.cwd`**, never a worktree path, and returns `{ controlPlane,
+skills }` for every run path. Stale ids are never pruned — the catalog is cwd-scoped, so an
+absent skill is not a deleted one.
+
 ## Orchestration (planner delegates subtasks)
 
 When a task is created with `orchestrate: true`, the engine runs `orchestrate(task)`

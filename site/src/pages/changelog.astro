@@ -1,0 +1,96 @@
+---
+import { marked } from "marked";
+import Base from "../layouts/Base.astro";
+import Callout from "../components/Callout.astro";
+import { releases } from "../lib/release";
+import { RELEASES_URL, url } from "../lib/site";
+
+const dates = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+/** Release notes are markdown; neutralise any raw HTML before rendering them. */
+const notesFor = async (notes: string) =>
+  notes.trim() ? await marked.parse(notes.replace(/<(?=[a-zA-Z/!?])/g, "&lt;")) : "";
+
+const entries = await Promise.all(
+  releases.map(async (release) => ({
+    ...release,
+    html: await notesFor(release.notes),
+    date: release.published ? dates.format(new Date(release.published)) : "",
+  })),
+);
+---
+
+<Base title="Changelog" description="Every released version of Frontier Proxy, with its notes.">
+  <div class="wrap changelog">
+    <header class="docs-head">
+      <p class="eyebrow">Changelog</p>
+      <h1>Releases</h1>
+      <p class="lede">
+        Generated from the project's GitHub releases at build time. Installers for every version are attached to the
+        <a href={RELEASES_URL} rel="noopener">release</a> they belong to.
+      </p>
+    </header>
+
+    {entries.length === 0 ? (
+      <Callout tone="info" title="Release notes could not be loaded">
+        <p>
+          This build of the site could not reach the GitHub API, so the changelog is empty. Read the notes on the
+          <a href={RELEASES_URL} rel="noopener">releases page</a> instead.
+        </p>
+      </Callout>
+    ) : (
+      <ol class="releases">
+        {entries.map((entry) => (
+          <li class="release" id={entry.tag}>
+            <div class="release-meta">
+              <a class="release-tag" href={`#${entry.tag}`}>{entry.tag}</a>
+              {entry.date && <time datetime={entry.published}>{entry.date}</time>}
+              {entry.prerelease && <span class="pill yellow">Pre-release</span>}
+            </div>
+            <div class="release-body">
+              <h2>{entry.title}</h2>
+              {entry.html ? (
+                <div class="notes" set:html={entry.html} />
+              ) : (
+                <p class="muted">No notes were published with this release.</p>
+              )}
+              <a class="btn btn-secondary btn-sm" href={entry.href} rel="noopener">Downloads &amp; assets →</a>
+            </div>
+          </li>
+        ))}
+      </ol>
+    )}
+
+    <p class="muted" style="margin-top:34px">
+      Looking for the latest build? See <a href={`${url("/")}#download`}>downloads</a>.
+    </p>
+  </div>
+</Base>
+
+<style>
+  .changelog { padding: 38px 0 60px; max-width: 900px; }
+  .releases { list-style: none; padding: 0; margin: 34px 0 0; }
+  .release {
+    display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 30px;
+    padding: 30px 0; border-top: 1px solid var(--line-soft);
+  }
+  .release:first-child { border-top: 0; padding-top: 6px; }
+  .release-meta { display: grid; gap: 8px; align-content: start; justify-items: start; position: sticky; top: calc(var(--nav-h) + 26px); }
+  .release-tag { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+  .release-meta time { color: var(--muted); font-size: 12px; }
+  .release-body h2 { font-size: 23px; margin-bottom: 12px; }
+
+  .notes :global(ul) { padding-left: 20px; margin: 0 0 16px; }
+  .notes :global(li) { color: #c2cbc4; margin-bottom: 6px; }
+  .notes :global(h2),
+  .notes :global(h3) { font-size: 15px; font-family: var(--sans); font-weight: 650; margin: 22px 0 8px; }
+  .notes :global(p) { color: #c2cbc4; }
+  .notes :global(a) { word-break: break-word; }
+  .notes :global(hr) { margin: 20px 0; }
+  .notes + .btn { margin-top: 4px; }
+
+  @media (max-width: 760px) {
+    .release { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+    .release-meta { position: static; grid-auto-flow: column; justify-content: start; align-items: center; gap: 12px; }
+  }
+</style>

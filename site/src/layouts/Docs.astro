@@ -1,0 +1,42 @@
+---
+import Base from "./Base.astro";
+import { docsNav, siblings } from "../lib/nav";
+import { isCurrent } from "../lib/site";
+
+interface Props { title: string; description: string; eyebrow?: string }
+const { title, description, eyebrow = "Documentation" } = Astro.props;
+const path = Astro.url.pathname;
+const { prev, next } = siblings(path);
+---
+
+<Base title={title} description={description}>
+  <div class="wrap docs">
+    <aside class="docs-nav">
+      {docsNav.map((group) => (
+        <div class="docs-nav-group">
+          <p class="eyebrow">{group.title}</p>
+          {group.links.map((link) => (
+            <a href={link.href} aria-current={isCurrent(link.href, path) ? "page" : undefined}>{link.label}</a>
+          ))}
+        </div>
+      ))}
+    </aside>
+
+    <article class="docs-body">
+      <div class="docs-head">
+        <p class="eyebrow">{eyebrow}</p>
+        <h1>{title}</h1>
+        <p class="lede">{description}</p>
+      </div>
+
+      <slot />
+
+      {(prev || next) && (
+        <nav class="docs-foot">
+          {prev ? <a class="btn btn-secondary btn-sm" href={prev.href}>← {prev.label}</a> : <span />}
+          {next && <a class="btn btn-secondary btn-sm" href={next.href}>{next.label} →</a>}
+        </nav>
+      )}
+    </article>
+  </div>
+</Base>

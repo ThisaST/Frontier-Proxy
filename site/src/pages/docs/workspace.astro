@@ -1,0 +1,156 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { url } from "../../lib/site";
+---
+
+<Docs
+  title="Task workspace"
+  description="Conversations, the live work log, file changes, the context meter, and what each CLI actually reports about your plan usage."
+>
+  <h2>Every task is a conversation</h2>
+  <p>
+    Tasks are multi-turn, not one-shot. The initial prompt seeds a user turn and each run appends an assistant turn.
+    The output panel renders the thread with a composer at the bottom — press Enter to send a follow-up.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Agent</th><th>How a follow-up continues</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Claude Code</strong></td>
+          <td>
+            Resumes the real CLI session with <code>--resume &lt;sessionId&gt;</code>. Only your new message is sent;
+            the CLI keeps the history.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Every other agent</strong></td>
+          <td>Replays the conversation transcript as context, then the new message.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    When a task is stopped, a <strong>Next provider</strong> selector appears. Switching clears any provider-private
+    resume session, and the next turn receives the full attributed transcript — including cancelled and partial turns.
+    Without an explicit change, later turns stay pinned to the agent you last selected.
+  </p>
+
+  <h2>The live work log</h2>
+  <p>
+    Frontier parses each CLI's stream into three things: assistant text, the model actually in use, and activity —
+    tool calls and thinking. The result is a running "how it's working" feed rather than a spinner.
+  </p>
+
+  <ul class="ticks">
+    <li>
+      <strong>Claude</strong> is fully parsed: the model badge comes from the <code>system/init</code> event, text
+      streams token by token, tool calls and thinking arrive as they happen.
+    </li>
+    <li>
+      <strong>Codex</strong> is best-effort: command executions, file changes, MCP tool calls, and reasoning become
+      activity; agent messages become text.
+    </li>
+    <li>
+      <strong>Copilot and Ollama</strong> stream plain text, so the model badge falls back to the provider's
+      configured model.
+    </li>
+  </ul>
+
+  <h3>Files changed</h3>
+  <p>
+    Write, Edit, MultiEdit, and NotebookEdit activity is turned into a de-duplicated list of created and edited paths,
+    shown in its own panel.
+  </p>
+
+  <h2>The task workspace</h2>
+  <p>
+    <strong>Open details</strong> — or double-click a task — opens a dedicated view with a large conversation pane, the
+    provider route and work log, a task context meter, and a <strong>Files &amp; changes</strong> tab with
+    syntax-highlighted source and Git working-tree diffs.
+  </p>
+  <p>
+    The file tree comes from <code>git ls-files --cached --others --exclude-standard</code> when the directory is a
+    repository, so it respects your project's own <code>.gitignore</code>. Folders start collapsed except the branches
+    holding this task's changed files. File reads are restricted to paths that task actually touched, enforce workspace
+    containment, cap text at 1 MB, and identify binaries rather than dumping them.
+  </p>
+
+  <h2>Context window</h2>
+  <p>
+    Context occupancy is task-scoped and never inferred from cumulative billing usage.
+  </p>
+  <ul class="ticks">
+    <li>
+      <strong>Claude</strong> reports enough per-request data for a live gauge — current conversation occupancy paired
+      with the active model's real context window.
+    </li>
+    <li>
+      <strong>Codex</strong> exposes no dedicated context field, so its per-turn input and output tokens are used as
+      occupancy and paired with the configured or known window. The UI labels this an <strong>estimate</strong>.
+    </li>
+    <li>
+      Agents that report neither show <strong>Not reported</strong> rather than a fabricated number.
+    </li>
+  </ul>
+
+  <h2>Usage and plan windows</h2>
+  <p>
+    The Usage view shows session and plan usage, reset countdowns, tracked tokens, and automatic-fallback state for
+    every provider. What it can show depends entirely on what each CLI reports:
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Agent</th><th>What it reports</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Claude</strong></td>
+          <td>
+            Names the window (for example <code>five_hour</code> → 5-hour), its status, and its reset time — and
+            <strong>no utilisation percentage at all</strong>. Frontier therefore shows the window and countdown with a
+            muted bar tracking <em>elapsed time</em>, explicitly labelled as such. It never invents a usage percentage.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Codex</strong></td>
+          <td>Carries real percentages, window lengths, and reset times on its token-count events.</td>
+        </tr>
+        <tr>
+          <td><strong>Copilot / Ollama</strong></td>
+          <td>Stream no JSON, so they legitimately report nothing.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <Callout title="Expired windows are dropped, not frozen">
+    <p>
+      A plan window whose reset time has passed is discarded on load, on merge, and on read — which is why you will
+      never see the old "No plan limit reported · resets in resetting…" contradiction. A provider leaves routing only
+      when a <em>live</em> window is fully used or its own status rejects, never because of a stale one.
+    </p>
+  </Callout>
+
+  <h2>Frontier memory</h2>
+  <p>
+    A shared memory block, edited in Settings, is prepended as context to every new task's first turn and to the
+    planner prompt — so project knowledge carries across tasks instead of being retyped. Continuations inherit it
+    through the resumed session.
+  </p>
+
+  <h2>Working comfortably</h2>
+  <ul class="ticks">
+    <li>A keyboard-first command palette for navigation, common actions, and task lookup (<code>⌘K</code> / <code>Ctrl+K</code>).</li>
+    <li>Image attachments by picker, paste, or drag-and-drop.</li>
+    <li><code>@</code> references resolved against the task's selected working directory.</li>
+    <li>A draggable divider between the work queue and the live output, remembered between sessions.</li>
+  </ul>
+
+  <p>
+    For what each agent is permitted to do inside your project, see <a href={url("docs/security")}>security &amp; data</a>.
+  </p>
+</Docs>

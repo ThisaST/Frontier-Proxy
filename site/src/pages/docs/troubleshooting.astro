@@ -1,0 +1,110 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { ISSUES_URL, url } from "../../lib/site";
+---
+
+<Docs
+  title="Troubleshooting"
+  description="Fixes for the failures people actually hit — starting with the one that looks like a bug and is not."
+>
+  <h2>Copilot says "No authentication information found"</h2>
+  <p>
+    This is the most common report, and it is a Copilot session-expiry issue rather than a Frontier bug. Copilot's
+    non-interactive mode only works while the CLI is currently logged in. Login state lives in
+    <code>~/.copilot/config.json</code> under <code>loggedInUsers</code>. If that array is <strong>empty</strong> —
+    with only <code>lastLoggedInUser</code> present — the CLI is logged out and every headless run fails.
+  </p>
+
+  <div class="code-label">Fix</div>
+  <pre><code>copilot login</code></pre>
+
+  <Callout tone="warn" title="Do not reach for an API key">
+    <p>
+      There is no key field to fill in, and adding one would contradict the design. Every authentication failure is
+      fixed by logging in with that agent's own CLI.
+    </p>
+  </Callout>
+
+  <h2>A provider shows Ready but tasks fail</h2>
+  <p>
+    <strong>Ready</strong> only means <code>&lt;exe&gt; --version</code> succeeded — the binary was found. It says
+    nothing about whether the CLI has a valid session. Run the CLI yourself in a terminal; if it prompts you to log in,
+    that is your answer.
+  </p>
+
+  <h2>A provider shows Not detected</h2>
+  <p>
+    Frontier could not locate the executable on PATH. Find the absolute path and paste it into that provider's
+    Executable field:
+  </p>
+  <pre><code>command -v codex
+command -v claude
+command -v copilot</code></pre>
+  <p>
+    This is a PATH or executable-configuration issue. It is <em>not</em> a filesystem permission issue — a packaged app
+    does not inherit your shell's PATH the way a terminal does.
+  </p>
+
+  <h2>A task failed and did not fail over</h2>
+  <p>
+    That is intended. Only quota, rate-limit, overload, and unavailable errors move work to another agent. A genuine
+    agent failure stops the task, because re-running a partially completed coding task through a different agent could
+    duplicate or conflict with edits already written to disk. Cancellation is terminal too. See
+    <a href={url("docs/routing")}>routing &amp; failover</a>.
+  </p>
+
+  <h2>Codex rejects the model I picked</h2>
+  <p>
+    Model ids are CLI-specific. Codex fails an entire run when handed a Claude model id such as
+    <code>claude-opus-5</code> ("not supported when using Codex with a ChatGPT account"). Frontier tags the model you
+    pick with the agent it came from and only ever hands it to that agent — every other provider runs its own model and
+    notes it in the transcript. If you see this error, the model was configured directly on the Codex provider card.
+  </p>
+
+  <h2>Usage looks wrong or missing</h2>
+  <ul class="ticks">
+    <li>
+      <strong>Claude shows a window but no percentage.</strong> Correct — Claude reports no utilisation figure. The
+      muted bar tracks elapsed time in the window, and is labelled as such.
+    </li>
+    <li>
+      <strong>Copilot and Ollama show nothing.</strong> Correct — they stream no JSON to report from.
+    </li>
+    <li>
+      <strong>A window vanished.</strong> Windows past their reset time are dropped rather than held at a stale
+      percentage.
+    </li>
+  </ul>
+
+  <h2>The synthesis step redid all the work</h2>
+  <p>
+    Subtask changes are committed to their own <code>frontier/*</code> branches, so they are not in your working tree
+    when the final report is written. Frontier instructs the synthesizer that this is a read-only reporting step for
+    exactly that reason. Check the <strong>Review</strong> screen — the work is on the branches.
+  </p>
+
+  <h2>macOS will not open the app</h2>
+  <p>
+    Builds are unsigned. Open it the first time with <strong>Control-click → Open</strong> and confirm. On Windows,
+    choose <strong>More info → Run anyway</strong> in SmartScreen.
+  </p>
+
+  <h2>Packaging fails on Windows</h2>
+  <p>
+    <code>pnpm dist</code> can fail through its <code>pnpm build &amp;&amp; …</code> prefix when pnpm re-runs
+    <code>install</code>. Build the steps directly instead:
+  </p>
+  <pre><code>npm run build
+./node_modules/.bin/electron-builder</code></pre>
+  <p>
+    If you hit <code>EPERM: … rename 'release\win-unpacked'</code>, close any running Frontier Proxy instance, delete
+    <code>release/win-unpacked*</code>, and re-run.
+  </p>
+
+  <h2>Still stuck?</h2>
+  <p>
+    Open an issue with your operating system, the Frontier version from the bottom of the sidebar, which agent failed,
+    and the CLI's own output — <a href={ISSUES_URL} rel="noopener">github.com/ThisaST/Frontier-Proxy/issues</a>.
+  </p>
+</Docs>

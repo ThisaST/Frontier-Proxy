@@ -4,6 +4,8 @@
 
 Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude Code**, **GitHub Copilot CLI**, and **Ollama-backed coding models**. It sends work to executables already installed and authenticated on your computer; it does not call model APIs or require API keys of its own.
 
+Website and documentation: **https://frontier.thisara.me**
+
 ## Download
 
 Latest release: **[v0.6.2](https://github.com/ThisaST/Frontier-Proxy/releases/latest)** — no build step required, just download and run.
@@ -172,4 +174,8 @@ src/preload/    narrow typed IPC bridge
 src/renderer/   desktop user interface
 src/shared/     shared types, defaults, task classification
 tests/          routing, classification, persistence, process-safety tests
+site/           Astro marketing and documentation site (GitHub Pages)
 ```
+
+The site is a separate package outside the pnpm workspace, so it never affects the
+desktop app's install or CI. See [`site/README.md`](site/README.md).

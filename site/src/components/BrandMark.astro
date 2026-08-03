@@ -1,0 +1,8 @@
+---
+interface Props { size?: number }
+const { size = 29 } = Astro.props;
+---
+
+<span class="brand-mark" style={`width:${size}px;height:${size}px`} aria-hidden="true">
+  <span></span><span></span><span></span>
+</span>

@@ -1,0 +1,47 @@
+---
+import BrandMark from "./BrandMark.astro";
+import { url, REPO_URL, ISSUES_URL, RELEASES_URL } from "../lib/site";
+import { version } from "../lib/release";
+---
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href={url("/")}>
+          <BrandMark size={26} />
+          <span class="brand-copy">
+            <strong>Frontier</strong>
+            <small>PROXY</small>
+          </span>
+        </a>
+        <p class="footer-note" style="max-width:280px">
+          Your subscriptions, your machine, your files. No API keys, no telemetry.
+        </p>
+      </div>
+
+      <div class="footer-links">
+        <div class="footer-col">
+          <p class="eyebrow">Product</p>
+          <a href={`${url("/")}#features`}>Features</a>
+          <a href={`${url("/")}#download`}>Download</a>
+          <a href={url("changelog")}>Changelog</a>
+        </div>
+        <div class="footer-col">
+          <p class="eyebrow">Docs</p>
+          <a href={url("docs")}>Overview</a>
+          <a href={url("docs/providers")}>Provider setup</a>
+          <a href={url("docs/troubleshooting")}>Troubleshooting</a>
+        </div>
+        <div class="footer-col">
+          <p class="eyebrow">Project</p>
+          <a href={REPO_URL} rel="noopener">Source</a>
+          <a href={RELEASES_URL} rel="noopener">Releases</a>
+          <a href={ISSUES_URL} rel="noopener">Report an issue</a>
+        </div>
+      </div>
+    </div>
+
+    <p class="footer-note">MIT licensed · v{version} · Built with the CLIs already on your machine.</p>
+  </div>
+</footer>

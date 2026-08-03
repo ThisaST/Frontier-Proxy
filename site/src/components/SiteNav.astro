@@ -1,0 +1,50 @@
+---
+import BrandMark from "./BrandMark.astro";
+import { mainNav } from "../lib/nav";
+import { url, isCurrent, REPO_URL } from "../lib/site";
+
+const path = Astro.url.pathname;
+---
+
+<header class="site-nav">
+  <div class="wrap">
+    <a class="brand" href={url("/")}>
+      <BrandMark />
+      <span class="brand-copy">
+        <strong>Frontier</strong>
+        <small>PROXY</small>
+      </span>
+    </a>
+
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Toggle navigation">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 4h12M2 8h12M2 12h12" stroke-linecap="round" />
+      </svg>
+    </button>
+
+    <nav class="nav-links" id="nav-links">
+      {mainNav.map((link) => (
+        <a href={link.href} aria-current={isCurrent(link.href, path) ? "page" : undefined}>{link.label}</a>
+      ))}
+      <a class="btn btn-secondary btn-sm" href={REPO_URL} rel="noopener">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<script>
+  const toggle = document.querySelector<HTMLButtonElement>(".nav-toggle");
+  const links = document.getElementById("nav-links");
+  const mobile = window.matchMedia("(max-width: 720px)");
+
+  const setOpen = (open: boolean) => {
+    if (!toggle || !links) return;
+    toggle.setAttribute("aria-expanded", String(open));
+    links.hidden = !open;
+  };
+
+  // The menu only collapses on small screens; keep it visible everywhere else.
+  const sync = () => setOpen(!mobile.matches);
+  sync();
+  mobile.addEventListener("change", sync);
+  toggle?.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
+</script>

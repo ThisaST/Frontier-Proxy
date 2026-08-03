@@ -307,9 +307,33 @@ src/preload/    narrow typed IPC bridge (contextIsolation, no Node in renderer)
 src/renderer/   desktop UI (vanilla TS + CSS)
 src/shared/     shared types, defaults, task classification
 tests/          routing, classification, persistence, process-safety
+site/           Astro marketing + docs site, deployed to GitHub Pages
 ```
 
 State persists to `frontier-state.json` in Electron's per-user `userData` dir.
+
+## The website (`site/`)
+
+An Astro static site — landing page, docs, changelog — published to
+`https://frontier.thisara.me` by `.github/workflows/site.yml`. The domain is a constant in
+`site/astro.config.mjs`; it must match Settings → Pages → Custom domain, and it drives the
+origin, the base path (`/`, not the project-site path), and the emitted `CNAME`.
+
+`site/` is deliberately **outside** the pnpm workspace (`pnpm-workspace.yaml` lists only
+`.`) and keeps its own lockfile, so the desktop app's `pnpm install --frozen-lockfile`
+never sees Astro. Always install it with `pnpm --dir site install --ignore-workspace`.
+
+It restates the product, so it must not drift. Anything derivable is read at build time,
+not copied: the download table and version come from the GitHub releases API (falling
+back to the root `package.json` version when offline), the changelog is generated from
+those same releases, and `docs/architecture.svg` is inlined from the repo.
+`src/lib/repo.ts` resolves repository files via `__REPO_ROOT__`, injected by
+`astro.config.mjs` — inside the SSR bundle `import.meta.url` points at the bundle, not a
+source file. `SITE_OFFLINE=1` exercises the fallback path.
+
+`site/src/styles/theme.css` duplicates the design tokens from
+`src/renderer/src/styles.css` (palette, Georgia headings, brand mark, pills and dots).
+Changing the app's palette means changing both.
 
 ## Commands
 

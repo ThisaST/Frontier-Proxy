@@ -1,0 +1,114 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { readRepoFile } from "../../lib/repo";
+import { docsNav } from "../../lib/nav";
+import { url } from "../../lib/site";
+
+// Inlined from the repository so the diagram can never fall out of date.
+const architecture = readRepoFile("docs/architecture.svg");
+const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/docs/"));
+---
+
+<Docs
+  title="Overview"
+  description="Frontier Proxy is a desktop orchestrator that routes coding tasks to the CLI agents already installed and signed in on your machine."
+>
+  <h2>What it is</h2>
+  <p>
+    Frontier Proxy is an Electron desktop app that sits in front of the coding agents you already use —
+    <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>GitHub Copilot CLI</strong>, and
+    <strong>Ollama</strong>-backed models. You describe a task once; Frontier decides which agent should take it,
+    runs that agent locally, streams the result back, and keeps the conversation, file changes, and usage in one place.
+  </p>
+
+  <Callout title="No API keys, ever">
+    <p>
+      Frontier does not call model APIs and holds no keys of its own. Authentication is delegated entirely to each
+      CLI's own login session — <code>codex</code>, <code>claude login</code>, <code>copilot login</code>, or a local
+      <code>ollama</code>. When Frontier runs a provider it spawns that CLI in non-interactive mode and the CLI reuses
+      the session already on disk. If an agent cannot authenticate, the fix is to log in with that agent's own CLI.
+    </p>
+  </Callout>
+
+  <h2>How a task flows</h2>
+  <ol class="steps">
+    <li>
+      <h4>You describe the task</h4>
+      <p class="muted">
+        Prompt, working directory, and routing mode. Optionally pin a specific agent and model, attach images, or
+        reference files and folders with <code>@</code>.
+      </p>
+    </li>
+    <li>
+      <h4>Frontier classifies and queues it</h4>
+      <p class="muted">
+        The task is typed as coding, debugging, review, planning, documentation, or general work, then queued
+        respecting global and per-provider concurrency limits.
+      </p>
+    </li>
+    <li>
+      <h4>A provider is ranked and chosen</h4>
+      <p class="muted">
+        Eligible agents are scored on your override, the routing policy, task affinity, your priority order, and
+        current usage and load. Anything rate-limited, over budget, or cooling down is skipped.
+      </p>
+    </li>
+    <li>
+      <h4>The CLI runs on your machine</h4>
+      <p class="muted">
+        The agent is spawned directly — never through a shell — with the prompt on stdin. Output streams back with
+        tool calls, thinking, and the files it touched.
+      </p>
+    </li>
+    <li>
+      <h4>You follow up</h4>
+      <p class="muted">
+        Reply in the same thread, retry, cancel, or hand the conversation to a different agent. On quota errors
+        Frontier fails over on its own.
+      </p>
+    </li>
+  </ol>
+
+  <div class="arch" set:html={architecture} />
+
+  <h2>What it deliberately is not</h2>
+  <ul class="ticks">
+    <li>
+      <strong>Not an API client.</strong> Frontier proxies CLI <em>processes</em>, not the private internals or UI
+      automation of the Codex or Claude desktop apps. That is the stable local integration surface, and it still
+      reuses the account sessions those CLIs already hold.
+    </li>
+    <li>
+      <strong>Not a billing dashboard.</strong> Subscription tools expose no reliable universal "tokens remaining"
+      interface. Frontier shows what each CLI actually reports, tracks conservative local estimates for the rest, and
+      never invents a percentage.
+    </li>
+    <li>
+      <strong>Not a sandbox.</strong> Every agent can modify its selected working directory. Review the permission
+      mode, work in a repository, and use the Review screen before merging anything.
+    </li>
+  </ul>
+
+  <h2>Where to next</h2>
+  <div class="grid grid-2" style="margin-top:18px">
+    {next.map((link) => (
+      <a class="card" href={link.href}>
+        <h4>{link.label}</h4>
+        <p class="muted" style="font-size:13px;margin:6px 0 0">{link.blurb}</p>
+      </a>
+    ))}
+  </div>
+
+  <p style="margin-top:26px">
+    Prefer to read the source? Start with <a href={url("docs/security")}>security &amp; data</a>, then the
+    repository itself.
+  </p>
+</Docs>
+
+<style>
+  .arch { margin: 30px 0 10px; }
+  .arch :global(svg) { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .steps h4 { margin: 0 0 2px; }
+  .steps p { margin: 0; font-size: 13.5px; }
+</style>

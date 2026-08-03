@@ -1,0 +1,99 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { url } from "../../lib/site";
+---
+
+<Docs
+  title="Security & data"
+  description="What Frontier Proxy runs, what it stores, what it never does — and the boundaries you should know before pointing an agent at a folder."
+>
+  <h2>No API keys</h2>
+  <p>
+    Frontier does not call model APIs and holds no keys of its own. There are no key or token fields on providers,
+    by design. Every agent authenticates through its own CLI's login session, which stays where that CLI put it. If a
+    provider cannot authenticate, log in with that CLI — <code>copilot login</code>, for example.
+  </p>
+
+  <h2>How processes are launched</h2>
+  <ul class="ticks">
+    <li>
+      <strong>Never through a shell.</strong> Providers are spawned with a cross-platform argument-safe wrapper
+      (including Windows <code>.cmd</code> shims) with shell execution disabled.
+    </li>
+    <li>
+      <strong>Prompts go over stdin.</strong> The prompt is never interpolated into a command line, so nothing in a
+      prompt can be read as an argument or shell metacharacter.
+    </li>
+    <li>
+      <strong>Custom CLIs get the same treatment.</strong> The <code>{"{prompt}"}</code> placeholder exists only for
+      tools that require the prompt as an argv value.
+    </li>
+  </ul>
+
+  <h2>Permission modes</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Agent</th><th>Mode</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Codex</strong></td><td><code>--sandbox workspace-write</code></td></tr>
+        <tr><td><strong>Claude Code</strong></td><td><code>--permission-mode acceptEdits</code></td></tr>
+        <tr>
+          <td><strong>Copilot</strong></td>
+          <td>
+            Non-interactive silent mode with an explicit allow list for file writes and common Git, package, and build
+            commands — <em>not</em> <code>--allow-all</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <Callout tone="warn" title="Every agent can modify its working directory">
+    <p>
+      That is the point of an agent, but it is worth saying plainly. Point tasks at a git repository, keep your work
+      committed, and use the <a href={url("docs/orchestration")}>Review screen</a> to inspect branch diffs before
+      merging anything an agent produced.
+    </p>
+  </Callout>
+
+  <h2>The desktop app itself</h2>
+  <ul class="ticks">
+    <li>Renderer code has no Node.js access; a small context-isolated preload bridge exposes only task and settings operations.</li>
+    <li>MCP OAuth tokens are encrypted with Electron's <code>safeStorage</code>, stay in the main process, and reach agents only as environment-backed header placeholders.</li>
+    <li>No telemetry is included.</li>
+  </ul>
+
+  <h2>What is stored, and where</h2>
+  <p>
+    State lives in a single <code>frontier-state.json</code> file in Electron's per-user application-data directory:
+    tasks and their conversations, provider configuration, settings, and usage counters. Daily usage totals are
+    discarded at the next local-date rollover. Delete the file to reset the app completely.
+  </p>
+
+  <h2>macOS permissions</h2>
+  <p>
+    The normal folder chooser and projects under your home directory do <strong>not</strong> require Full Disk Access.
+    Choose <strong>New task → Choose folder… → Use this folder</strong>, or paste an absolute path. Full Disk Access is
+    only relevant for protected locations such as Mail, Messages, some system folders, or another user's data.
+  </p>
+  <p>
+    If a provider is Ready but later hits an operating-system permission error, grant access to <strong>Frontier
+    Proxy</strong> and the relevant CLI host in <strong>System Settings → Privacy &amp; Security</strong>, then restart
+    the app. A provider that says <strong>Not detected</strong> is a PATH problem, not a filesystem permission problem.
+  </p>
+
+  <h2>Honest limits</h2>
+  <ul class="ticks">
+    <li>
+      Frontier proxies CLI processes, not the private internals of the Codex or Claude desktop apps.
+    </li>
+    <li>
+      Subscription tools expose no reliable universal "tokens remaining" interface, so Frontier combines what each CLI
+      reports with conservative local estimates and optional daily budgets.
+    </li>
+    <li>
+      Direct Ollama output is not an agent. Use Codex + Ollama when a local model needs filesystem and shell tools.
+    </li>
+  </ul>
+</Docs>

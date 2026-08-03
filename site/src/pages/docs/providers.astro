@@ -1,0 +1,148 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { url } from "../../lib/site";
+---
+
+<Docs
+  title="Provider setup"
+  description="Register the CLI agents on your machine, confirm Frontier can find them, and understand what each one is allowed to do."
+>
+  <h2>The Providers screen</h2>
+  <ol class="steps">
+    <li>
+      <h4>Do not re-add the built-in agents</h4>
+      <p class="muted">
+        Codex, Claude Code, and GitHub Copilot are already registered. Leave their executable fields as
+        <code>codex</code>, <code>claude</code>, and <code>copilot</code>, enable the ones you use, and choose
+        <strong>Check providers</strong>.
+      </p>
+    </li>
+    <li>
+      <h4>Resolve anything that says Not detected</h4>
+      <p class="muted">
+        Run <code>command -v codex</code> (or <code>claude</code> / <code>copilot</code>) in a terminal and paste the
+        absolute path into that provider's Executable field. "Not detected" is a PATH problem, not a permissions problem.
+      </p>
+    </li>
+    <li>
+      <h4>Configure the optional fields</h4>
+      <p class="muted">
+        Model, tracked usage limit, and context-window size, then <strong>Save provider</strong>. A context limit
+        reported by the CLI always takes precedence over the configured fallback.
+      </p>
+    </li>
+    <li>
+      <h4>Add other agents only if you have them</h4>
+      <p class="muted">Use <strong>Add custom CLI</strong> for any other locally installed agent executable.</p>
+    </li>
+  </ol>
+
+  <Callout tone="warn" title="Ready means found, not signed in">
+    <p>
+      The green <strong>Ready</strong> badge runs <code>&lt;exe&gt; --version</code> and nothing more. It confirms the
+      packaged app can locate the binary — not that the CLI has a valid session. A provider can show Ready and still
+      fail a task because its login expired. See <a href={url("docs/troubleshooting")}>troubleshooting</a>.
+    </p>
+  </Callout>
+
+  <h2>Codex CLI</h2>
+  <p>Install and sign in to Codex CLI, then leave the executable as <code>codex</code>. Frontier runs:</p>
+  <pre><code>codex exec --json --sandbox workspace-write --skip-git-repo-check -C &lt;workspace&gt; -</code></pre>
+  <p>
+    The prompt is written to stdin. Image turns add Codex's native <code>--image &lt;path&gt;</code> arguments, and
+    <code>@</code> references are resolved to validated paths inside the selected workspace. Your existing Codex login
+    and local configuration are reused.
+  </p>
+
+  <h2>Claude Code</h2>
+  <p>Install and sign in to Claude Code, then leave the executable as <code>claude</code>. Frontier runs it in print/streaming mode:</p>
+  <pre><code>claude -p --output-format stream-json --permission-mode acceptEdits …</code></pre>
+  <p>
+    Claude Code is the one agent whose sessions Frontier can resume: the session id from its
+    <code>system/init</code> event is stored on the task, so follow-up turns continue the real CLI conversation with
+    <code>--resume</code> rather than replaying a transcript. Extra CLI flags can be configured on the provider card.
+  </p>
+
+  <h2>GitHub Copilot CLI</h2>
+  <p>
+    Install the current standalone Copilot CLI. This integration does <strong>not</strong> use the retired
+    <code>gh copilot</code> extension.
+  </p>
+
+  <div class="code-label">macOS or Linux</div>
+  <pre><code>brew install --cask copilot-cli
+copilot login</code></pre>
+
+  <div class="code-label">Any platform with Node.js 22+</div>
+  <pre><code>npm install -g @github/copilot
+copilot login</code></pre>
+
+  <p>
+    Leave the executable as <code>copilot</code>, enable it, and choose <strong>Check providers</strong>. Frontier sends
+    prompts through stdin in Copilot's non-interactive silent mode. By default it grants file writes plus common Git,
+    package, and build commands — it does <em>not</em> grant <code>--allow-all</code>. Add or replace
+    <code>--allow-tool</code> rules in Extra arguments if a project needs different tools.
+  </p>
+  <p>
+    The provider card also extends Copilot's built-in GitHub MCP server with selected toolsets or individual tools.
+    Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset
+    plus your selections.
+  </p>
+
+  <h2>Open-source models</h2>
+  <p>Start Ollama and pull a coding model:</p>
+  <pre><code>ollama pull qwen3-coder
+ollama serve</code></pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Provider</th><th>What it runs</th><th>Capability</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Codex + Ollama</strong></td>
+          <td><code>codex exec --oss --local-provider ollama</code></td>
+          <td class="muted">Codex's agent harness with local inference — full coding tasks.</td>
+        </tr>
+        <tr>
+          <td><strong>Ollama</strong></td>
+          <td><code>ollama run &lt;model&gt;</code></td>
+          <td class="muted">
+            The raw model runner has no file-editing tools, so it is deliberately limited to planning, review,
+            documentation, and general tasks.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Change the configured model to one installed on your Ollama instance.</p>
+
+  <h2>Other local agent CLIs</h2>
+  <p>
+    Choose <strong>Add custom CLI</strong> and configure the executable and its argument list; quoted arguments are
+    supported. The prompt goes over stdin by default. Use <code>{"{prompt}"}</code> in a single argument only when a
+    tool requires the prompt as an argv value, plus <code>{"{cwd}"}</code> and <code>{"{model}"}</code> for the working
+    directory and configured model. Custom processes are launched directly, with no intermediary shell.
+  </p>
+
+  <h2>Models</h2>
+  <p>
+    Frontier enumerates what each provider can run. Ollama and Codex + Ollama get real discovery from
+    <code>ollama list</code>; Claude, Codex, and Copilot have no headless "list models" command, so Frontier ships a
+    curated set of sensible defaults. The provider's own configured model is always folded in.
+  </p>
+  <p>
+    The New Task dialog's model field is a dropdown scoped to the chosen agent, with <strong>Provider default</strong>
+    and <strong>Custom model…</strong> bracketing the list.
+  </p>
+
+  <Callout tone="info" title="Model ids never travel between agents">
+    <p>
+      A model id belongs to the CLI it came from — Codex fails an entire run if handed <code>claude-opus-5</code>.
+      Frontier tags the picked model with its owning agent and hands it only to that agent. Every other provider
+      reached by routing, failover, a bench lane, or a subtask runs its own model, with a note in the transcript.
+      The router also nudges the owning agent ahead so Automatic tries it first.
+    </p>
+  </Callout>
+</Docs>

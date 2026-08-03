@@ -1,0 +1,37 @@
+---
+import SiteNav from "../components/SiteNav.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { SITE_NAME, TAGLINE, url } from "../lib/site";
+import "../styles/theme.css";
+
+interface Props { title?: string; description?: string }
+const { title, description = TAGLINE } = Astro.props;
+const pageTitle = title ? `${title} · ${SITE_NAME}` : `${SITE_NAME} — route coding tasks to the agents you already pay for`;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://frontier.thisara.me");
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical.href} />
+    <link rel="icon" href={`${url("/")}favicon.svg`} type="image/svg+xml" />
+    <meta name="theme-color" content="#0a0c0b" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical.href} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <SiteNav />
+    <main>
+      <slot />
+    </main>
+    <SiteFooter />
+  </body>
+</html>

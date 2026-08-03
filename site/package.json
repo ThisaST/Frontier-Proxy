@@ -1,0 +1,15 @@
+{
+  "name": "frontier-proxy-site",
+  "private": true,
+  "type": "module",
+  "description": "Marketing and documentation site for Frontier Proxy.",
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview"
+  },
+  "dependencies": {
+    "astro": "^7.1.6",
+    "marked": "^18.0.7"
+  }
+}

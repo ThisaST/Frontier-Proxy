@@ -1,0 +1,75 @@
+name: Deploy site
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "docs/architecture.svg"
+      - "package.json"
+      - ".github/workflows/site.yml"
+  # A new release changes the download table and the changelog, so rebuild for it.
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      # site/ is deliberately outside the pnpm workspace so the desktop app's
+      # frozen lockfile install stays untouched.
+      - name: Install dependencies
+        working-directory: site
+        run: pnpm install --ignore-workspace --frozen-lockfile
+
+      - name: Build
+        working-directory: site
+        env:
+          # Raises the GitHub API rate limit while reading releases at build time.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v5

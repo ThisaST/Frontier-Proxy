@@ -1,0 +1,87 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import DownloadTable from "../../components/DownloadTable.astro";
+import { url, REPO_URL, RELEASES_URL } from "../../lib/site";
+import { version } from "../../lib/release";
+---
+
+<Docs
+  title="Install"
+  description="Download a packaged build for macOS, Windows, or Linux — or build Frontier Proxy from source."
+>
+  <h2>Download a build</h2>
+  <p>
+    Packaged builds require no toolchain. The current release is <strong>v{version}</strong>.
+  </p>
+
+  <DownloadTable />
+
+  <Callout tone="warn" title="Builds are unsigned">
+    <p>
+      Releases are x64 and unsigned, so both desktop operating systems will warn you the first time.
+      On <strong>macOS</strong>, open the app with <strong>Control-click → Open</strong> and confirm.
+      On <strong>Windows</strong>, choose <strong>More info → Run anyway</strong> in the SmartScreen dialog.
+      Subsequent launches are normal.
+    </p>
+  </Callout>
+
+  <h3>You still need an agent</h3>
+  <p>
+    Frontier does not install or bundle any coding agent. At least one supported CLI must be installed and signed in
+    on the same machine — see <a href={url("docs/providers")}>provider setup</a>.
+  </p>
+
+  <h2>Build from source</h2>
+  <p>Prerequisites: Node.js 22 or newer, pnpm, and at least one supported CLI.</p>
+
+  <div class="code-label">Development</div>
+  <pre><code>git clone https://github.com/ThisaST/Frontier-Proxy.git
+cd Frontier-Proxy
+pnpm install
+pnpm dev</code></pre>
+
+  <p>Before packaging, run the checks the repository ships with:</p>
+
+  <div class="code-label">Verify and package</div>
+  <pre><code>pnpm typecheck   # tsc for the node and web projects
+pnpm test        # vitest
+pnpm package     # electron-builder --dir (unpacked)</code></pre>
+
+  <p>
+    <code>pnpm dist</code> produces full installers for the operating system you run it on — DMG and ZIP on macOS,
+    NSIS and portable on Windows, AppImage and DEB on Linux. Native installers should be built on their target OS or
+    in a CI matrix.
+  </p>
+
+  <h3>Windows notes</h3>
+  <p>
+    On Windows, <code>pnpm dist</code> can fail through its <code>pnpm build &amp;&amp; …</code> prefix when pnpm
+    re-runs <code>install</code>. Building the two steps directly works:
+  </p>
+
+  <div class="code-label">Windows</div>
+  <pre><code>npm run build
+./node_modules/.bin/electron-builder</code></pre>
+
+  <p>
+    If packaging fails with <code>EPERM: … rename 'release\win-unpacked'</code>, close any running Frontier Proxy
+    instance, delete <code>release/win-unpacked*</code>, and re-run.
+  </p>
+
+  <h2>Development builds from CI</h2>
+  <p>
+    GitHub Actions builds Windows, macOS, and Linux installers after every push to <code>main</code>, when a
+    <code>v*</code> tag is pushed, and on manual dispatch. Open the repository's
+    <a href={`${REPO_URL}/actions`} rel="noopener">Actions</a> tab, pick a successful <strong>Build desktop apps</strong>
+    run, and download the artifact for your platform. Artifacts are retained for 30 days; tagged versions are published
+    permanently to the <a href={RELEASES_URL} rel="noopener">releases page</a>.
+  </p>
+
+  <h2>Where state lives</h2>
+  <p>
+    Frontier writes a single <code>frontier-state.json</code> file in Electron's per-user application-data directory —
+    tasks, providers, settings, and usage. Removing that file resets the app. Nothing is written to your projects except
+    the changes an agent makes in the working directory you selected.
+  </p>
+</Docs>

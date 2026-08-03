@@ -1,0 +1,112 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { url } from "../../lib/site";
+---
+
+<Docs
+  title="Routing & failover"
+  description="How Frontier decides which agent takes a task, and the narrow set of failures that move work to a different one."
+>
+  <h2>Eligibility comes first</h2>
+  <p>Before anything is scored, a provider must be:</p>
+  <ul class="ticks">
+    <li>enabled and detected;</li>
+    <li>below its concurrency limit and any optional token budget;</li>
+    <li>outside a cooldown from a recent quota or unavailability error;</li>
+    <li>below any plan-window utilisation its own CLI has reported.</li>
+  </ul>
+  <p>Anything that fails one of those tests is not a candidate at all.</p>
+
+  <h2>Then the ranking</h2>
+  <p>Remaining providers are scored, highest first, on:</p>
+  <ol class="steps">
+    <li><h4>Your provider override</h4><p class="muted">An agent pinned on the task wins outright.</p></li>
+    <li><h4>Routing policy</h4><p class="muted">Balanced, Quality first, or Token saver.</p></li>
+    <li><h4>Task and provider affinity</h4><p class="muted">How well that agent suits this kind of work.</p></li>
+    <li><h4>Your priority order</h4><p class="muted">The order you arranged the providers in.</p></li>
+    <li><h4>Today's usage and current load</h4><p class="muted">Locally estimated tokens and how busy the agent is right now.</p></li>
+  </ol>
+
+  <h3>Task classification</h3>
+  <p>
+    Every task is typed as <strong>coding</strong>, <strong>debugging</strong>, <strong>review</strong>,
+    <strong>planning</strong>, <strong>documentation</strong>, or <strong>general</strong> work. The type feeds the
+    affinity score — which is why the plain Ollama provider, having no file-editing tools, is only ever offered
+    planning, review, documentation, and general tasks.
+  </p>
+
+  <h3>Routing policies</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Policy</th><th>Optimises for</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Balanced</strong></td><td class="muted">A sensible mix of capability and spreading load across your subscriptions.</td></tr>
+        <tr><td><strong>Quality first</strong></td><td class="muted">The strongest agent for the task type, accepting faster quota burn.</td></tr>
+        <tr><td><strong>Token saver</strong></td><td class="muted">Prefers local and cheaper agents, keeping subscription windows in reserve.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>When work moves, and when it stops</h2>
+  <p>
+    This is the distinction that matters most, and Frontier is deliberately conservative about it.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>What happened</th><th>What Frontier does</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="pill yellow">Quota / rate limit</span></td>
+          <td>Cools that provider down and fails over to the next eligible agent.</td>
+        </tr>
+        <tr>
+          <td><span class="pill yellow">Overloaded / unavailable</span></td>
+          <td>Same — treated as temporary unavailability.</td>
+        </tr>
+        <tr>
+          <td><span class="pill yellow">CLI is logged out</span></td>
+          <td>
+            Classified as unavailable on a non-zero exit, so it cools down and fails over instead of failing the whole
+            task. The real fix is still to log that CLI back in.
+          </td>
+        </tr>
+        <tr>
+          <td><span class="pill" style="color:var(--red)">Agent failure</span></td>
+          <td>
+            <strong>Stops the task.</strong> Re-running a partially completed coding task through another agent could
+            duplicate or conflict with edits already on disk.
+          </td>
+        </tr>
+        <tr>
+          <td><span class="pill muted">You cancelled it</span></td>
+          <td>Terminal for that run. Cancellation never enters automatic failover.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Failover applies everywhere a provider runs: first turns, follow-up messages, and every stage of an orchestrated
+    run. Reported 100% plan utilisation and configured tracked-usage limits also remove a provider from routing
+    <em>before</em> launch, so a doomed run never starts.
+  </p>
+
+  <Callout title="Follow-ups follow you, not the router">
+    <p>
+      Once a conversation has an agent, later messages stay pinned to it — even if that CLI has no resumable session —
+      unless you change the <strong>Next provider</strong> selector. Switching clears any provider-private resume
+      session, and the replacement receives the full attributed transcript, including cancelled and partial turns.
+      See <a href={url("docs/workspace")}>task workspace</a>.
+    </p>
+  </Callout>
+
+  <h2>Concurrency and budgets</h2>
+  <p>
+    Frontier runs multiple independent tasks in parallel while respecting a global limit and a per-provider limit
+    (the shipped default is one concurrent run per agent). Optional per-provider daily token budgets give you a
+    deterministic ceiling on top of whatever the CLI itself enforces — useful because subscription tools expose no
+    universal "tokens remaining" interface.
+  </p>
+</Docs>

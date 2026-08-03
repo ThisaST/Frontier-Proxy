@@ -1,0 +1,108 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+---
+
+<Docs
+  title="Context & Tools"
+  description="One CLI-agnostic profile for MCP servers, tool permissions, context directories, and a shared system prompt — translated into each agent's native flags at spawn time."
+>
+  <h2>The problem it solves</h2>
+  <p>
+    Every coding CLI configures MCP servers and tool permissions differently, in its own config file, with its own
+    flag names. Frontier owns a single profile covering all of them. You configure it once in the
+    <strong>Context &amp; Tools</strong> screen, and Frontier translates it into each CLI's native flags when it spawns
+    the process — so you never hand-edit a <code>claude</code>, <code>copilot</code>, or <code>codex</code> config again.
+  </p>
+
+  <h3>What the profile contains</h3>
+  <ul class="ticks">
+    <li><strong>MCP servers</strong> — name, transport, and connection details.</li>
+    <li><strong>Tool allow and deny lists</strong> — which tools an agent may call.</li>
+    <li><strong>A shared system prompt</strong> — appended for every agent that supports one.</li>
+    <li><strong>Extra context directories</strong> — folders outside the working directory the agent may read.</li>
+    <li><strong>A strict-MCP flag</strong> — ignore the CLI's own MCP configuration and use only this profile.</li>
+  </ul>
+
+  <h2>Managing MCP servers</h2>
+  <p>
+    Each server row edits one entry: a name, a transport (<strong>stdio</strong>, <strong>http</strong>, or
+    <strong>sse</strong>), and either command, arguments, and <strong>environment variables</strong> for stdio, or a
+    URL and <strong>headers</strong> for the remote transports.
+    <strong>Import .mcp.json</strong> merges a standard <code>&#123; "mcpServers": &#123; … &#125; &#125;</code> document
+    straight in.
+  </p>
+
+  <p>
+    Remote servers can authenticate through browser OAuth. Tokens are encrypted with Electron's
+    <code>safeStorage</code>, stay in the main process, refresh automatically, and reach provider processes only
+    through environment-backed header placeholders.
+  </p>
+
+  <Callout title="Preview before you save">
+    <p>
+      The screen previews the exact flags each agent will receive, including your unsaved draft. Before creating,
+      retrying, or continuing a task the app persists the current draft, so the process always launches with the
+      configuration you can see.
+    </p>
+  </Callout>
+
+  <h2>How each CLI receives it</h2>
+
+  <h3>Claude Code</h3>
+  <p>
+    Gets <code>--mcp-config</code> with inline JSON (plus <code>--strict-mcp-config</code> when strict mode is on),
+    <code>--allowedTools</code> / <code>--disallowedTools</code>, <code>--add-dir</code>, and
+    <code>--append-system-prompt</code>. Each enabled MCP server also adds <code>mcp__&lt;server&gt;__*</code> to the
+    allowed tools, because <code>acceptEdits</code> does not approve MCP calls in non-interactive mode.
+  </p>
+
+  <h3>GitHub Copilot</h3>
+  <p>
+    Gets <code>--additional-mcp-config</code>, <code>--allow-tool=</code> / <code>--deny-tool=</code>, and
+    <code>--add-dir</code>. Copilot has no system-prompt flag, so the shared prompt is folded into the stdin prompt as
+    a prefix. It receives its required <code>tools: ["*"]</code> field, and each enabled server name is added to
+    <code>--allow-tool</code> for headless execution.
+  </p>
+
+  <h3>Codex and Codex + Ollama</h3>
+  <p>
+    Stdio and Streamable HTTP servers are supplied as per-invocation
+    <code>-c 'mcp_servers.&lt;name&gt;=&#123;…&#125;'</code> overrides. The shared system prompt and the MCP session notice go
+    through Codex's native per-invocation <code>developer_instructions</code>, which preserves their developer role
+    instead of folding them into the user prompt. Enabled servers use Codex's per-server
+    <code>default_tools_approval_mode = "approve"</code> so MCP calls work headlessly.
+  </p>
+
+  <ul class="ticks">
+    <li>
+      Legacy <strong>SSE</strong> servers are not injected into Codex — the CLI does not support that transport.
+    </li>
+    <li>
+      A server name containing anything outside letters, digits, <code>_</code>, and <code>-</code> gets a stable
+      Codex-only alias, because Codex's dotted override parser cannot address quoted TOML key segments.
+    </li>
+  </ul>
+
+  <h3>Shape of the injected config</h3>
+  <p>
+    Claude and Copilot receive MCP JSON shaped as
+    <code>&#123; "mcpServers": &#123; "&lt;name&gt;": &#123; command, args, env &#125; | &#123; type, url, headers &#125; &#125; &#125;</code>.
+    Codex receives the equivalent TOML tables through CLI config overrides, where <code>headers</code> maps to Codex's
+    <code>http_headers</code>.
+  </p>
+
+  <h2>Opting a provider out</h2>
+  <p>
+    Every provider card for a Claude, Copilot, or Codex-kind agent has an <strong>Apply shared Context &amp; Tools
+    profile</strong> toggle. Turn it off and that agent runs with only its own configuration and whatever extra
+    arguments you gave it.
+  </p>
+
+  <Callout tone="info" title="Injected before your own arguments">
+    <p>
+      Frontier splices the translated flags in ahead of each provider's configured extra arguments, so an explicit
+      flag you add on the provider card is the last word.
+    </p>
+  </Callout>
+</Docs>

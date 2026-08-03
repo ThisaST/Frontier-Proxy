@@ -1,0 +1,45 @@
+---
+import { downloads, version, live } from "../lib/release";
+import { RELEASES_URL } from "../lib/site";
+
+const grouped = downloads.reduce<Record<string, typeof downloads>>((acc, item) => {
+  (acc[item.platform] ??= []).push(item);
+  return acc;
+}, {});
+---
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Platform</th>
+        <th>Format</th>
+        <th>File</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {Object.entries(grouped).map(([platform, items]) =>
+        items.map((item, i) => (
+          <tr>
+            <td>{i === 0 ? <strong>{platform}</strong> : ""}</td>
+            <td class="muted">{item.kind}</td>
+            <td><code>{item.file}</code></td>
+            <td class="nowrap">
+              <a class="btn btn-secondary btn-sm" href={item.href} rel="noopener">
+                Download{item.size && <span class="muted" style="font-weight:400"> · {item.size}</span>}
+              </a>
+            </td>
+          </tr>
+        )),
+      )}
+    </tbody>
+  </table>
+</div>
+
+<p class="muted" style="font-size:12.5px">
+  {live
+    ? `Links point at the assets attached to v${version}.`
+    : `Showing the expected asset names for v${version}.`}
+  {" "}Every version stays available on the <a href={RELEASES_URL} rel="noopener">releases page</a>.
+</p>

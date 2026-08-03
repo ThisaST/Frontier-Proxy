@@ -1,0 +1,121 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+---
+
+<Docs
+  title="Orchestration & bench"
+  description="Split one task across several agents in isolated git worktrees, race agents head to head on the same prompt, and review the branches they leave behind."
+>
+  <h2>Split &amp; delegate</h2>
+  <p>
+    Create a task with orchestration enabled and Frontier runs it as three stages instead of one conversation. The
+    stage bar and per-subtask cards in the UI track it live.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <h4>Plan</h4>
+      <p class="muted">
+        The top-ranked agent is asked to emit a JSON list of subtasks. Frontier extracts that list even when it comes
+        wrapped in prose or a code fence. An empty plan simply falls back to running the whole task as one subtask.
+      </p>
+    </li>
+    <li>
+      <h4>Delegate</h4>
+      <p class="muted">
+        Providers are ranked per subtask type and run with bounded concurrency, each subtask streaming its output
+        live. A lane whose candidate agents are all <em>busy</em> waits for a slot rather than failing — with one
+        installed CLI at the default concurrency of 1, the second lane would otherwise abandon its subtask the instant
+        the first started. Only a subtask that no idle agent could ever take is a real failure.
+      </p>
+    </li>
+    <li>
+      <h4>Synthesize</h4>
+      <p class="muted">
+        Every subtask's output is fed to an agent that writes the final report. This stage is explicitly read-only:
+        the synthesizer is a full agent with file tools running in your working directory, and without that
+        instruction it sees the subtasks' files as "missing" — they are committed on their own branches — and redoes
+        all the work in your main tree.
+      </p>
+    </li>
+  </ol>
+
+  <h3>Worktree isolation</h3>
+  <p>
+    When the working directory is a git repository, each subtask gets its own <code>git worktree</code> off HEAD on a
+    branch named <code>frontier/&lt;taskId&gt;/&lt;n&gt;-&lt;slug&gt;</code>. The subtask runs there, its changes are
+    committed to that branch, and the worktree is torn down — leaving the branch behind for you to review and merge.
+    A non-git directory falls back to the shared folder.
+  </p>
+
+  <Callout title="Agents never share a working tree">
+    <p>
+      This is what makes parallel delegation safe. Two agents editing the same files at the same time would corrupt
+      each other's work; on separate worktree branches they cannot.
+    </p>
+  </Callout>
+
+  <h2>Head-to-head comparison</h2>
+  <p>
+    Pick two or more agents for a single task and Frontier sends the <strong>identical</strong> prompt to all of them
+    at once, each in its own worktree branch (<code>frontier/&lt;taskId&gt;/bench-&lt;agent&gt;</code>).
+  </p>
+
+  <ul class="ticks">
+    <li>
+      <strong>No failover, deliberately.</strong> A lane that fails is a result about that agent, not something to
+      reroute.
+    </li>
+    <li>
+      <strong>Activity is attributed.</strong> Events are prefixed with the agent name, because the lanes stream
+      concurrently.
+    </li>
+    <li>
+      <strong>The scoreboard is factual.</strong> The summary is built from what actually happened in each lane —
+      it is not another model call grading the results.
+    </li>
+    <li>
+      <strong>No follow-up composer.</strong> A comparison has no single conversation to continue.
+    </li>
+  </ul>
+
+  <h2>The Review inbox</h2>
+  <p>
+    Delegated and benched runs leave <code>frontier/*</code> branches behind. The <strong>Review</strong> screen lists
+    them per repository with each branch's commit subject, distance from HEAD, and per-file <code>+/-</code> counts
+    measured from the merge base — then offers a diff view, <strong>Merge</strong>, and <strong>Delete</strong>.
+  </p>
+
+  <h3>Safety rules</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Rule</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Only branches named <code>frontier/*</code> can be diffed, merged, or deleted</td>
+          <td class="muted">The Review screen can never touch your own branches.</td>
+        </tr>
+        <tr>
+          <td>Merging is refused while the checkout is dirty</td>
+          <td class="muted">Your uncommitted work is never mixed into an agent's merge.</td>
+        </tr>
+        <tr>
+          <td>A conflicting merge is aborted and reported</td>
+          <td class="muted">Never left half-applied for you to untangle.</td>
+        </tr>
+        <tr>
+          <td>Merge and delete both require an explicit confirmation</td>
+          <td class="muted">No destructive action happens on a single click.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Model overrides during orchestration</h2>
+  <p>
+    A model picked in the New Task dialog is applied to every run in the task — but only on the agent that owns that
+    model id. Subtasks and bench lanes that land on a different agent run that agent's own model instead, and say so
+    in the transcript.
+  </p>
+</Docs>

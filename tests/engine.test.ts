@@ -125,3 +125,32 @@ describe('conversation provider selection', () => {
     expect(continued.output).toContain(join(directory, 'notes.md'))
   })
 })
+
+describe('skill selection', () => {
+  it('carries the per-task skill selection through a retry', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-retry-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [provider('first', 1, ['-e', 'process.stdout.write("ok")'])]
+    await store.save({ settings, tasks: [] })
+    const engine = new OrchestrationEngine(store)
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Do work', cwd: directory, mode: 'balanced', skillIds: ['skill-a', 'skill-b'] })
+    expect(created.skillIds).toEqual(['skill-a', 'skill-b'])
+
+    const retried = await engine.retryTask(created.id)
+    expect(retried.skillIds).toEqual(['skill-a', 'skill-b'])
+  })
+
+  it('round-trips the global disabled-skill set through updateSettings', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-settings-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    await store.save({ settings: freshDefaults(), tasks: [] })
+    const engine = new OrchestrationEngine(store)
+    await engine.initialize()
+
+    const snapshot = await engine.updateSettings({ skills: { disabledIds: ['skill-a', 'skill-a', 'skill-b'] } })
+    expect(snapshot.settings.skills.disabledIds).toEqual(['skill-a', 'skill-b'])
+  })
+})

@@ -1,4 +1,4 @@
-import type { ControlPlaneProfile, McpServerConfig, ProviderConfig } from '../shared/types'
+import type { ControlPlaneProfile, McpServerConfig, ProviderConfig, ProviderKind, ResolvedSkill } from '../shared/types'
 
 export interface ControlPlaneInjection {
   // Extra CLI flags to splice into the provider command.
@@ -149,6 +149,56 @@ function joinPromptContext(...parts: Array<string | undefined>): string | undefi
   return present.length ? present.join('\n\n') : undefined
 }
 
+interface SkillGroups { nativeEnabled: ResolvedSkill[]; ambientEnabled: ResolvedSkill[]; nativeDisabled: ResolvedSkill[]; disabled: ResolvedSkill[] }
+
+// A skill is native to `kind` when any of its sources is a root that CLI
+// scans unaided; ambient otherwise, meaning Frontier must --add-dir it and
+// tell the agent it exists through the prompt/developer-instruction channel.
+function skillsForKind(kind: ProviderKind, skills: ResolvedSkill[]): SkillGroups {
+  const isNative = (skill: ResolvedSkill) => skill.sources.some((source) => source.nativeFor.includes(kind))
+  const enabled = skills.filter((skill) => skill.enabled)
+  const disabled = skills.filter((skill) => !skill.enabled)
+  return {
+    nativeEnabled: enabled.filter(isNative),
+    ambientEnabled: enabled.filter((skill) => !isNative(skill)),
+    nativeDisabled: disabled.filter(isNative),
+    disabled
+  }
+}
+
+// De-duped source roots so a CLI without native discovery of a root can still
+// find the skill there once it is on the workspace's --add-dir allow list.
+function skillRootDirs(skills: ResolvedSkill[]): string[] {
+  const roots = new Set<string>()
+  for (const skill of skills) for (const source of skill.sources) roots.add(source.root)
+  return [...roots]
+}
+
+// Mirrors mcpSessionContext: lists each skill's name, description, and
+// absolute SKILL.md path so a prompt-injected CLI knows to read it when the
+// request matches, plus an advisory (unenforceable outside Claude's flags)
+// "do not use" clause for disabled skills. `undefined` when there is nothing
+// to say, so a user with no skills gets byte-identical args to before skills
+// existed.
+function skillsSessionContext(kind: ProviderKind, listed: ResolvedSkill[], disabled: ResolvedSkill[]): string | undefined {
+  if (!listed.length && !disabled.length) return undefined
+  // Cite the copy under a root this CLI can actually reach. A skill present in
+  // several roots is native through one of them but gets no --add-dir for the
+  // others, so naming the first-scanned path can point the agent at a file it
+  // is not allowed to open. Ambient skills have no native source; their roots
+  // are all --add-dir'd, so any path works.
+  const instructionsFor = (skill: ResolvedSkill): string =>
+    (skill.sources.find((source) => source.nativeFor.includes(kind)) ?? skill.sources[0])?.path ?? ''
+  const skillList = listed.map((skill) => `- ${JSON.stringify(skill.name)}: ${skill.description} (instructions: ${instructionsFor(skill)})`)
+
+  return [
+    'Frontier skills catalog for this task:',
+    ...(skillList.length ? ['Read the referenced SKILL.md with your file tools before acting whenever the request matches its description:', ...skillList] : []),
+    ...(disabled.length ? [`Do not use these skills: ${disabled.map((skill) => JSON.stringify(skill.name)).join(', ')}.`] : []),
+    'This catalog is read-only. Frontier never installs, registers, or modifies a skill; report a discovery/read error rather than trying to install one.'
+  ].join('\n')
+}
+
 // Codex accepts per-invocation config overrides via repeated `-c key=value`
 // arguments. Inline tables keep each server override self-contained.
 function codexMcpArgs(profile: ControlPlaneProfile, environment: Record<string, string>): string[] {
@@ -201,7 +251,7 @@ export function usesControlPlane(provider: ProviderConfig): boolean {
 
 // Translate the shared profile into flags for one provider's CLI. Pure and
 // side-effect free so it can be unit-tested and previewed in the UI.
-export function controlPlaneInjection(provider: ProviderConfig, profile: ControlPlaneProfile): ControlPlaneInjection {
+export function controlPlaneInjection(provider: ProviderConfig, profile: ControlPlaneProfile, skills: ResolvedSkill[] = []): ControlPlaneInjection {
   if (!usesControlPlane(provider)) return EMPTY
   const allowed = trimmedList(profile.allowedTools)
   const disallowed = trimmedList(profile.disallowedTools)
@@ -213,30 +263,45 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
 
   switch (provider.kind) {
     case 'claude': {
+      // Native skills are handled by flags, not by re-listing them in the
+      // prompt. Both directions are needed and do different jobs (verified
+      // against the real CLI): --allowedTools only *pre-approves* invocation
+      // headlessly, exactly like mcp__<name>__*, and does not scope the skill
+      // list; --disallowedTools is what actually *blocks* a skill. Dropping
+      // the deny side as redundant would silently stop disabling from working.
+      const { nativeEnabled, ambientEnabled, nativeDisabled } = skillsForKind('claude', skills)
       const args: string[] = []
       const mcp = mcpJson(profile, 'claude', environment)
       if (mcp) {
         args.push('--mcp-config', mcp)
         if (profile.strictMcp) args.push('--strict-mcp-config')
       }
-      const allowedWithMcp = [...new Set([...allowed, ...enabledMcpNames(profile).map((name) => `mcp__${name}__*`)])]
+      const allowedWithMcp = [...new Set([...allowed, ...enabledMcpNames(profile).map((name) => `mcp__${name}__*`), ...nativeEnabled.map((skill) => `Skill(${skill.name})`)])]
       if (allowedWithMcp.length) args.push('--allowedTools', ...allowedWithMcp)
-      if (disallowed.length) args.push('--disallowedTools', ...disallowed)
-      if (addDirs.length) args.push('--add-dir', ...addDirs)
-      const promptContext = joinPromptContext(systemPrompt, mcpSessionContext('claude', profile))
+      const disallowedWithSkills = [...new Set([...disallowed, ...nativeDisabled.map((skill) => `Skill(${skill.name})`)])]
+      if (disallowedWithSkills.length) args.push('--disallowedTools', ...disallowedWithSkills)
+      const addDirsWithSkills = [...new Set([...addDirs, ...skillRootDirs(ambientEnabled)])]
+      if (addDirsWithSkills.length) args.push('--add-dir', ...addDirsWithSkills)
+      const promptContext = joinPromptContext(systemPrompt, mcpSessionContext('claude', profile), skillsSessionContext('claude', ambientEnabled, []))
       if (promptContext) args.push('--append-system-prompt', promptContext)
       return withEnvironment({ args })
     }
     case 'copilot': {
+      // Copilot has no verified per-run skill selection at all (native vs.
+      // ambient only describes which root it happens to scan itself), so
+      // every enabled skill — not just the ambient ones — is named in the
+      // prompt; `Skill(...)` is never emitted into its args.
+      const { ambientEnabled, nativeEnabled, disabled } = skillsForKind('copilot', skills)
       const args: string[] = []
       const mcp = mcpJson(profile, 'copilot', environment)
       if (mcp) args.push('--additional-mcp-config', mcp)
       const allowedWithMcp = [...new Set([...allowed, ...enabledMcpNames(profile)])]
       if (allowedWithMcp.length) args.push(`--allow-tool=${allowedWithMcp.join(', ')}`)
       if (disallowed.length) args.push(`--deny-tool=${disallowed.join(', ')}`)
-      for (const dir of addDirs) args.push('--add-dir', dir)
+      const addDirsWithSkills = [...new Set([...addDirs, ...skillRootDirs(ambientEnabled)])]
+      for (const dir of addDirsWithSkills) args.push('--add-dir', dir)
       // Copilot has no system-prompt flag; fold context into the prompt text.
-      return withEnvironment({ args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile)) })
+      return withEnvironment({ args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile), skillsSessionContext('copilot', [...nativeEnabled, ...ambientEnabled], disabled)) })
     }
     case 'codex':
     case 'codex-oss': {
@@ -244,8 +309,11 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       // layered over config.toml for this invocation only. Keep Frontier's
       // context out of the user prompt and put it in Codex's native developer
       // instruction channel so the model receives it with the correct role.
+      // Like Copilot, Codex has no verified per-run skill selection, so it
+      // gets the same prompt-only treatment, minus --add-dir (no such flag).
+      const { nativeEnabled, ambientEnabled, disabled } = skillsForKind(provider.kind, skills)
       const args = codexMcpArgs(profile, environment)
-      const developerInstructions = joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile))
+      const developerInstructions = joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile), skillsSessionContext(provider.kind, [...nativeEnabled, ...ambientEnabled], disabled))
       if (developerInstructions) args.push('-c', `developer_instructions=${tomlString(developerInstructions)}`)
       return withEnvironment({ args })
     }

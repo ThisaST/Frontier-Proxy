@@ -97,7 +97,8 @@ function registerIpc(): void {
   ipcMain.handle('frontier:remove-provider', (_event, providerId: string) => engine.removeProvider(providerId))
   ipcMain.handle('frontier:update-settings', (_event, changes) => engine.updateSettings(changes))
   ipcMain.handle('frontier:update-control-plane', (_event, profile) => engine.updateControlPlane(profile))
-  ipcMain.handle('frontier:preview-control-plane', (_event, providerId: string, profile) => engine.previewControlPlane(providerId, profile))
+  ipcMain.handle('frontier:preview-control-plane', (_event, providerId: string, profile, options?: { cwd?: string; skillIds?: string[] }) => engine.previewControlPlane(providerId, profile, options))
+  ipcMain.handle('frontier:list-skills', (_event, cwd: string, refresh?: boolean) => engine.listSkills(cwd, refresh))
   ipcMain.handle('frontier:authenticate-mcp', (_event, serverId: string) => engine.authenticateMcpServer(serverId))
   ipcMain.handle('frontier:disconnect-mcp', (_event, serverId: string) => engine.disconnectMcpServer(serverId))
   ipcMain.handle('frontier:choose-directory', (_event, currentPath?: string) => {

@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import { activeSessions, sessionWindowExpired } from '../shared/sessions'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, SessionInfo, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
+  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, ResolvedSkill, SessionInfo, SkillCatalog, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -22,6 +22,7 @@ function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
 }
 import { buildProviderCommand, checkProvider, discoverModels, resolveTaskModel, runProvider, type ModelOwner } from './providers'
 import { hydrateExecutablePath } from './env'
+import { discoverSkills, resolveSkills } from './skills'
 import { rankProviders, routeTask } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
@@ -62,6 +63,7 @@ export class OrchestrationEngine extends EventEmitter {
   async initialize(): Promise<void> {
     const state = await this.store.load()
     this.settings = state.settings
+    this.settings.skills ??= { disabledIds: [] }
     this.tasks = state.tasks
     await this.mcpAuth?.initialize()
     await this.mcpAuth?.reconcile(this.settings.controlPlane)
@@ -90,12 +92,7 @@ export class OrchestrationEngine extends EventEmitter {
   async createTask(input: CreateTaskInput): Promise<ProxyTask> {
     if (!input.prompt.trim() && !input.attachments?.length) throw new Error('A task prompt or image is required.')
     if (!input.cwd.trim()) throw new Error('A working directory is required.')
-    try {
-      const directory = await stat(input.cwd)
-      if (!directory.isDirectory()) throw new Error('not a directory')
-    } catch {
-      throw new Error('The working directory does not exist or cannot be accessed.')
-    }
+    await this.assertDirectory(input.cwd)
     const attachments = await validateChatContext(input.cwd, input.attachments)
     const prompt = input.prompt.trim() || 'Please inspect the attached image.'
     const benchIds = [...new Set(input.benchProviderIds ?? [])].filter((id) => this.settings.providers.some((provider) => provider.id === id))
@@ -126,7 +123,8 @@ export class OrchestrationEngine extends EventEmitter {
           prompt, type: classifyTask(prompt), status: 'queued' as const, output: '', providerId
         }))
         : input.orchestrate ? [] : undefined,
-      turns: [{ id: randomUUID(), role: 'user', content: prompt, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }]
+      turns: [{ id: randomUUID(), role: 'user', content: prompt, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }],
+      skillIds: input.skillIds?.length ? [...new Set(input.skillIds)] : undefined
     }
     this.tasks.unshift(task)
     await this.persistAndEmit()
@@ -153,7 +151,8 @@ export class OrchestrationEngine extends EventEmitter {
       cwd: original.cwd,
       mode: original.mode,
       preferredProviderId: original.continuationProviderId ?? original.preferredProviderId,
-      attachments: original.turns?.find((turn) => turn.role === 'user')?.attachments
+      attachments: original.turns?.find((turn) => turn.role === 'user')?.attachments,
+      skillIds: original.skillIds
     })
   }
 
@@ -196,6 +195,13 @@ export class OrchestrationEngine extends EventEmitter {
   async getTaskWorkspace(taskId: string): Promise<TaskWorkspaceSnapshot> {
     const task = this.findTask(taskId)
     return await loadTaskWorkspace(task.cwd, task.filesChanged ?? [])
+  }
+
+  // Read-only skill discovery for the Skills view and the New Task dialog's
+  // per-conversation picker. Same directory guard as createTask.
+  async listSkills(cwd: string, refresh = false): Promise<SkillCatalog> {
+    await this.assertDirectory(cwd)
+    return await discoverSkills(cwd, { refresh })
   }
 
   async listWorkspaceEntries(cwd: string, query: string): Promise<WorkspaceEntry[]> {
@@ -297,10 +303,11 @@ export class OrchestrationEngine extends EventEmitter {
     return this.snapshot()
   }
 
-  async updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory'>>): Promise<AppSnapshot> {
+  async updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills'>>): Promise<AppSnapshot> {
     if (changes.maxParallelTasks !== undefined) this.settings.maxParallelTasks = Math.max(1, Math.min(8, changes.maxParallelTasks))
     if (changes.quotaCooldownMinutes !== undefined) this.settings.quotaCooldownMinutes = Math.max(1, Math.min(1_440, changes.quotaCooldownMinutes))
     if (changes.memory !== undefined) this.settings.memory = changes.memory
+    if (changes.skills !== undefined) this.settings.skills = { disabledIds: [...new Set(changes.skills.disabledIds ?? [])] }
     await this.persistAndEmit()
     void this.pump()
     return this.snapshot()
@@ -338,11 +345,15 @@ export class OrchestrationEngine extends EventEmitter {
   }
 
   // The exact flags this provider would be launched with, for the UI preview.
-  // Accepts an unsaved draft profile so the UI can preview edits live.
-  previewControlPlane(providerId: string, profile?: ControlPlaneProfile): string[] {
+  // Accepts an unsaved draft profile so the UI can preview edits live. Without
+  // a cwd this behaves exactly as before (the Context & Tools preview never
+  // passes one); with one it resolves that cwd's skill catalog so the Skills
+  // view can preview the same flags a real run would get.
+  async previewControlPlane(providerId: string, profile?: ControlPlaneProfile, options?: { cwd?: string; skillIds?: string[] }): Promise<string[]> {
     const provider = this.settings.providers.find((item) => item.id === providerId)
     if (!provider) throw new Error(`Unknown provider: ${providerId}`)
-    return buildProviderCommand(provider, '<working directory>', '<task prompt>', profile ?? this.settings.controlPlane).args
+    const skills = options?.cwd ? resolveSkills(await discoverSkills(options.cwd), this.settings.skills, options.skillIds) : []
+    return buildProviderCommand(provider, '<working directory>', '<task prompt>', profile ?? this.settings.controlPlane, undefined, [], skills).args
   }
 
   private async pump(): Promise<void> {
@@ -394,7 +405,7 @@ export class OrchestrationEngine extends EventEmitter {
         prompt: runPrompt,
         cwd: task.cwd,
         signal: controller.signal,
-        controlPlane: await this.activeControlPlane(),
+        ...(await this.activeRunProfile(task)),
         imagePaths: this.imagePaths(attachments),
         onOutput: (text) => {
           task.output += text
@@ -552,7 +563,7 @@ export class OrchestrationEngine extends EventEmitter {
       const runConfig = this.withModel(provider, task)
       this.noteModelFallback(task, provider, runConfig)
       const result = await runProvider(runConfig, {
-        prompt, cwd: task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(),
+        prompt, cwd: task.cwd, signal: controller.signal, ...(await this.activeRunProfile(task)),
         resumeSessionId: resumable ? task.sessionId : undefined,
         imagePaths: this.imagePaths(attachments),
         onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
@@ -698,7 +709,7 @@ export class OrchestrationEngine extends EventEmitter {
         const runConfig = this.withModel(provider, task)
         if (task.modelOverride && runConfig.model !== task.modelOverride) lane.output += `[${provider.name} cannot run ${task.modelOverride}; using ${runConfig.model ?? 'its default model'}.]\n\n`
         const result = await runProvider(runConfig, {
-          prompt, cwd: workdir, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
+          prompt, cwd: workdir, signal: controller.signal, ...(await this.activeRunProfile(task)), imagePaths,
           onOutput: (text) => { lane.output += text; this.emitSnapshot() },
           onModel: (model) => { lane.model = model; this.emitSnapshot() },
           // Lanes run concurrently, so every event is attributed to its agent.
@@ -852,7 +863,7 @@ export class OrchestrationEngine extends EventEmitter {
       let output = ''
       let contextReported = false
       const result = await runProvider(this.withModel(provider, task), {
-        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, controlPlane: await this.activeControlPlane(), imagePaths,
+        prompt, cwd: cwd ?? task.cwd, signal: controller.signal, ...(await this.activeRunProfile(task)), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
@@ -915,8 +926,15 @@ export class OrchestrationEngine extends EventEmitter {
     task.output += `\n\n[${provider.name} cannot run ${task.modelOverride}; using ${effective.model ?? 'its default model'}.]\n\n`
   }
 
-  private async activeControlPlane(): Promise<ControlPlaneProfile> {
-    return this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
+  // Resolves both halves of a launch's control plane in one place: the
+  // MCP-authenticated profile and this task's enabled skills. Always resolved
+  // from task.cwd, never a per-lane worktree path — the worktree is a checkout
+  // of the same tree so native discovery still finds it by name, while the
+  // absolute paths this injects should point at the stable main checkout.
+  private async activeRunProfile(task: ProxyTask): Promise<{ controlPlane: ControlPlaneProfile; skills: ResolvedSkill[] }> {
+    const controlPlane = this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
+    const catalog = await discoverSkills(task.cwd)
+    return { controlPlane, skills: resolveSkills(catalog, this.settings.skills, task.skillIds) }
   }
 
   private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask): void {
@@ -994,6 +1012,15 @@ export class OrchestrationEngine extends EventEmitter {
     const task = this.tasks.find((item) => item.id === taskId)
     if (!task) throw new Error(`Unknown task: ${taskId}`)
     return task
+  }
+
+  private async assertDirectory(cwd: string): Promise<void> {
+    try {
+      const directory = await stat(cwd)
+      if (!directory.isDirectory()) throw new Error('not a directory')
+    } catch {
+      throw new Error('The working directory does not exist or cannot be accessed.')
+    }
   }
 
   private rollUsageDays(): void {

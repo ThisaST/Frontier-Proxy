@@ -1,9 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { controlPlaneInjection, mcpServersDocument } from '../src/main/controlplane'
-import type { ControlPlaneProfile, ProviderConfig } from '../src/shared/types'
+import type { ControlPlaneProfile, ProviderConfig, ProviderKind, ResolvedSkill } from '../src/shared/types'
 
 function provider(kind: ProviderConfig['kind'], extra: Partial<ProviderConfig> = {}): ProviderConfig {
   return { id: kind, name: kind, kind, enabled: true, executable: kind, priority: 1, maxConcurrent: 1, capabilities: ['coding'], ...extra }
+}
+
+function skill(name: string, extra: Partial<ResolvedSkill> & { nativeFor?: ProviderKind[]; path?: string } = {}): ResolvedSkill {
+  const { nativeFor = [], path = `/skills/${name}/SKILL.md`, sources, ...rest } = extra
+  return {
+    id: name,
+    name,
+    description: `${name} description`,
+    enabled: true,
+    sources: sources ?? [{ root: `/skills/${name}`, path, scope: 'personal', nativeFor }],
+    ...rest
+  }
 }
 
 function codexDeveloperInstructions(args: string[]): string | undefined {
@@ -146,5 +158,79 @@ describe('control plane translation', () => {
     const empty: ControlPlaneProfile = { systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], strictMcp: false, mcpServers: [] }
     expect(controlPlaneInjection(provider('claude'), empty).args).toEqual([])
     expect(mcpServersDocument(empty)).toBeUndefined()
+  })
+})
+
+describe('skills injection', () => {
+  const nativeSkill = skill('docker-deployment', { nativeFor: ['claude'] })
+  const ambientSkill = skill('web-design-guidelines', { nativeFor: ['copilot', 'codex', 'codex-oss'] })
+  const disabledSkill = skill('legacy-skill', { nativeFor: ['claude'], enabled: false })
+
+  it('emits Skill() into --allowedTools for enabled native skills and --disallowedTools for disabled native skills, for Claude only', () => {
+    const { args } = controlPlaneInjection(provider('claude'), profile, [nativeSkill, disabledSkill])
+    const allowedIndex = args.indexOf('--allowedTools')
+    const disallowedIndex = args.indexOf('--disallowedTools')
+    const addDirIndex = args.indexOf('--add-dir')
+    const allowedSlice = args.slice(allowedIndex + 1, disallowedIndex)
+    const disallowedSlice = args.slice(disallowedIndex + 1, addDirIndex)
+    expect(allowedSlice).toContain('Skill(docker-deployment)')
+    expect(allowedSlice).not.toContain('Skill(legacy-skill)')
+    expect(disallowedSlice).toContain('Skill(legacy-skill)')
+    expect(disallowedSlice).not.toContain('Skill(docker-deployment)')
+  })
+
+  it('keeps ambient-enabled skills out of --allowedTools, adds their root via --add-dir, and lists them in --append-system-prompt', () => {
+    const { args } = controlPlaneInjection(provider('claude'), profile, [ambientSkill])
+    const allowedIndex = args.indexOf('--allowedTools')
+    const disallowedIndex = args.indexOf('--disallowedTools')
+    expect(args.slice(allowedIndex + 1, disallowedIndex)).not.toContain('Skill(web-design-guidelines)')
+    const addDirIndex = args.indexOf('--add-dir')
+    const promptIndex = args.indexOf('--append-system-prompt')
+    expect(args.slice(addDirIndex + 1, promptIndex)).toContain('/skills/web-design-guidelines')
+    const promptContext = args[promptIndex + 1]
+    expect(promptContext).toContain('"web-design-guidelines"')
+    expect(promptContext).toContain('/skills/web-design-guidelines/SKILL.md')
+  })
+
+  it.each(['copilot', 'codex', 'codex-oss'] as const)('lists enabled skills and a disabled-skill notice through the prompt channel for %s, never a Skill() token in args', (kind) => {
+    const injection = controlPlaneInjection(provider(kind), profile, [nativeSkill, ambientSkill, disabledSkill])
+    const promptContext = kind === 'copilot' ? injection.promptPrefix : codexDeveloperInstructions(injection.args)
+    expect(promptContext).toContain('"docker-deployment"')
+    expect(promptContext).toContain('/skills/docker-deployment/SKILL.md')
+    expect(promptContext).toContain('"web-design-guidelines"')
+    expect(promptContext).toContain('/skills/web-design-guidelines/SKILL.md')
+    expect(promptContext).toContain('Do not use these skills')
+    expect(promptContext).toContain('"legacy-skill"')
+    expect(injection.args.some((value) => value.includes('Skill('))).toBe(false)
+  })
+
+  // Real case on this machine: docker-deployment exists in both ~/.claude/skills
+  // and ~/.agents/skills. Copilot reaches it natively only through the latter and
+  // gets no --add-dir for the former, so citing the first-scanned path would send
+  // it to a file it cannot open.
+  it('cites the copy under a root the target CLI can actually reach', () => {
+    const shared = skill('docker-deployment', {
+      sources: [
+        { root: '/home/.claude/skills', path: '/home/.claude/skills/docker-deployment/SKILL.md', scope: 'personal', nativeFor: ['claude'] },
+        { root: '/home/.agents/skills', path: '/home/.agents/skills/docker-deployment/SKILL.md', scope: 'personal', nativeFor: ['copilot', 'codex', 'codex-oss'] }
+      ]
+    })
+    const copilot = controlPlaneInjection(provider('copilot'), profile, [shared])
+    expect(copilot.promptPrefix).toContain('/home/.agents/skills/docker-deployment/SKILL.md')
+    expect(copilot.promptPrefix).not.toContain('/home/.claude/skills/docker-deployment/SKILL.md')
+
+    // Claude reaches the same skill natively through the other root, so it is
+    // handled by Skill() flags and never listed in the prompt at all.
+    const claude = controlPlaneInjection(provider('claude'), profile, [shared])
+    expect(claude.args).toContain('Skill(docker-deployment)')
+  })
+
+  it('returns [] for a provider opted out of the control plane even with skills present', () => {
+    expect(controlPlaneInjection(provider('claude', { useControlPlane: false }), profile, [nativeSkill]).args).toEqual([])
+  })
+
+  it('is byte-identical to today for an empty profile with no skills (regression lock)', () => {
+    const empty: ControlPlaneProfile = { systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], strictMcp: false, mcpServers: [] }
+    expect(controlPlaneInjection(provider('claude'), empty, []).args).toEqual([])
   })
 })

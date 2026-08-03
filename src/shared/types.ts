@@ -300,6 +300,9 @@ export interface ProxyTask {
   // User-selected provider for future turns. Unlike selectedProviderId, this
   // does not rewrite which provider produced the most recent response.
   continuationProviderId?: string
+  // Absolute resolved skill selection for this task. undefined means "inherit
+  // the global disabled-set default" rather than "no skills enabled".
+  skillIds?: string[]
 }
 
 // A file a Frontier task branch would bring into the checkout, measured from
@@ -333,6 +336,48 @@ export interface BranchRepo {
   branches: TaskBranch[]
 }
 
+export type SkillScope = 'personal' | 'project'
+
+// One root a SKILL.md was found under, and which CLIs scan that root unaided
+// (as opposed to needing Frontier to inject it into the prompt/flags).
+export interface SkillSource {
+  root: string
+  path: string
+  scope: SkillScope
+  nativeFor: ProviderKind[]
+}
+
+export interface SkillDefinition {
+  id: string
+  name: string
+  description: string
+  sources: SkillSource[]
+}
+
+export interface SkillRootStatus {
+  root: string
+  scope: SkillScope
+  nativeFor: ProviderKind[]
+  exists: boolean
+}
+
+export interface SkillCatalog {
+  cwd: string
+  scannedAt: string
+  roots: SkillRootStatus[]
+  skills: SkillDefinition[]
+}
+
+// Disabled entries are carried too: Claude needs them for --disallowedTools
+// and the prompt-injected CLIs need them for the "do not use" clause.
+export interface ResolvedSkill extends SkillDefinition {
+  enabled: boolean
+}
+
+export interface SkillSettings {
+  disabledIds: string[]
+}
+
 export interface AppSettings {
   providers: ProviderConfig[]
   maxParallelTasks: number
@@ -340,6 +385,7 @@ export interface AppSettings {
   controlPlane: ControlPlaneProfile
   // Frontier's own persistent memory, injected as context into every new task.
   memory: string
+  skills: SkillSettings
 }
 
 export interface AppSnapshot {
@@ -362,6 +408,8 @@ export interface CreateTaskInput {
   // Run the same prompt head-to-head on these providers instead of routing it.
   benchProviderIds?: string[]
   attachments?: ChatContextItem[]
+  // Per-task skill selection; undefined means "inherit the global default".
+  skillIds?: string[]
 }
 
 export interface ProviderPatch {
@@ -397,9 +445,10 @@ export interface FrontierApi {
   updateProvider(patch: ProviderPatch): Promise<AppSnapshot>
   addCustomProvider(): Promise<AppSnapshot>
   removeProvider(providerId: string): Promise<AppSnapshot>
-  updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory'>>): Promise<AppSnapshot>
+  updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills'>>): Promise<AppSnapshot>
   updateControlPlane(profile: ControlPlaneProfile): Promise<AppSnapshot>
-  previewControlPlane(providerId: string, profile?: ControlPlaneProfile): Promise<string[]>
+  previewControlPlane(providerId: string, profile?: ControlPlaneProfile, options?: { cwd?: string; skillIds?: string[] }): Promise<string[]>
+  listSkills(cwd: string, refresh?: boolean): Promise<SkillCatalog>
   authenticateMcpServer(serverId: string): Promise<AppSnapshot>
   disconnectMcpServer(serverId: string): Promise<AppSnapshot>
   chooseDirectory(currentPath?: string): Promise<string | null>

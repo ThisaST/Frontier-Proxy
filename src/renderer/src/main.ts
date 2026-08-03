@@ -1,7 +1,7 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
 import { highlightSourceLine, parseUnifiedDiff } from './syntax'
-import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SessionInfo, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
+import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SessionInfo, SkillCatalog, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
 import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 
 let snapshot: AppSnapshot
@@ -47,6 +47,23 @@ let reviewLoaded = false
 let reviewSelection: { cwd: string; branch: string } | undefined
 let reviewFilePath: string | undefined
 let reviewDiffRequest = 0
+
+// Skills view — cwd-scoped catalog, seeded from the last folder browsed here
+// (or the most recent task's cwd) and cached only for the lifetime of the view.
+const SKILLS_CWD_KEY = 'fp-skills-cwd'
+let skillsCwd = localStorage.getItem(SKILLS_CWD_KEY) ?? ''
+let skillCatalog: SkillCatalog | undefined
+
+// New-task skills selector — populated from the dialog's own cwd field.
+let taskSkillsCatalog: SkillCatalog | undefined
+let taskSkillsSelection = new Set<string>()
+let taskSkillsTouched = false
+let taskSkillsDebounce: number | undefined
+
+// Kinds whose CLI can be handed a skill selection at all (ollama/custom never
+// see the control plane, so they never see skills either).
+const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss'] as const
+const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama' }
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const taskDialog = byId<HTMLDialogElement>('task-dialog')
@@ -1503,6 +1520,7 @@ function setRunMode(mode: RunMode): void {
   byId('bench-options').hidden = mode !== 'bench'
   byId('model-field').hidden = mode === 'bench'
   if (mode === 'bench') renderBenchProviders()
+  resetTaskSkillsState()
 }
 
 function renderBenchProviders(): void {
@@ -1524,6 +1542,68 @@ function renderBenchProviders(): void {
 
 function selectedBenchProviders(): string[] {
   return [...byId('bench-providers').querySelectorAll<HTMLInputElement>('input:checked')].map((input) => input.value)
+}
+
+// --- New task dialog: skills selector ---
+// Absolute pre-check set (not a delta): everything not globally disabled.
+function defaultTaskSkillsSelection(catalog: SkillCatalog): Set<string> {
+  const disabled = new Set(snapshot.settings.skills.disabledIds)
+  return new Set(catalog.skills.filter((skill) => !disabled.has(skill.id)).map((skill) => skill.id))
+}
+
+function updateTaskSkillsSummary(): void {
+  byId('task-skills-summary').textContent = `Skills · ${taskSkillsSelection.size} enabled${runMode === 'bench' ? ' · applies to every lane' : ''}`
+}
+
+function renderTaskSkillsField(): void {
+  const list = byId('task-skills-list')
+  updateTaskSkillsSummary()
+  if (!taskSkillsCatalog) { list.replaceChildren(emptyState('No skills scanned yet', 'Choose a working directory to see the skills Frontier found.')); return }
+  if (!taskSkillsCatalog.skills.length) { list.replaceChildren(emptyState('No skills found', 'No SKILL.md folders were found for this project.')); return }
+  list.replaceChildren(...taskSkillsCatalog.skills.map((skill) => {
+    const label = document.createElement('label'); label.className = 'task-skill-item'
+    const input = document.createElement('input'); input.type = 'checkbox'; input.checked = taskSkillsSelection.has(skill.id)
+    input.addEventListener('change', () => {
+      taskSkillsTouched = true
+      if (input.checked) taskSkillsSelection.add(skill.id); else taskSkillsSelection.delete(skill.id)
+      // Only the count changed — repainting the list would drop focus mid-toggle.
+      updateTaskSkillsSummary()
+    })
+    const body = element('span', 'task-skill-body')
+    body.append(element('strong', undefined, skill.name), element('small', undefined, skill.description || 'No description provided.'))
+    label.append(input, body)
+    return label
+  }))
+}
+
+function resetTaskSkillsState(): void {
+  window.clearTimeout(taskSkillsDebounce)
+  taskSkillsCatalog = undefined
+  taskSkillsSelection = new Set()
+  taskSkillsTouched = false
+  renderTaskSkillsField()
+}
+
+// A new cwd means a different catalog, so the pre-check set is recomputed and
+// any prior touch no longer applies to skills that may not even exist here.
+async function loadTaskSkills(cwd: string): Promise<void> {
+  const trimmed = cwd.trim()
+  if (!trimmed) { resetTaskSkillsState(); return }
+  try {
+    const catalog = await window.frontier.listSkills(trimmed)
+    taskSkillsCatalog = catalog
+    taskSkillsSelection = defaultTaskSkillsSelection(catalog)
+    taskSkillsTouched = false
+  } catch {
+    // A path that doesn't resolve yet is normal mid-typing; leave the field as-is.
+    return
+  }
+  renderTaskSkillsField()
+}
+
+function scheduleTaskSkillsLoad(cwd: string): void {
+  window.clearTimeout(taskSkillsDebounce)
+  taskSkillsDebounce = window.setTimeout(() => void loadTaskSkills(cwd), 300)
 }
 
 function renderTaskProviderOptions(): void {
@@ -1751,6 +1831,102 @@ function renderControlPlane(): void {
   void refreshPreview()
 }
 
+// --- Skills ---
+
+// Kinds among the configured providers that the catalog's per-source
+// `nativeFor` can be checked against — the badge is about the CLI, not any
+// one instance of it, so kinds are de-duplicated.
+function configuredSkillKinds(): string[] {
+  const kinds = new Set(
+    snapshot.providers
+      .map((provider) => provider.kind)
+      .filter((kind): kind is typeof SKILL_CAPABLE_KINDS[number] => (SKILL_CAPABLE_KINDS as readonly string[]).includes(kind))
+  )
+  return [...kinds]
+}
+
+function skillBadges(sources: SkillCatalog['skills'][number]['sources']): HTMLElement {
+  const nativeFor = new Set(sources.flatMap((source) => source.nativeFor))
+  const badges = element('div', 'skill-badges')
+  for (const kind of configuredSkillKinds()) {
+    const native = nativeFor.has(kind as typeof SKILL_CAPABLE_KINDS[number])
+    // Native = enforced via the CLI's own flag (Claude's Skill(...)). Everything
+    // else is only ever a prompt-injected suggestion — no flag can stop the CLI
+    // from discovering the skill itself, so this must never read as a guarantee.
+    badges.append(element('span', `skill-badge ${native ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : 'prompt-injected · best effort'}`))
+  }
+  return badges
+}
+
+function renderSkillRoots(): void {
+  const container = byId('skills-roots')
+  if (!skillCatalog) { container.replaceChildren(); return }
+  container.replaceChildren(...skillCatalog.roots.map((root) => {
+    const item = element('div', `skill-root${root.exists ? '' : ' absent'}`)
+    const kinds = root.nativeFor.map((kind) => SKILL_KIND_LABELS[kind] ?? kind).join(', ')
+    item.append(
+      element('strong', undefined, root.root),
+      element('small', undefined, `${root.scope === 'personal' ? 'Personal' : 'Project'} · native for ${kinds}${root.exists ? '' : ' · not found'}`)
+    )
+    return item
+  }))
+}
+
+function renderSkillList(): void {
+  const list = byId('skills-list')
+  if (!skillCatalog) { list.replaceChildren(emptyState('Choose a project', 'Pick a working directory to scan for skills.')); return }
+  if (!skillCatalog.skills.length) { list.replaceChildren(emptyState('No skills found', 'No SKILL.md folders were found under the scanned roots for this project.')); return }
+  const disabled = new Set(snapshot.settings.skills.disabledIds)
+  list.replaceChildren(...skillCatalog.skills.map((skill) => {
+    const card = element('div', 'skill-card')
+    const top = element('div', 'skill-card-top')
+    const heading = element('div', 'skill-card-heading')
+    heading.append(element('strong', undefined, skill.name), element('p', undefined, skill.description || 'No description provided.'))
+
+    const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = !disabled.has(skill.id)
+    const toggleWrap = document.createElement('label'); toggleWrap.className = 'switch small'
+    toggleWrap.append(toggle, element('span', 'slider'))
+    toggle.addEventListener('change', async () => {
+      toggle.disabled = true
+      const next = new Set(snapshot.settings.skills.disabledIds)
+      if (toggle.checked) next.delete(skill.id); else next.add(skill.id)
+      try { snapshot = await window.frontier.updateSettings({ skills: { disabledIds: [...next] } }) }
+      catch (error) { toggle.checked = !toggle.checked; reportError('Could not update skill', error) }
+      // Nothing else on the card depends on the disabled set, and the checkbox
+      // already shows the new state, so don't repaint the list — that replaces
+      // every node and drops focus mid-toggle for keyboard users.
+      finally { toggle.disabled = false }
+    })
+    top.append(heading, toggleWrap)
+    card.append(top, skillBadges(skill.sources))
+    if (skill.sources.length > 1) card.append(element('div', 'skill-source', `Defined in ${skill.sources.length} places: ${skill.sources.map((source) => source.root).join(', ')}`))
+    return card
+  }))
+}
+
+async function loadSkillsView(refresh = false): Promise<void> {
+  const cwd = byId<HTMLInputElement>('skills-cwd').value.trim()
+  skillsCwd = cwd
+  localStorage.setItem(SKILLS_CWD_KEY, cwd)
+  if (!cwd) { skillCatalog = undefined; renderSkillRoots(); renderSkillList(); return }
+  try {
+    skillCatalog = await window.frontier.listSkills(cwd, refresh)
+  } catch (error) {
+    skillCatalog = undefined
+    reportError('Could not scan skills', error)
+  }
+  renderSkillRoots()
+  renderSkillList()
+}
+
+// Entry point from switchView — async and cwd-scoped, so (like renderControlPlane)
+// it only runs on entry, never from the general snapshot-driven render().
+async function renderSkills(): Promise<void> {
+  if (!skillsCwd) skillsCwd = snapshot.tasks[0]?.cwd ?? ''
+  byId<HTMLInputElement>('skills-cwd').value = skillsCwd
+  await loadSkillsView()
+}
+
 // --- Shell ---
 
 function render(): void {
@@ -1769,6 +1945,7 @@ const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   review: { title: 'Review', eyebrow: 'BRANCH INBOX' },
   agents: { title: 'Agents', eyebrow: 'LOCAL EXECUTABLES' },
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
+  skills: { title: 'Skills', eyebrow: 'AGENT CAPABILITIES' },
   settings: { title: 'Settings', eyebrow: 'PREFERENCES' }
 }
 
@@ -1784,7 +1961,7 @@ function switchView(view: string): void {
   const meta = VIEW_META[view] ?? { title: view, eyebrow: '' }
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
-  byId('new-task-button').style.display = view === 'review' || view === 'control' ? 'none' : ''
+  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' ? 'none' : ''
   // The first snapshot may still be in flight — clicking a nav item before it
   // lands used to throw here and leave the view empty. render() repaints the
   // active view as soon as the snapshot arrives.
@@ -1792,6 +1969,7 @@ function switchView(view: string): void {
   // Render the control plane from the draft only on entry so streaming snapshots
   // never clobber in-progress edits.
   if (view === 'control') renderControlPlane()
+  if (view === 'skills') void renderSkills()
   if (view === 'agents') renderAgentsTab()
   if (view === 'home') renderHome()
   if (view === 'tasks') { renderTasks(); applyQueueWidth() }
@@ -1807,6 +1985,7 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
     { icon: '⑃', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
     { icon: '◫', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
     { icon: '⊹', label: 'Go to Context & Tools', detail: 'MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
+    { icon: '❖', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
     { icon: '⌘', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
     { icon: '↻', label: 'Check agents', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
     { icon: '×', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
@@ -1857,6 +2036,8 @@ function openCommandPalette(): void {
 
 function openTaskDialog(mode: RunMode = 'single'): void {
   setRunMode(mode)
+  const cwd = byId<HTMLInputElement>('cwd').value
+  if (cwd.trim()) void loadTaskSkills(cwd)
   if (!taskDialog.open) taskDialog.showModal()
 }
 
@@ -1906,7 +2087,9 @@ byId('new-task-button').addEventListener('click', () => openTaskDialog())
 byId('close-dialog').addEventListener('click', () => taskDialog.close())
 byId('cancel-dialog').addEventListener('click', () => taskDialog.close())
 byId('confirm-cancel').addEventListener('click', () => confirmDialog.close())
+taskDialog.addEventListener('close', () => resetTaskSkillsState())
 document.querySelectorAll<HTMLElement>('.run-mode').forEach((button) => button.addEventListener('click', () => setRunMode((button.dataset.runMode as RunMode) ?? 'single')))
+byId<HTMLInputElement>('cwd').addEventListener('input', (event) => scheduleTaskSkillsLoad((event.target as HTMLInputElement).value))
 byId('choose-directory').addEventListener('click', async () => {
   const button = byId<HTMLButtonElement>('choose-directory')
   button.disabled = true
@@ -1914,7 +2097,7 @@ byId('choose-directory').addEventListener('click', async () => {
   try {
     const input = byId<HTMLInputElement>('cwd')
     const directory = await window.frontier.chooseDirectory(input.value)
-    if (directory) input.value = directory
+    if (directory) { input.value = directory; void loadTaskSkills(directory) }
   } catch (error) {
     byId('form-error').textContent = `Folder picker failed: ${errorMessage(error)}. You can paste the path manually.`
     reportError('Folder picker failed', error)
@@ -1929,6 +2112,19 @@ byId('health-check').addEventListener('click', async () => {
   catch (error) { reportError('Agent check failed', error) }
   finally { button.disabled = false; button.textContent = '↻ Check agents' }
 })
+byId('skills-choose-directory').addEventListener('click', async () => {
+  const button = byId<HTMLButtonElement>('skills-choose-directory')
+  button.disabled = true
+  button.textContent = 'Choosing…'
+  try {
+    const input = byId<HTMLInputElement>('skills-cwd')
+    const directory = await window.frontier.chooseDirectory(input.value)
+    if (directory) { input.value = directory; await loadSkillsView() }
+  } catch (error) { reportError('Folder picker failed', error) }
+  finally { button.disabled = false; button.textContent = 'Choose folder…' }
+})
+byId<HTMLInputElement>('skills-cwd').addEventListener('change', () => void loadSkillsView())
+byId('skills-refresh').addEventListener('click', () => void loadSkillsView(true))
 byId<HTMLInputElement>('task-search').addEventListener('input', (event) => {
   taskQuery = (event.target as HTMLInputElement).value.trim().toLowerCase()
   renderTasks()
@@ -2210,7 +2406,8 @@ byId<HTMLFormElement>('task-form').addEventListener('submit', async (event) => {
       modelProviderId: runMode === 'bench' ? undefined : selectedModelProvider(),
       orchestrate: runMode === 'orchestrate',
       benchProviderIds: benchIds,
-      attachments: messageContext('prompt', prompt)
+      attachments: messageContext('prompt', prompt),
+      skillIds: taskSkillsTouched ? [...taskSkillsSelection] : undefined
     })
     for (const item of composerDraft('prompt').items) {
       const preview = composerDraft('prompt').previews.get(item.id)

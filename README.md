@@ -8,16 +8,7 @@ Website and documentation: **https://frontier.thisara.me**
 
 ## Download
 
-Latest release: **[v0.6.2](https://github.com/ThisaST/Frontier-Proxy/releases/latest)** — no build step required, just download and run.
-
-| Platform | Download |
-| --- | --- |
-| macOS (disk image) | [Frontier.Proxy-0.6.2.dmg](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.dmg) |
-| macOS (zip) | [Frontier.Proxy-0.6.2-mac.zip](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2-mac.zip) |
-| Windows (installer) | [Frontier.Proxy.Setup.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.Setup.0.6.2.exe) |
-| Windows (portable) | [Frontier.Proxy.0.6.2.exe](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy.0.6.2.exe) |
-| Linux (AppImage) | [Frontier.Proxy-0.6.2.AppImage](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/Frontier.Proxy-0.6.2.AppImage) |
-| Linux (Debian/Ubuntu) | [frontier-proxy_0.6.2_amd64.deb](https://github.com/ThisaST/Frontier-Proxy/releases/download/v0.6.2/frontier-proxy_0.6.2_amd64.deb) |
+Grab the installer for your platform from the **[latest release](https://github.com/ThisaST/Frontier-Proxy/releases/latest)** — no build step required, just download and run. Every release carries a macOS DMG and ZIP, a Windows installer and portable EXE, and a Linux AppImage and DEB. The [download table on the website](https://frontier.thisara.me) links each file directly.
 
 Builds are x64 and unsigned. On macOS, open the app the first time with **Control-click → Open**; on Windows, choose **More info → Run anyway** in SmartScreen. Every version is kept on the [releases page](https://github.com/ThisaST/Frontier-Proxy/releases).
 

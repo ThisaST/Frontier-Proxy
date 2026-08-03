@@ -72,7 +72,7 @@ describe('parseSkillFrontmatter', () => {
 })
 
 describe('skillRoots', () => {
-  it('builds the fixed personal and project roots from an injected home', () => {
+  it('builds the personal and project roots for one directory from an injected home', () => {
     const roots = skillRoots('/repo', '/home/user')
     expect(roots.map((root) => root.root)).toEqual([
       '/home/user/.claude/skills',
@@ -80,7 +80,8 @@ describe('skillRoots', () => {
       '/home/user/.agents/skills',
       '/home/user/.codex/skills',
       '/repo/.claude/skills',
-      '/repo/.github/skills'
+      '/repo/.github/skills',
+      '/repo/.agents/skills'
     ])
     expect(roots.find((root) => root.root === '/home/user/.claude/skills')).toMatchObject({ scope: 'personal', nativeFor: ['claude'] })
     expect(roots.find((root) => root.root === '/repo/.claude/skills')).toMatchObject({ scope: 'project', nativeFor: ['claude', 'copilot'] })
@@ -134,6 +135,24 @@ describe('discoverSkills', () => {
 
     expect(catalog.skills.some((skill) => skill.id === 'repo-skill')).toBe(true)
     expect(catalog.skills.some((skill) => skill.id === 'outside-skill')).toBe(false)
+  })
+
+  // A task cwd is often a package inside the repo, not the repo root. All three
+  // project roots must still be found there, not just `.agents/skills`.
+  it('finds every project root at the repo root when the cwd is a nested package', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'frontier-skills-nested-home-'))
+    const repo = await mkdtemp(join(tmpdir(), 'frontier-skills-nested-repo-'))
+    await mkdir(join(repo, '.git'), { recursive: true })
+    await writeSkill(join(repo, '.claude', 'skills'), 'claude-root', 'claude-root', 'at the repo root')
+    await writeSkill(join(repo, '.github', 'skills'), 'github-root', 'github-root', 'at the repo root')
+    await writeSkill(join(repo, '.agents', 'skills'), 'agents-root', 'agents-root', 'at the repo root')
+    const nested = join(repo, 'packages', 'app')
+    await mkdir(nested, { recursive: true })
+
+    const catalog = await discoverSkills(nested, { home, refresh: true })
+    const ids = catalog.skills.map((skill) => skill.id).sort()
+    expect(ids).toEqual(['agents-root', 'claude-root', 'github-root'])
+    expect(catalog.skills.every((skill) => skill.sources[0].scope === 'project')).toBe(true)
   })
 
   // A non-git cwd under $HOME makes the upward walk reach `~`, whose

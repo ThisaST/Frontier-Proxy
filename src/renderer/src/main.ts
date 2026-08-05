@@ -524,7 +524,7 @@ function renderHome(): void {
       const body = element('div', 'home-task-body')
       body.append(element('strong', undefined, branch.subject), element('small', undefined, `${repo.name} · ${branch.files.length} file${branch.files.length === 1 ? '' : 's'}`))
       row.append(element('span', 'branch-glyph', '⑃'), body, element('span', 'home-task-time', timeAgo(branch.committedAt)))
-      row.addEventListener('click', () => { reviewSelection = { cwd: branch.cwd, branch: branch.branch }; reviewFilePath = undefined; switchView('review') })
+      row.addEventListener('click', () => openBranchInReview(branch.cwd, branch.branch))
       return row
     }))
   }
@@ -639,7 +639,7 @@ function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement
     branch.textContent = lane.committed ? `⑃ ${lane.branch}` : `⑃ ${lane.branch} · no changes`
     branch.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !lane.committed
-    branch.addEventListener('click', () => { reviewSelection = { cwd: task.cwd, branch: lane.branch! }; reviewFilePath = undefined; switchView('review') })
+    branch.addEventListener('click', () => openBranchInReview(task.cwd, lane.branch!))
     card.append(branch)
   }
 
@@ -1950,6 +1950,15 @@ const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
   skills: { title: 'Skills', eyebrow: 'AGENT CAPABILITIES' },
   settings: { title: 'Settings', eyebrow: 'PREFERENCES' }
+}
+
+// Single code path for "open this branch in Review" — used by the bench-lane
+// chip, the home-screen waiting-review list, and the workspace turn's branch
+// chip, so all three land on the same diff instead of just the Review view.
+export function openBranchInReview(cwd: string, branch: string): void {
+  reviewSelection = { cwd, branch }
+  reviewFilePath = undefined
+  switchView('review')
 }
 
 function switchView(view: string): void {

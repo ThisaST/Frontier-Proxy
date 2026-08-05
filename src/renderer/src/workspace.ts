@@ -7,6 +7,7 @@
 // no `provider.kind` branching, no per-agent icons — adding a sixth provider kind must
 // never touch this file.
 import { renderMarkdown } from './markdown'
+import { openBranchInReview } from './main'
 import { isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
@@ -120,10 +121,10 @@ function providerLabel(id?: string): string | undefined {
   return latestSnapshot?.providers.find((provider) => provider.id === id)?.name
 }
 
-// Clicking an existing nav item is the only cross-view navigation this module needs
-// (Review, Context & Tools) — reusing the generic listener main.ts already attaches to
-// every `.nav-item` (`switchView(item.dataset.view)`) rather than importing switchView
-// itself, which would grow main.ts's exports beyond the touch points the phase allows.
+// Clicking an existing nav item is the plain cross-view navigation this module needs
+// for Context & Tools — reusing the generic listener main.ts already attaches to every
+// `.nav-item` (`switchView(item.dataset.view)`). Opening a branch in Review also needs
+// to preselect it, so that case goes through `openBranchInReview` instead (below).
 function goToNav(view: string): void {
   (document.querySelector<HTMLElement>(`.nav-item[data-view="${view}"]`))?.click()
 }
@@ -279,7 +280,7 @@ function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement 
     branch.textContent = turn.committed ? `⎇ ${turn.branch}${fileNote}` : `⎇ ${turn.branch} · no changes`
     branch.title = turn.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !turn.committed
-    if (turn.committed) branch.addEventListener('click', () => goToNav('review'))
+    if (turn.committed) branch.addEventListener('click', () => openBranchInReview(workspace.cwd, turn.branch!))
     foot.append(branch)
   }
   if (turn.status === 'failed') {

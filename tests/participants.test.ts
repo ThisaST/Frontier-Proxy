@@ -104,6 +104,25 @@ describe('buildParticipantPrompt', () => {
     expect(prompt).toContain('only message')
   })
 
+  it('only renders the messages passed as history, never workspace.messages directly (parallel isolation invariant)', () => {
+    // The full thread already contains a later reply to the same participant,
+    // but this turn's `history` (what runTurn actually filtered by seq) does
+    // not include it. If buildParticipantPrompt ever started reading
+    // input.workspace.messages instead of input.history, this would leak.
+    const trigger = message({ id: 'trigger', seq: 5, text: '@claude can you review this?', addressed: ['p-claude'] })
+    const laterReply = message({ id: 'later', seq: 6, author: 'agent', participantId: 'p-claude', text: 'SECRET-OTHER-PARTICIPANT-REPLY' })
+    const ws = workspace({ messages: [trigger, laterReply] })
+    const history = [trigger]
+    const prompt = buildParticipantPrompt(runInput({ workspace: ws, history, trigger }), '')
+    expect(prompt).not.toContain('SECRET-OTHER-PARTICIPANT-REPLY')
+  })
+
+  it('keeps the trigger message whole even when its own text alone exceeds the token budget', () => {
+    const trigger = message({ id: 'trigger', seq: 1, text: 'y'.repeat(2000), participantId: 'p-human' })
+    const prompt = buildParticipantPrompt(runInput({ history: [trigger], trigger }), '', 10)
+    expect(prompt).toContain('y'.repeat(2000))
+  })
+
   it('prepends Frontier memory when non-empty and omits it when empty', () => {
     const withMemory = buildParticipantPrompt(runInput(), 'remember the deploy checklist')
     expect(withMemory).toContain('[Frontier memory — persistent context you should use]')

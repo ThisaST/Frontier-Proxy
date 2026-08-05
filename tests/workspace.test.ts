@@ -307,6 +307,31 @@ describe('WorkspaceRuntime — worktree isolation', () => {
     expect(workspace.turns[0].status).toBe('cancelled')
     expect(workspace.turns[0].branch).toBeDefined()
     await expect(stat(workdir)).rejects.toThrow()
+    // Cancelling never leaves the provider looking permanently busy.
+    expect(h.runtimes.get('solo')!.running).toBe(0)
+  })
+
+  it('deleting a workspace with an in-flight turn cancels it and tears down its worktree, leaving no orphan', async () => {
+    const repo = await makeRepo()
+    const h = harness([provider('solo')])
+    const workspace = h.runtime.createWorkspace('Team', repo)
+    h.runtime.upsertParticipant(workspace.id, participant({ handle: 'nova', providerId: 'solo', capabilities: ['edit-files'] }))
+    h.runner.when('nova', (input) => new Promise((resolve) => {
+      input.signal.addEventListener('abort', () => resolve({ ok: false, output: '', error: 'Cancelled.', failureKind: 'cancelled' }))
+    }))
+
+    const pending = h.runtime.postMessage(workspace.id, 'go @nova')
+    await waitUntil(() => h.runner.calls.length > 0) // let it claim the slot and create the worktree
+    const turn = workspace.turns[0]
+    const workdir = h.runner.calls[0].cwd
+
+    h.runtime.deleteWorkspace(workspace.id)
+    await pending
+
+    expect(h.runtime.find(workspace.id)).toBeUndefined()
+    expect(turn.status).toBe('cancelled')
+    await expect(stat(workdir)).rejects.toThrow() // worktree gone
+    expect(h.runtimes.get('solo')!.running).toBe(0) // slot released, not left permanently busy
   })
 
   it('runs a participant without edit-files directly in the workspace cwd', async () => {

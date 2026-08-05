@@ -56,6 +56,31 @@ describe('persistent store', () => {
     expect((await store.load()).settings.skills).toEqual({ disabledIds: [] })
   })
 
+  it('defaults workspaces to [] when loading a state file written before workspaces existed', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-legacy-ws-'))
+    const path = join(directory, 'state.json')
+    await writeFile(path, JSON.stringify({ settings: freshDefaults(), tasks: [] }), 'utf8')
+    const store = new JsonStore(path)
+    expect((await store.load()).workspaces).toEqual([])
+  })
+
+  it('marks a workspace turn that was running at shutdown as failed on load', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-ws-turn-'))
+    const path = join(directory, 'state.json')
+    const workspaces = [{
+      id: 'ws-1', name: 'Repo chat', cwd: '/repo', createdAt: new Date().toISOString(), nextSeq: 2,
+      participants: [],
+      messages: [],
+      turns: [{ id: 't-1', workspaceId: 'ws-1', messageId: 'm-1', participantId: 'p-1', providerId: 'claude', status: 'running' as const, output: '' }]
+    }]
+    await writeFile(path, JSON.stringify({ settings: freshDefaults(), tasks: [], workspaces }), 'utf8')
+    const store = new JsonStore(path)
+    const loaded = await store.load()
+    expect(loaded.workspaces?.[0].turns[0].status).toBe('failed')
+    expect(loaded.workspaces?.[0].turns[0].error).toMatch(/closed/i)
+    expect(loaded.workspaces?.[0].turns[0].finishedAt).toBeTruthy()
+  })
+
   it('persists daily usage and separate provider plan windows', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'frontier-store-runtime-'))
     const store = new JsonStore(join(directory, 'state.json'))

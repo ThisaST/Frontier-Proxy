@@ -393,6 +393,9 @@ export interface AppSnapshot {
   providers: Array<ProviderConfig & { runtime: ProviderRuntime }>
   settings: AppSettings
   mcpAuth: McpAuthStatus[]
+  // Optional so engine.ts's snapshot() (wired in a later phase) needs no change yet —
+  // this phase is additive-only and must not touch the hot main-process files.
+  workspaces?: WorkspaceView[]
 }
 
 export interface CreateTaskInput {
@@ -421,6 +424,129 @@ export interface StreamEvent {
   taskId: string
   kind: 'output' | 'status' | 'error'
   data: string
+}
+
+// ---- Collaborative workspaces (ADR 0001) ----
+// A workspace is a second conversation shape alongside ProxyTask: one long-lived thread
+// per repo with several named AI participants addressed by @handle. It deliberately has
+// no router, no failover, and no orchestration stages — see the ADR for why this is a
+// new model rather than a reshaped ProxyTask.
+
+export type ParticipantKind = 'human' | 'agent'
+export type ParticipantCapability = 'read-repo' | 'edit-files' | 'run-commands'
+export type WorkspaceTurnStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type WorkspaceMessageAuthor = 'human' | 'agent' | 'system'
+
+// Mirrors providers.ts's RunFailureKind. Duplicated rather than imported: src/shared/
+// may not depend on src/main/. Keep the two unions in sync by hand.
+export type RunFailureKind = 'quota' | 'unavailable' | 'failed' | 'cancelled'
+
+export interface WorkspaceParticipant {
+  id: string
+  handle: string          // '@handle', unique per workspace, lowercased on write
+  name: string             // display name
+  kind: ParticipantKind
+  role: string              // free text — 'Backend reviewer', 'Docs'
+  providerId?: string      // agent only; references ProviderConfig.id
+  model?: string           // agent only; CLI-specific id, valid only for providerId
+  capabilities: ParticipantCapability[]
+  accent?: string          // avatar colour token
+  enabled: boolean
+}
+
+// One message in a workspace's flat thread. `addressed` is resolved once, at post
+// time, via parseMentions — it is not recomputed if the roster changes later.
+export interface WorkspaceMessage {
+  id: string
+  seq: number              // monotonic per workspace (Workspace.nextSeq)
+  author: WorkspaceMessageAuthor
+  participantId?: string
+  text: string
+  createdAt: string
+  addressed: string[]
+  // Set when author is 'system' — e.g. a mention of a disabled/unavailable participant.
+  systemReason?: string
+}
+
+// A dispatched run of one participant against one triggering message. Turns live on
+// the workspace, not inside the message, so a retry adds a turn without mutating history.
+export interface WorkspaceTurn {
+  id: string
+  workspaceId: string
+  messageId: string        // the human message that triggered this turn
+  participantId: string
+  providerId: string
+  status: WorkspaceTurnStatus
+  output: string
+  activity?: ActivityEvent[]
+  model?: string
+  error?: string
+  failureKind?: RunFailureKind
+  // Isolation for edit-files participants: the git branch this turn's changes were
+  // committed to, and whether the commit happened.
+  branch?: string
+  committed?: boolean
+  filesChanged?: FileChange[]
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface Workspace {
+  id: string
+  name: string
+  cwd: string
+  participants: WorkspaceParticipant[]
+  messages: WorkspaceMessage[]
+  turns: WorkspaceTurn[]
+  createdAt: string
+  nextSeq: number
+}
+
+// The renderer-facing participant shape. Availability is computed in the main process
+// from ProviderRuntime (cooldowns, session limits, disabled state) — never here, so the
+// renderer never has to reason about ProviderConfig.kind (ADR D2).
+export type ParticipantView = WorkspaceParticipant & { available: boolean; unavailableReason?: string }
+
+// Snapshot-facing shape: same as Workspace, but with participants swapped for the
+// computed ParticipantView, mirroring how AppSnapshot already exposes
+// `ProviderConfig & { runtime: ProviderRuntime }` instead of raw stored ProviderConfig.
+export interface WorkspaceView extends Omit<Workspace, 'participants'> {
+  participants: ParticipantView[]
+}
+
+// A separate stream channel from task output (`StreamEvent`/`frontier:stream`), so
+// nothing in the task view can regress when workspace streaming ships (ADR D9).
+export interface WorkspaceStreamEvent {
+  workspaceId: string
+  turnId: string
+  kind: 'output' | 'status' | 'error'
+  data: string
+}
+
+// The contract Phase 2 (workspace runtime) and Phase 3 (participant adapter) both
+// build against, so they can be developed in parallel.
+export interface ParticipantRunInput {
+  workspace: Workspace
+  participant: WorkspaceParticipant
+  trigger: WorkspaceMessage
+  history: WorkspaceMessage[]   // messages with seq <= trigger.seq, oldest first
+  cwd: string                   // worktree dir for edit-files participants, workspace cwd otherwise
+  signal: AbortSignal
+  onOutput(chunk: string): void
+  onActivity(event: ActivityEvent): void
+  onModel(model: string): void
+}
+
+export interface ParticipantRunResult {
+  ok: boolean
+  output: string
+  error?: string
+  failureKind?: RunFailureKind
+  model?: string
+}
+
+export interface ParticipantRunner {
+  run(input: ParticipantRunInput): Promise<ParticipantRunResult>
 }
 
 export interface FrontierApi {

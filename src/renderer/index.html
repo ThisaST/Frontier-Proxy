@@ -21,6 +21,7 @@
         <nav id="primary-navigation" aria-label="Primary navigation">
           <button type="button" class="nav-item active" data-view="home" data-label="Home" aria-current="page" title="Home"><span class="nav-icon" aria-hidden="true">◇</span><span class="nav-label">Home</span></button>
           <button type="button" class="nav-item" data-view="tasks" data-label="Tasks" title="Tasks"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">Tasks</span></button>
+          <button type="button" class="nav-item" data-view="workspace" data-label="Workspaces" title="Workspaces"><span class="nav-icon" aria-hidden="true">▣</span><span class="nav-label">Workspaces</span></button>
           <button type="button" class="nav-item" data-view="review" data-label="Review" title="Review"><span class="nav-icon" aria-hidden="true">⑃</span><span class="nav-label">Review</span><span id="nav-review-count" class="nav-badge" hidden>0</span></button>
           <button type="button" class="nav-item" data-view="agents" data-label="Agents" title="Agents"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">Agents</span></button>
           <button type="button" class="nav-item" data-view="control" data-label="Context & Tools" title="Context & Tools"><span class="nav-icon" aria-hidden="true">⊹</span><span class="nav-label">Context &amp; Tools</span></button>
@@ -148,6 +149,112 @@
               </div>
             </section>
           </div>
+        </section>
+
+        <!-- Workspaces: one long-lived conversation per repo, with named agent participants -->
+        <section id="workspace-view" class="view">
+          <div id="workspace-empty" class="empty-state workspace-empty-state" hidden>
+            <span class="workspace-empty-glyph" aria-hidden="true">▣</span>
+            <strong>No workspaces yet</strong>
+            <p>A workspace is one repo, one conversation, and the agents you invite into it.</p>
+            <button type="button" id="workspace-empty-create" class="primary-button">Create a workspace</button>
+          </div>
+
+          <div id="workspace-grid" class="workspace-grid" hidden>
+            <section class="panel workspace-list-panel">
+              <div class="panel-header">
+                <div><p class="eyebrow">WORKSPACES</p><h2>Workspaces</h2></div>
+                <button type="button" id="workspace-new-button" class="icon-button" aria-label="New workspace" title="New workspace">＋</button>
+              </div>
+              <div id="workspace-list" class="workspace-list"></div>
+              <div id="workspace-repo-context" class="workspace-repo-context"></div>
+            </section>
+
+            <div class="grid-gutter" id="workspace-gutter-list" title="Drag to resize"></div>
+
+            <section class="panel workspace-conversation-panel">
+              <header class="workspace-conv-header">
+                <div class="workspace-conv-heading">
+                  <h2 id="workspace-conv-title">Select a workspace</h2>
+                  <p id="workspace-conv-subtitle" class="surface-subtitle"></p>
+                </div>
+                <div class="workspace-conv-actions" id="workspace-conv-actions">
+                  <button type="button" id="workspace-rename-button" class="text-button">Rename</button>
+                  <button type="button" id="workspace-delete-button" class="text-button">Delete</button>
+                </div>
+              </header>
+              <div id="workspace-thread" class="workspace-thread markdown"></div>
+              <div id="workspace-composer" class="output-composer" hidden>
+                <div class="composer-draft">
+                  <div class="composer-input-row">
+                    <textarea id="ws-composer-input" rows="2" placeholder="Message this workspace…  @ to address a participant"></textarea>
+                    <div id="ws-composer-mentions" class="composer-mentions" role="listbox" hidden></div>
+                  </div>
+                </div>
+                <button type="button" id="ws-composer-send" class="primary-button">Send</button>
+              </div>
+              <p id="workspace-addressing-hint" class="workspace-addressing-hint"></p>
+            </section>
+
+            <div class="grid-gutter" id="workspace-gutter-roster" title="Drag to resize"></div>
+
+            <section class="panel workspace-roster-panel">
+              <div class="panel-header">
+                <div><p class="eyebrow">PARTICIPANTS</p><h2>Participants</h2></div>
+                <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant">＋</button>
+              </div>
+              <div id="workspace-roster" class="workspace-roster"></div>
+            </section>
+          </div>
+
+          <dialog id="participant-dialog">
+            <form id="participant-form">
+              <div class="dialog-header"><div><p class="eyebrow" id="participant-dialog-eyebrow">PARTICIPANT</p><h2 id="participant-dialog-title">Add participant</h2></div><button type="button" class="icon-button" id="participant-dialog-close" aria-label="Close">×</button></div>
+
+              <label>Name<input id="ws-participant-name" required placeholder="Nova" /></label>
+              <label>Handle<input id="ws-participant-handle" required placeholder="nova" /><small class="field-help">Unique per workspace. Used as @handle.</small></label>
+              <label>Role<input id="ws-participant-role" required placeholder="Reviewer" /><small class="field-help">Free text, shown on every message.</small></label>
+
+              <div class="run-mode-field">
+                <span class="field-label">Type</span>
+                <div class="run-modes ws-kind-modes" id="ws-participant-kind" role="radiogroup" aria-label="Participant type">
+                  <button type="button" class="run-mode" data-kind="human" role="radio" aria-checked="false"><strong>Human</strong><small>A named person in the conversation.</small></button>
+                  <button type="button" class="run-mode active" data-kind="agent" role="radio" aria-checked="true"><strong>AI agent</strong><small>Runs on one of your configured agents.</small></button>
+                </div>
+              </div>
+
+              <div class="form-row" id="ws-participant-agent-fields">
+                <label>Agent<select id="ws-participant-provider"></select></label>
+                <label>Model<select id="ws-participant-model"></select><input id="ws-participant-model-custom" class="task-model-custom" placeholder="Type a model id…" hidden /></label>
+              </div>
+
+              <div class="ws-accent-field">
+                <span class="field-label">Accent</span>
+                <div id="ws-participant-accent" class="ws-accent-picker"></div>
+              </div>
+
+              <div class="ws-capabilities-field" id="ws-participant-capabilities">
+                <span class="field-label">Capabilities</span>
+                <label class="checkbox-row wide"><input type="checkbox" id="ws-cap-read" /> Read the repo</label>
+                <label class="checkbox-row wide"><input type="checkbox" id="ws-cap-edit" /> Work on an isolated branch</label>
+                <p class="field-help ws-cap-edit-note">Edits run in their own git worktree and are committed to a <code>frontier/</code> branch for review. <strong>Not a permission boundary.</strong></p>
+                <label class="checkbox-row wide"><input type="checkbox" id="ws-cap-run" /> Run commands</label>
+              </div>
+
+              <p id="ws-participant-error" class="form-error"></p>
+              <div class="dialog-actions"><button type="button" id="ws-participant-cancel" class="secondary-button">Cancel</button><button type="submit" id="ws-participant-submit" class="primary-button">Add</button></div>
+            </form>
+          </dialog>
+
+          <dialog id="workspace-form-dialog">
+            <form id="workspace-form">
+              <div class="dialog-header"><div><p class="eyebrow">WORKSPACE</p><h2 id="workspace-form-title">New workspace</h2></div><button type="button" class="icon-button" id="workspace-form-close" aria-label="Close">×</button></div>
+              <label>Name<input id="ws-workspace-name" required placeholder="frontier-proxy" /></label>
+              <label id="ws-workspace-cwd-field">Repository folder<div class="path-control"><input id="ws-workspace-cwd" required placeholder="/path/to/project" /><button type="button" id="ws-workspace-choose-directory" class="secondary-button">Choose folder…</button></div></label>
+              <p id="ws-workspace-error" class="form-error"></p>
+              <div class="dialog-actions"><button type="button" id="ws-workspace-cancel" class="secondary-button">Cancel</button><button type="submit" id="ws-workspace-submit" class="primary-button">Create</button></div>
+            </form>
+          </dialog>
         </section>
 
         <!-- Review: branches waiting to be merged -->

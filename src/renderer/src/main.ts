@@ -1,6 +1,7 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
 import { highlightSourceLine, parseUnifiedDiff } from './syntax'
+import { handleWorkspaceStream, renderWorkspaceView } from './workspace'
 import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SessionInfo, SkillCatalog, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
 import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 
@@ -1937,11 +1938,13 @@ function render(): void {
   if (currentView === 'home') renderHome()
   if (currentView === 'agents') renderAgentsTab()
   if (currentView === 'review') renderReview()
+  if (currentView === 'workspace') renderWorkspaceView(snapshot)
 }
 
 const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   home: { title: 'Home', eyebrow: 'MISSION CONTROL' },
   tasks: { title: 'Tasks', eyebrow: 'ORCHESTRATION CONSOLE' },
+  workspace: { title: 'Workspaces', eyebrow: 'COLLABORATIVE WORKSPACES' },
   review: { title: 'Review', eyebrow: 'BRANCH INBOX' },
   agents: { title: 'Agents', eyebrow: 'LOCAL EXECUTABLES' },
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
@@ -1961,7 +1964,7 @@ function switchView(view: string): void {
   const meta = VIEW_META[view] ?? { title: view, eyebrow: '' }
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
-  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' ? 'none' : ''
+  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' ? 'none' : ''
   // The first snapshot may still be in flight — clicking a nav item before it
   // lands used to throw here and leave the view empty. render() repaints the
   // active view as soon as the snapshot arrives.
@@ -1974,6 +1977,7 @@ function switchView(view: string): void {
   if (view === 'home') renderHome()
   if (view === 'tasks') { renderTasks(); applyQueueWidth() }
   if (view === 'review') { renderReview(); void loadReview(true) }
+  if (view === 'workspace') renderWorkspaceView(snapshot)
 }
 
 function commandPaletteEntries(query: string): CommandPaletteEntry[] {
@@ -2441,6 +2445,7 @@ window.frontier.onStream((event) => {
     thread.scrollTop = thread.scrollHeight
   }
 })
+window.frontier.onWorkspaceStream(handleWorkspaceStream)
 
 void window.frontier.getSnapshot()
   .then((initial) => { snapshot = initial; switchView('home'); render(); void loadReview() })

@@ -6,9 +6,12 @@ import { OrchestrationEngine } from './engine'
 import { JsonStore } from './store'
 import { McpAuthManager } from './mcp-auth'
 import { hydrateExecutablePath } from './env'
-import type { ChatContextItem, CreateTaskInput, ProviderPatch, SelectedImage } from '../shared/types'
+import { WorkspaceRuntime } from './workspace'
+import { CliParticipantRunner } from './participants'
+import type { ChatContextItem, CreateTaskInput, ProviderPatch, SelectedImage, WorkspaceParticipant } from '../shared/types'
 
 let engine: OrchestrationEngine
+let workspaceRuntime: WorkspaceRuntime
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }
 
@@ -101,6 +104,41 @@ function registerIpc(): void {
   ipcMain.handle('frontier:list-skills', (_event, cwd: string, refresh?: boolean) => engine.listSkills(cwd, refresh))
   ipcMain.handle('frontier:authenticate-mcp', (_event, serverId: string) => engine.authenticateMcpServer(serverId))
   ipcMain.handle('frontier:disconnect-mcp', (_event, serverId: string) => engine.disconnectMcpServer(serverId))
+  ipcMain.handle('frontier:create-workspace', (_event, name: string, cwd: string) => {
+    workspaceRuntime.createWorkspace(name, cwd)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:update-workspace', (_event, workspaceId: string, name: string) => {
+    workspaceRuntime.renameWorkspace(workspaceId, name)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:delete-workspace', (_event, workspaceId: string) => {
+    // WorkspaceRuntime.deleteWorkspace aborts any in-flight turn controllers before
+    // removing the workspace; each turn's own executeTurn finally-block still tears
+    // down its worktree and releases the provider slot once the abort lands, so no
+    // extra cleanup is needed here.
+    workspaceRuntime.deleteWorkspace(workspaceId)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:upsert-participant', (_event, workspaceId: string, participant: Omit<WorkspaceParticipant, 'id'> & { id?: string }) => {
+    workspaceRuntime.upsertParticipant(workspaceId, participant)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:remove-participant', (_event, workspaceId: string, participantId: string) => {
+    workspaceRuntime.removeParticipant(workspaceId, participantId)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:post-workspace-message', async (_event, workspaceId: string, text: string) => {
+    await workspaceRuntime.postMessage(workspaceId, text)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:retry-workspace-turn', async (_event, workspaceId: string, turnId: string) => {
+    await workspaceRuntime.retryTurn(workspaceId, turnId)
+    return engine.snapshot()
+  })
+  ipcMain.handle('frontier:cancel-workspace-turn', (_event, workspaceId: string, turnId: string) => {
+    workspaceRuntime.cancelTurn(workspaceId, turnId)
+  })
   ipcMain.handle('frontier:choose-directory', (_event, currentPath?: string) => {
     const window = BrowserWindow.getFocusedWindow()
     const options = {
@@ -153,6 +191,25 @@ app.whenReady().then(async () => {
   await engine.initialize()
   engine.on('snapshot', (snapshot) => broadcast('frontier:snapshot-changed', snapshot))
   engine.on('stream', (event) => broadcast('frontier:stream', event))
+  engine.on('workspace-stream', (event) => broadcast('frontier:workspace-stream', event))
+
+  const participantRunner = new CliParticipantRunner({
+    findProvider: (providerId) => engine.listProviders().find((item) => item.id === providerId),
+    modelOwners: () => engine.modelOwners(),
+    controlPlane: () => engine.controlPlaneProfile(),
+    resolveSkills: (cwd) => engine.resolveSkillsForCwd(cwd),
+    memory: () => engine.frontierMemory()
+  })
+  workspaceRuntime = new WorkspaceRuntime({
+    runner: participantRunner,
+    listProviders: () => engine.listProviders(),
+    providerRuntime: (providerId) => engine.providerRuntime(providerId),
+    claimProviderSlot: (providerId) => engine.claimProviderSlot(providerId),
+    releaseProviderSlot: (providerId) => engine.releaseProviderSlot(providerId),
+    persist: () => engine.persistWorkspaces(workspaceRuntime.list(), workspaceRuntime.snapshot()),
+    emitStream: (event) => engine.emitWorkspaceStream(event)
+  }, engine.loadedWorkspaces())
+
   registerIpc()
   createWindow()
 

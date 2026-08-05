@@ -393,9 +393,7 @@ export interface AppSnapshot {
   providers: Array<ProviderConfig & { runtime: ProviderRuntime }>
   settings: AppSettings
   mcpAuth: McpAuthStatus[]
-  // Optional so engine.ts's snapshot() (wired in a later phase) needs no change yet —
-  // this phase is additive-only and must not touch the hot main-process files.
-  workspaces?: WorkspaceView[]
+  workspaces: WorkspaceView[]
 }
 
 export interface CreateTaskInput {
@@ -578,6 +576,15 @@ export interface FrontierApi {
   authenticateMcpServer(serverId: string): Promise<AppSnapshot>
   disconnectMcpServer(serverId: string): Promise<AppSnapshot>
   chooseDirectory(currentPath?: string): Promise<string | null>
+  createWorkspace(name: string, cwd: string): Promise<AppSnapshot>
+  updateWorkspace(workspaceId: string, name: string): Promise<AppSnapshot>
+  deleteWorkspace(workspaceId: string): Promise<AppSnapshot>
+  upsertParticipant(workspaceId: string, participant: Omit<WorkspaceParticipant, 'id'> & { id?: string }): Promise<AppSnapshot>
+  removeParticipant(workspaceId: string, participantId: string): Promise<AppSnapshot>
+  postWorkspaceMessage(workspaceId: string, text: string): Promise<AppSnapshot>
+  retryWorkspaceTurn(workspaceId: string, turnId: string): Promise<AppSnapshot>
+  cancelWorkspaceTurn(workspaceId: string, turnId: string): Promise<void>
   onSnapshot(callback: (snapshot: AppSnapshot) => void): () => void
   onStream(callback: (event: StreamEvent) => void): () => void
+  onWorkspaceStream(callback: (event: WorkspaceStreamEvent) => void): () => void
 }

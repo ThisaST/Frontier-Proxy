@@ -14,12 +14,16 @@ redoing.
 | Phase | Agent | State | Commit |
 |---|---|---|---|
 | P1 types + mentions + persistence | engine-orchestration | ✅ done | `5331afa` |
-| P2 workspace runtime | engine-orchestration | ⏳ running | — |
-| P3 participant adapter | provider-integration | ⏳ running | — |
-| P4 IPC bridge | renderer-ui | ⬜ pending | — |
-| P5 renderer view | renderer-ui | ⬜ pending | — |
-| P6 Review inbox integration | engine-orchestration | ⬜ pending | — |
+| P3 participant adapter | provider-integration | ✅ done | `5c7d316` |
+| P2 workspace runtime | engine-orchestration | ✅ done | `e8b1366` |
+| P4 IPC bridge + app wiring | engine-orchestration | ✅ done | `01c1dcb` |
+| P5 renderer view | renderer-ui | ✅ done | `f1de5a6` |
+| P6 Review integration + branch safety | engine-orchestration | ⏳ running | — |
+| P6b Review deep link from branch chip | renderer-ui | ⏳ running | — |
 | P7 test hardening + invariant review | test-author → invariant-reviewer | ⬜ pending | — |
+
+P4 was reassigned from renderer-ui to engine-orchestration: the hard part turned out to
+be main-process construction, not the bridge.
 
 ## Standing constraints for every phase
 
@@ -37,6 +41,26 @@ redoing.
 - P1: `RunFailureKind` is duplicated between `src/shared/types.ts` and
   `src/main/providers.ts` rather than shared, because collapsing it means editing
   `providers.ts`. Revisit once that file's uncommitted work is resolved.
+
+## Corrections made during the build
+
+- **Retry branch collision (P6).** P2 derived a writing turn's branch from the trigger's
+  `seq`, so a retry produced the same name and silently fell back to running in the user's
+  working tree. The UI promises branch isolation, so a silent fallback is a broken promise —
+  P6 gives retries a unique branch and fails the turn (with a stated reason) if a worktree
+  genuinely cannot be created. This deliberately diverges from the fallback convention in
+  `orchestrate`/`bench`, where the task cwd is already where the user expects writes.
+- **MCP auth (P3).** The control plane is resolved through `McpAuthManager.profileWithAuth`,
+  not a raw `settings.controlPlane` read, which would have silently skipped OAuth header
+  injection for remote MCP servers.
+- **Shared concurrency (P4).** Workspace turns claim slots from the same per-provider
+  `runtimes` map tasks use, so a workspace turn and a task compete for one `maxConcurrent`
+  slot rather than each getting a private pool.
+
+## Deferred, with reasons
+
+- The repo-context card omits the wireframe's "main · 2 uncommitted" line — no bridge method
+  exposes a lightweight per-cwd git status, and adding one was outside P5's scope.
 
 ## Known follow-ups (not in scope for P1–P7)
 

@@ -223,10 +223,11 @@ export class OrchestrationEngine extends EventEmitter {
     return attachment.path
   }
 
-  // Branches left behind by orchestrated tasks, grouped by the repo they belong
-  // to, so subtask work can be reviewed and merged without leaving the app.
+  // Branches left behind by orchestrated tasks and workspace writing-turns, grouped
+  // by the repo they belong to, so all subtask/turn work can be reviewed and merged
+  // without leaving the app. Union of task and workspace cwds, de-duplicated (ADR D6).
   async listBranchInbox(): Promise<BranchRepo[]> {
-    return await listBranchInbox(this.tasks.map((task) => task.cwd))
+    return await listBranchInbox([...this.tasks.map((task) => task.cwd), ...this.workspaces.map((workspace) => workspace.cwd)])
   }
 
   async readBranchFile(cwd: string, branch: string, path: string): Promise<string> {

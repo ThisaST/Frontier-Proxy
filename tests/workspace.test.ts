@@ -332,6 +332,24 @@ describe('WorkspaceRuntime — worktree isolation', () => {
     expect(workspace.turns[0].branch).toBeUndefined()
     expect(h.runner.calls[0].cwd).toBe(plain)
   })
+
+  it('fails the turn with a clear reason (never the shared cwd) when worktree creation fails for any other reason', async () => {
+    const repo = await makeRepo()
+    const h = harness([provider('solo')])
+    const workspace = h.runtime.createWorkspace('Team', repo)
+    h.runtime.upsertParticipant(workspace.id, participant({ handle: 'nova', providerId: 'solo', capabilities: ['edit-files'] }))
+    // Pre-create the exact branch this first attempt will derive, so `git worktree add -b`
+    // collides for a reason other than the retry-naming bug this fix addresses.
+    await run('git', ['branch', 'frontier/ws-team/1-nova'], { cwd: repo })
+
+    await h.runtime.postMessage(workspace.id, 'go @nova')
+
+    const turn = workspace.turns[0]
+    expect(turn.status).toBe('failed')
+    expect(turn.error).toMatch(/isolated branch/i)
+    expect(turn.branch).toBeUndefined()
+    expect(h.runner.calls).toHaveLength(0) // never ran in the workspace cwd
+  })
 })
 
 describe('WorkspaceRuntime — retry', () => {
@@ -352,6 +370,30 @@ describe('WorkspaceRuntime — retry', () => {
     expect(original.status).toBe('failed')
     expect(retried.id).not.toBe(original.id)
     expect(retried.status).toBe('completed')
+  })
+
+  it('retrying an edit-files participant gets a distinct branch, and both branches survive', async () => {
+    const repo = await makeRepo()
+    const h = harness([provider('solo')])
+    const workspace = h.runtime.createWorkspace('Team', repo)
+    h.runtime.upsertParticipant(workspace.id, participant({ handle: 'nova', providerId: 'solo', capabilities: ['edit-files'] }))
+    h.runner.when('nova', async () => ({ ok: false, output: '', error: 'boom', failureKind: 'failed' }))
+
+    await h.runtime.postMessage(workspace.id, 'go @nova')
+    const original = workspace.turns[0]
+    expect(original.status).toBe('failed')
+    expect(original.branch).toBeDefined()
+
+    h.runner.when('nova', async () => ({ ok: true, output: 'fixed now' }))
+    const retried = await h.runtime.retryTurn(workspace.id, original.id)
+
+    expect(retried.status).toBe('completed')
+    expect(retried.branch).toBeDefined()
+    expect(retried.branch).not.toBe(original.branch)
+
+    const { stdout } = await run('git', ['branch', '--list', 'frontier/ws-team/*'], { cwd: repo })
+    expect(stdout).toContain(original.branch!.split('/').pop())
+    expect(stdout).toContain(retried.branch!.split('/').pop())
   })
 })
 

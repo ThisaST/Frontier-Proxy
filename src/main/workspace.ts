@@ -213,9 +213,28 @@ export class WorkspaceRuntime {
         let workdir = workspace.cwd
         const isolate = participant.capabilities.includes('edit-files') && await isGitRepo(workspace.cwd)
         if (isolate) {
-          // Branch prefix stays `frontier/` so assertTaskBranch (branches.ts) keeps guarding it (ADR D6).
-          const branch = `frontier/ws-${branchSlug(workspace.name)}/${trigger.seq}-${normalizeHandle(participant.handle)}`
-          try { workdir = await createWorktree(workspace.cwd, branch); turn.branch = branch } catch { /* fall back to the shared cwd */ }
+          // Attempt number = this turn's position among turns already run for the same
+          // trigger+participant (persisted turn order, so it's stable across restarts).
+          // retryTurn re-runs the same trigger/participant and would otherwise derive the
+          // exact same branch name as the original, so createWorktree collides every time.
+          const siblings = workspace.turns.filter((item) => item.messageId === trigger.id && item.participantId === participant.id)
+          const attempt = siblings.indexOf(turn) + 1
+          const base = `frontier/ws-${branchSlug(workspace.name)}/${trigger.seq}-${normalizeHandle(participant.handle)}`
+          const branch = attempt <= 1 ? base : `${base}-${attempt}` // Branch prefix stays `frontier/` so assertTaskBranch (branches.ts) keeps guarding it (ADR D6).
+          try {
+            workdir = await createWorktree(workspace.cwd, branch)
+            turn.branch = branch
+          } catch (err) {
+            // Deliberately diverges from orchestrate/bench's silent worktree-fallback: their
+            // fallback runs in the task's own cwd, which is still where the user expects
+            // writes. Here the participant is explicitly labelled branch-isolated in the UI,
+            // so silently writing to the real working tree would break that promise — fail
+            // the turn instead. Don't "fix" this back to a fallback.
+            turn.status = 'failed'
+            turn.error = `Couldn't create an isolated branch for @${participant.handle}: ${err instanceof Error ? err.message : String(err)}`
+            turn.failureKind = 'failed'
+            return
+          }
         }
         try {
           const history = workspace.messages.filter((message) => message.seq <= historySeq)

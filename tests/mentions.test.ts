@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidHandle, normalizeHandle, parseMentions } from '../src/shared/mentions'
+import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../src/shared/mentions'
 import type { WorkspaceParticipant } from '../src/shared/types'
 
 function participant(overrides: Partial<WorkspaceParticipant>): WorkspaceParticipant {
@@ -87,5 +87,24 @@ describe('isValidHandle', () => {
     expect(isValidHandle('2nova')).toBe(false)
     expect(isValidHandle('nova!')).toBe(false)
     expect(isValidHandle('')).toBe(false)
+  })
+})
+
+describe('handleFromName', () => {
+  it('slugifies a display name with spaces into a valid handle', () => {
+    expect(handleFromName('GitHub Copilot')).toBe('github-copilot')
+    expect(isValidHandle(handleFromName('GitHub Copilot'))).toBe(true)
+  })
+  it('keeps a name that is already handle-shaped', () => {
+    expect(handleFromName('claude-code-opus-5')).toBe('claude-code-opus-5')
+  })
+  it('drops leading non-letters and trailing dashes', () => {
+    expect(handleFromName('  42 Nova!  ')).toBe('nova')
+  })
+  it('returns empty for a name with no usable characters', () => {
+    expect(handleFromName('!!!')).toBe('')
+  })
+  it('does not weaken isValidHandle — a raw name with a space is still rejected', () => {
+    expect(isValidHandle('github copilot')).toBe(false)
   })
 })

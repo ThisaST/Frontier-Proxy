@@ -8,7 +8,7 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview } from './main'
-import { isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
+import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
   WorkspaceMessage, WorkspaceStreamEvent, WorkspaceTurn, WorkspaceView
@@ -656,7 +656,14 @@ function setParticipantKind(kind: ParticipantKind): void {
   byId('ws-participant-capabilities').hidden = kind !== 'agent'
 }
 document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) =>
-  button.addEventListener('click', () => setParticipantKind((button.dataset.kind as ParticipantKind) ?? 'agent')))
+  button.addEventListener('click', () => setParticipantKind(button.dataset.kind === 'human' ? 'human' : 'agent')))
+
+let handleEdited = false
+byId<HTMLInputElement>('ws-participant-handle').addEventListener('input', () => { handleEdited = true })
+byId<HTMLInputElement>('ws-participant-name').addEventListener('input', (event) => {
+  if (handleEdited) return
+  byId<HTMLInputElement>('ws-participant-handle').value = handleFromName((event.target as HTMLInputElement).value)
+})
 
 // Model options are scoped to the chosen agent — the same rule `renderTaskModelOptions`
 // applies for tasks (model ids are CLI-specific and never travel between agents).
@@ -687,9 +694,14 @@ function openParticipantEditor(workspaceId: string, participantId?: string, sugg
   byId('participant-dialog-title').textContent = participant ? 'Edit participant' : 'Add participant'
   byId<HTMLButtonElement>('ws-participant-submit').textContent = participant ? 'Save' : 'Add'
   byId<HTMLInputElement>('ws-participant-name').value = participant?.name ?? suggestedProvider?.name ?? ''
-  byId<HTMLInputElement>('ws-participant-handle').value = participant?.handle ?? (suggestedProvider ? normalizeHandle(suggestedProvider.name) : '')
+  byId<HTMLInputElement>('ws-participant-handle').value = participant?.handle ?? (suggestedProvider ? handleFromName(suggestedProvider.name) : '')
+  // The handle tracks the name until the user edits it themselves — renaming a suggested
+  // participant otherwise left a handle nobody meant to keep.
+  handleEdited = Boolean(participant?.handle)
   byId<HTMLInputElement>('ws-participant-role').value = participant?.role ?? (suggestedProvider ? 'Agent' : '')
-  setParticipantKind(participant?.kind ?? 'agent')
+  // Anything that isn't explicitly 'human' is an agent. A participant persisted without a
+  // `kind` used to leave both type buttons unselected and hide the agent fields entirely.
+  setParticipantKind(participant?.kind === 'human' ? 'human' : 'agent')
 
   const providerSelect = byId<HTMLSelectElement>('ws-participant-provider')
   providerSelect.replaceChildren(...(latestSnapshot?.providers ?? []).map((provider) => new Option(provider.name, provider.id)))

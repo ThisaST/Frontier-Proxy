@@ -22,6 +22,15 @@ export function isValidHandle(raw: string): boolean {
   return HANDLE_PATTERN.test(normalizeHandle(raw))
 }
 
+// Derive a *valid* handle from a display name, for prefilling the participant editor.
+// `normalizeHandle` deliberately does not do this: it only lowercases and strips '@',
+// so `isValidHandle` can still reject bad input. Suggesting `@github copilot` from
+// "GitHub Copilot" produced a handle the form then refused to accept.
+export function handleFromName(name: string): string {
+  const slug = normalizeHandle(name).replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z]+/, '').replace(/-+$/, '').slice(0, 32)
+  return isValidHandle(slug) ? slug : ''
+}
+
 // Mentions inside fenced or inline code are examples, not addresses — blank them out
 // before scanning so a code sample never dispatches an agent.
 function stripCode(text: string): string {

@@ -38,7 +38,7 @@
           <span class="pulse-dot" aria-hidden="true"></span>
           <div class="privacy-copy"><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
         </div>
-        <div class="app-version">FRONTIER PROXY · v0.6.3</div>
+        <div class="app-version">FRONTIER PROXY · v0.7.0</div>
       </aside>
 
       <main>
@@ -179,6 +179,7 @@
                   <p id="workspace-conv-subtitle" class="surface-subtitle"></p>
                 </div>
                 <div class="workspace-conv-actions" id="workspace-conv-actions">
+                  <button type="button" id="workspace-participants-button" class="text-button">◫ Participants · <span id="workspace-participants-count">0</span></button>
                   <button type="button" id="workspace-rename-button" class="text-button">Rename</button>
                   <button type="button" id="workspace-delete-button" class="text-button">Delete</button>
                 </div>
@@ -195,17 +196,20 @@
               </div>
               <p id="workspace-addressing-hint" class="workspace-addressing-hint"></p>
             </section>
+          </div>
 
-            <div class="grid-gutter" id="workspace-gutter-roster" title="Drag to resize"></div>
-
-            <section class="panel workspace-roster-panel">
-              <div class="panel-header">
+          <dialog id="participants-dialog">
+            <div id="participants-dialog-body">
+              <div class="dialog-header">
                 <div><p class="eyebrow">PARTICIPANTS</p><h2>Participants</h2></div>
-                <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant">＋</button>
+                <div class="header-actions">
+                  <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant">＋</button>
+                  <button type="button" class="icon-button" id="participants-dialog-close" aria-label="Close">×</button>
+                </div>
               </div>
               <div id="workspace-roster" class="workspace-roster"></div>
-            </section>
-          </div>
+            </div>
+          </dialog>
 
           <dialog id="participant-dialog">
             <form id="participant-form">

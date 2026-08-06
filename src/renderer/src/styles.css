@@ -551,7 +551,10 @@ h4.md-h, h5.md-h, h6.md-h { font-size: 12px; color: var(--muted); text-transform
 /* ---------- Dialogs ---------- */
 dialog { width: min(660px, calc(100vw - 40px)); border: 1px solid #343c36; border-radius: 12px; color: var(--text); background: #121513; padding: 0; box-shadow: 0 24px 100px #000; }
 dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
-#task-form { padding: 22px; display: grid; gap: 16px; max-height: 86vh; overflow-y: auto; }
+/* The workspace dialogs share the task dialog's form layout. Without this they fell back
+   to `display: block` with no padding or gap, which collapsed every field against the
+   next and left the actions row flush with the dialog edge. */
+#task-form, #participant-form, #workspace-form, #participants-dialog-body { padding: 22px; display: grid; gap: 16px; max-height: 86vh; overflow-y: auto; }
 .dialog-header { display: flex; justify-content: space-between; align-items: start; padding-bottom: 4px; }
 .path-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -615,8 +618,10 @@ dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
 .workspace-empty-state p { max-width: 40ch; }
 .workspace-empty-state button { margin-top: 10px; }
 
-.workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(240px, .75fr)) 7px minmax(420px, 1.7fr) 7px var(--ws-roster-col, minmax(216px, .6fr)); gap: 0; flex: 1 1 auto; min-height: 0; }
-.workspace-list-panel, .workspace-conversation-panel, .workspace-roster-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+/* The roster moved into a dialog, so the conversation gets the rest. The list keeps a
+   modest default share rather than the .75fr it had when it was one of three columns. */
+.workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(220px, .34fr)) 7px minmax(420px, 1fr); gap: 0; flex: 1 1 auto; min-height: 0; }
+.workspace-list-panel, .workspace-conversation-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .workspace-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px; }
 .workspace-item { width: 100%; display: block; text-align: left; padding: 10px 11px; border: 0; border-radius: 8px; background: transparent; }
 .workspace-item:hover { background: var(--surface-2); }
@@ -656,7 +661,10 @@ dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
 .workspace-addressing-hint { flex: 0 0 auto; margin: 0; padding: 0 18px 12px; color: var(--muted); font-size: 10px; }
 .workspace-addressing-hint.addressed { color: var(--green); }
 
-.workspace-roster { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 10px 12px; display: grid; gap: 14px; align-content: start; }
+/* Lives inside #participants-dialog-body now, whose own padding/scroll applies —
+   this just lays out the groups within it. */
+#participants-dialog { width: min(460px, calc(100vw - 40px)); }
+.workspace-roster { display: grid; gap: 14px; }
 .workspace-roster-group .eyebrow { margin-bottom: 8px; }
 .workspace-roster-list { display: grid; gap: 8px; }
 .workspace-roster-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--surface-2); }
@@ -692,8 +700,8 @@ dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
 .workspace-empty-state[hidden], .workspace-grid[hidden], .ws-capabilities-field[hidden], #ws-workspace-cwd-field[hidden], .output-composer[hidden] { display: none; }
 
 @media (max-width: 1280px) {
-  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(360px, 1fr); }
-  .workspace-gutter-list, .workspace-gutter-roster, #workspace-gutter-list, #workspace-gutter-roster { display: none; }
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(360px, 1fr); }
+  .workspace-gutter-list, #workspace-gutter-list { display: none; }
 }
 
 #toast { visibility: hidden; position: fixed; right: 24px; bottom: 24px; z-index: 40; border: 1px solid var(--line); background: #191e1a; border-radius: 8px; padding: 11px 15px; font-size: 11px; box-shadow: 0 10px 40px #000; max-width: 420px; }

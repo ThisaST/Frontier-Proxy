@@ -8,7 +8,7 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview } from './main'
-import { isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
+import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
   WorkspaceMessage, WorkspaceStreamEvent, WorkspaceTurn, WorkspaceView
@@ -187,9 +187,12 @@ function renderConversation(): void {
   const subtitle = byId('workspace-conv-subtitle')
   const rename = byId<HTMLButtonElement>('workspace-rename-button')
   const remove = byId<HTMLButtonElement>('workspace-delete-button')
+  const participantsButton = byId<HTMLButtonElement>('workspace-participants-button')
   const composer = byId('workspace-composer')
   rename.disabled = !workspace
   remove.disabled = !workspace
+  participantsButton.disabled = !workspace
+  byId('workspace-participants-count').textContent = String(workspace?.participants.length ?? 0)
   if (!workspace) {
     title.textContent = 'Select a workspace'
     subtitle.textContent = ''
@@ -438,7 +441,17 @@ async function sendWsMessage(): Promise<void> {
   finally { input.disabled = false; button.disabled = false; input.focus() }
 }
 
-// ---- Roster (Column 4) ----
+// ---- Roster (Participants dialog) ----
+// Moved out of a third grid column into a dialog opened from the conversation header
+// (`workspace-participants-button`), so the conversation column keeps that width. The
+// dialog is a sibling `<dialog>` of `participant-dialog`, not a nested ancestor of it —
+// native `<dialog>` modals stack independently in the top layer, so opening the editor
+// from inside this dialog (`openParticipantEditor`, wired further down) layers on top,
+// and closing it (`.close()`) only dismisses that one, leaving this dialog open beneath.
+
+const participantsDialog = byId<HTMLDialogElement>('participants-dialog')
+byId('workspace-participants-button').addEventListener('click', () => participantsDialog.showModal())
+byId('participants-dialog-close').addEventListener('click', () => participantsDialog.close())
 
 function closeRosterMenu(): void { activeRosterMenuCleanup?.(); activeRosterMenuCleanup = undefined }
 
@@ -561,7 +574,6 @@ function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: st
 }
 
 setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-list'), '--ws-list-col', 'fp-ws-list-width', 220, 460, 'left')
-setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-roster'), '--ws-roster-col', 'fp-ws-roster-width', 200, 380, 'right')
 
 // ---- Workspace create / rename dialog ----
 
@@ -656,7 +668,14 @@ function setParticipantKind(kind: ParticipantKind): void {
   byId('ws-participant-capabilities').hidden = kind !== 'agent'
 }
 document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) =>
-  button.addEventListener('click', () => setParticipantKind((button.dataset.kind as ParticipantKind) ?? 'agent')))
+  button.addEventListener('click', () => setParticipantKind(button.dataset.kind === 'human' ? 'human' : 'agent')))
+
+let handleEdited = false
+byId<HTMLInputElement>('ws-participant-handle').addEventListener('input', () => { handleEdited = true })
+byId<HTMLInputElement>('ws-participant-name').addEventListener('input', (event) => {
+  if (handleEdited) return
+  byId<HTMLInputElement>('ws-participant-handle').value = handleFromName((event.target as HTMLInputElement).value)
+})
 
 // Model options are scoped to the chosen agent — the same rule `renderTaskModelOptions`
 // applies for tasks (model ids are CLI-specific and never travel between agents).
@@ -687,9 +706,14 @@ function openParticipantEditor(workspaceId: string, participantId?: string, sugg
   byId('participant-dialog-title').textContent = participant ? 'Edit participant' : 'Add participant'
   byId<HTMLButtonElement>('ws-participant-submit').textContent = participant ? 'Save' : 'Add'
   byId<HTMLInputElement>('ws-participant-name').value = participant?.name ?? suggestedProvider?.name ?? ''
-  byId<HTMLInputElement>('ws-participant-handle').value = participant?.handle ?? (suggestedProvider ? normalizeHandle(suggestedProvider.name) : '')
+  byId<HTMLInputElement>('ws-participant-handle').value = participant?.handle ?? (suggestedProvider ? handleFromName(suggestedProvider.name) : '')
+  // The handle tracks the name until the user edits it themselves — renaming a suggested
+  // participant otherwise left a handle nobody meant to keep.
+  handleEdited = Boolean(participant?.handle)
   byId<HTMLInputElement>('ws-participant-role').value = participant?.role ?? (suggestedProvider ? 'Agent' : '')
-  setParticipantKind(participant?.kind ?? 'agent')
+  // Anything that isn't explicitly 'human' is an agent. A participant persisted without a
+  // `kind` used to leave both type buttons unselected and hide the agent fields entirely.
+  setParticipantKind(participant?.kind === 'human' ? 'human' : 'agent')
 
   const providerSelect = byId<HTMLSelectElement>('ws-participant-provider')
   providerSelect.replaceChildren(...(latestSnapshot?.providers ?? []).map((provider) => new Option(provider.name, provider.id)))

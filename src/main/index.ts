@@ -209,6 +209,10 @@ app.whenReady().then(async () => {
     persist: () => engine.persistWorkspaces(workspaceRuntime.list(), workspaceRuntime.snapshot()),
     emitStream: (event) => engine.emitWorkspaceStream(event)
   }, engine.loadedWorkspaces())
+  // Publish the loaded workspaces into the snapshot straight away. The engine serves
+  // `workspacesView` to the renderer, and only a mutation used to populate it — so
+  // restoring a saved workspace looked like "No workspaces yet" until you changed something.
+  engine.persistWorkspaces(workspaceRuntime.list(), workspaceRuntime.snapshot())
 
   registerIpc()
   createWindow()

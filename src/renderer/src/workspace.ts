@@ -187,9 +187,12 @@ function renderConversation(): void {
   const subtitle = byId('workspace-conv-subtitle')
   const rename = byId<HTMLButtonElement>('workspace-rename-button')
   const remove = byId<HTMLButtonElement>('workspace-delete-button')
+  const participantsButton = byId<HTMLButtonElement>('workspace-participants-button')
   const composer = byId('workspace-composer')
   rename.disabled = !workspace
   remove.disabled = !workspace
+  participantsButton.disabled = !workspace
+  byId('workspace-participants-count').textContent = String(workspace?.participants.length ?? 0)
   if (!workspace) {
     title.textContent = 'Select a workspace'
     subtitle.textContent = ''
@@ -438,7 +441,17 @@ async function sendWsMessage(): Promise<void> {
   finally { input.disabled = false; button.disabled = false; input.focus() }
 }
 
-// ---- Roster (Column 4) ----
+// ---- Roster (Participants dialog) ----
+// Moved out of a third grid column into a dialog opened from the conversation header
+// (`workspace-participants-button`), so the conversation column keeps that width. The
+// dialog is a sibling `<dialog>` of `participant-dialog`, not a nested ancestor of it —
+// native `<dialog>` modals stack independently in the top layer, so opening the editor
+// from inside this dialog (`openParticipantEditor`, wired further down) layers on top,
+// and closing it (`.close()`) only dismisses that one, leaving this dialog open beneath.
+
+const participantsDialog = byId<HTMLDialogElement>('participants-dialog')
+byId('workspace-participants-button').addEventListener('click', () => participantsDialog.showModal())
+byId('participants-dialog-close').addEventListener('click', () => participantsDialog.close())
 
 function closeRosterMenu(): void { activeRosterMenuCleanup?.(); activeRosterMenuCleanup = undefined }
 
@@ -561,7 +574,6 @@ function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: st
 }
 
 setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-list'), '--ws-list-col', 'fp-ws-list-width', 220, 460, 'left')
-setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-roster'), '--ws-roster-col', 'fp-ws-roster-width', 200, 380, 'right')
 
 // ---- Workspace create / rename dialog ----
 

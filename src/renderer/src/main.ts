@@ -1,6 +1,7 @@
 import './styles.css'
 import { renderMarkdown } from './markdown'
 import { highlightSourceLine, parseUnifiedDiff } from './syntax'
+import { handleWorkspaceStream, renderWorkspaceView } from './workspace'
 import type { AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, ConversationTurn, McpServerConfig, McpTransport, ProxyTask, RoutingCandidate, SelectedImage, SessionInfo, SkillCatalog, SubTask, TaskBranch, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../shared/types'
 import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 
@@ -523,7 +524,7 @@ function renderHome(): void {
       const body = element('div', 'home-task-body')
       body.append(element('strong', undefined, branch.subject), element('small', undefined, `${repo.name} · ${branch.files.length} file${branch.files.length === 1 ? '' : 's'}`))
       row.append(element('span', 'branch-glyph', '⑃'), body, element('span', 'home-task-time', timeAgo(branch.committedAt)))
-      row.addEventListener('click', () => { reviewSelection = { cwd: branch.cwd, branch: branch.branch }; reviewFilePath = undefined; switchView('review') })
+      row.addEventListener('click', () => openBranchInReview(branch.cwd, branch.branch))
       return row
     }))
   }
@@ -638,7 +639,7 @@ function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement
     branch.textContent = lane.committed ? `⑃ ${lane.branch}` : `⑃ ${lane.branch} · no changes`
     branch.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !lane.committed
-    branch.addEventListener('click', () => { reviewSelection = { cwd: task.cwd, branch: lane.branch! }; reviewFilePath = undefined; switchView('review') })
+    branch.addEventListener('click', () => openBranchInReview(task.cwd, lane.branch!))
     card.append(branch)
   }
 
@@ -1937,16 +1938,27 @@ function render(): void {
   if (currentView === 'home') renderHome()
   if (currentView === 'agents') renderAgentsTab()
   if (currentView === 'review') renderReview()
+  if (currentView === 'workspace') renderWorkspaceView(snapshot)
 }
 
 const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   home: { title: 'Home', eyebrow: 'MISSION CONTROL' },
   tasks: { title: 'Tasks', eyebrow: 'ORCHESTRATION CONSOLE' },
+  workspace: { title: 'Workspaces', eyebrow: 'COLLABORATIVE WORKSPACES' },
   review: { title: 'Review', eyebrow: 'BRANCH INBOX' },
   agents: { title: 'Agents', eyebrow: 'LOCAL EXECUTABLES' },
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
   skills: { title: 'Skills', eyebrow: 'AGENT CAPABILITIES' },
   settings: { title: 'Settings', eyebrow: 'PREFERENCES' }
+}
+
+// Single code path for "open this branch in Review" — used by the bench-lane
+// chip, the home-screen waiting-review list, and the workspace turn's branch
+// chip, so all three land on the same diff instead of just the Review view.
+export function openBranchInReview(cwd: string, branch: string): void {
+  reviewSelection = { cwd, branch }
+  reviewFilePath = undefined
+  switchView('review')
 }
 
 function switchView(view: string): void {
@@ -1961,7 +1973,7 @@ function switchView(view: string): void {
   const meta = VIEW_META[view] ?? { title: view, eyebrow: '' }
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
-  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' ? 'none' : ''
+  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' ? 'none' : ''
   // The first snapshot may still be in flight — clicking a nav item before it
   // lands used to throw here and leave the view empty. render() repaints the
   // active view as soon as the snapshot arrives.
@@ -1974,6 +1986,7 @@ function switchView(view: string): void {
   if (view === 'home') renderHome()
   if (view === 'tasks') { renderTasks(); applyQueueWidth() }
   if (view === 'review') { renderReview(); void loadReview(true) }
+  if (view === 'workspace') renderWorkspaceView(snapshot)
 }
 
 function commandPaletteEntries(query: string): CommandPaletteEntry[] {
@@ -2441,6 +2454,7 @@ window.frontier.onStream((event) => {
     thread.scrollTop = thread.scrollHeight
   }
 })
+window.frontier.onWorkspaceStream(handleWorkspaceStream)
 
 void window.frontier.getSnapshot()
   .then((initial) => { snapshot = initial; switchView('home'); render(); void loadReview() })

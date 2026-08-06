@@ -106,7 +106,7 @@ button { border-radius: 7px; border: 1px solid transparent; padding: 9px 13px; f
 .segmented button.active { background: var(--surface-2); color: var(--text); }
 
 .view { display: none; padding: 24px 34px 34px; }
-#tasks-view.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding-bottom: 20px; }
+#tasks-view.active, #workspace-view.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding-bottom: 20px; }
 #home-view.active, #review-view.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 #agents-view.active, #control-view.active, #skills-view.active, #settings-view.active { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
@@ -608,6 +608,93 @@ dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
 .command-palette-item-key { color: #69726b; font-size: 9px; }
 .command-palette-empty { color: var(--muted); font-size: 11px; text-align: center; padding: 38px 20px; }
 .command-palette-hint { display: flex; gap: 14px; padding: 9px 16px; border-top: 1px solid var(--line-soft); color: #626b64; font-size: 8px; text-transform: uppercase; letter-spacing: .6px; }
+
+/* ---------- Workspaces ---------- */
+.workspace-empty-state { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.workspace-empty-glyph { color: var(--green); font-size: 30px; margin-bottom: 8px; }
+.workspace-empty-state p { max-width: 40ch; }
+.workspace-empty-state button { margin-top: 10px; }
+
+.workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(240px, .75fr)) 7px minmax(420px, 1.7fr) 7px var(--ws-roster-col, minmax(216px, .6fr)); gap: 0; flex: 1 1 auto; min-height: 0; }
+.workspace-list-panel, .workspace-conversation-panel, .workspace-roster-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.workspace-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px; }
+.workspace-item { width: 100%; display: block; text-align: left; padding: 10px 11px; border: 0; border-radius: 8px; background: transparent; }
+.workspace-item:hover { background: var(--surface-2); }
+.workspace-item.selected { background: var(--surface-2); box-shadow: inset 2px 0 var(--green); }
+.workspace-item strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-item-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 9px; }
+.workspace-item-online { color: var(--green); white-space: nowrap; }
+.workspace-repo-context { flex: 0 0 auto; margin: 10px; padding: 12px 13px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--surface-2); display: grid; gap: 6px; }
+.workspace-repo-context p { margin: 0; color: var(--muted); font-size: 9px; font-family: var(--mono); overflow-wrap: anywhere; }
+.workspace-repo-context .text-button { justify-self: start; padding-top: 2px; }
+
+.workspace-conv-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 15px 18px 13px; border-bottom: 1px solid var(--line-soft); }
+.workspace-conv-heading { min-width: 0; }
+.workspace-conv-heading h2 { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-conv-actions { flex: 0 0 auto; display: flex; gap: 10px; }
+.workspace-thread { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+.ws-message { flex: 0 0 auto; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; background: #0e110f; }
+.ws-message.human { margin-left: 14%; background: var(--surface-2); }
+.ws-message.system { border-style: dashed; background: transparent; }
+.ws-message.failed { border-color: rgba(251,141,136,.3); }
+.ws-message.cancelled { opacity: .75; }
+.ws-message-head { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line-soft); }
+.ws-message.system .ws-message-head { border-bottom-color: transparent; }
+.ws-avatar-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
+.ws-message-head strong { font-size: 11px; }
+.ws-message-head small { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .5px; margin-left: auto; white-space: nowrap; }
+.ws-message-status { color: var(--yellow); font-size: 9px; white-space: nowrap; }
+.ws-message.failed .ws-message-status { color: var(--red); }
+.ws-message-body { padding: 12px 15px; color: #d5dcd6; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+.ws-message-body.markdown { white-space: normal; }
+.ws-message.system .ws-message-body { color: var(--muted); font-size: 11px; padding: 4px 13px 11px; }
+.ws-message-activity { margin: 0 15px 12px; display: grid; gap: 5px; }
+.ws-turn-foot { display: flex; align-items: center; gap: 10px; padding: 0 15px 13px; }
+.ws-turn-foot:empty { display: none; }
+
+.workspace-addressing-hint { flex: 0 0 auto; margin: 0; padding: 0 18px 12px; color: var(--muted); font-size: 10px; }
+.workspace-addressing-hint.addressed { color: var(--green); }
+
+.workspace-roster { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 10px 12px; display: grid; gap: 14px; align-content: start; }
+.workspace-roster-group .eyebrow { margin-bottom: 8px; }
+.workspace-roster-list { display: grid; gap: 8px; }
+.workspace-roster-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--surface-2); }
+.workspace-roster-row.suggested { border-style: dashed; background: transparent; }
+.workspace-roster-row-body { min-width: 0; flex: 1 1 auto; }
+.workspace-roster-row-body strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-roster-row-body small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-roster-row-body .ws-unavailable-reason { color: var(--red); white-space: normal; }
+.ws-roster-menu-button { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 15px; }
+.ws-roster-menu-button:hover { color: var(--text); }
+.ws-roster-menu { position: absolute; z-index: 20; top: 34px; right: 8px; display: grid; border: 1px solid var(--line); border-radius: 8px; background: #171b18; box-shadow: 0 12px 34px rgba(0,0,0,.5); overflow: hidden; }
+.ws-roster-menu button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--text); font-size: 11px; text-align: left; white-space: nowrap; }
+.ws-roster-menu button:hover { background: var(--surface-2); }
+.workspace-roster-footer { margin-top: auto; padding: 12px 10px 4px; color: var(--muted); font-size: 9px; line-height: 1.5; border-top: 1px solid var(--line-soft); }
+.ws-add-button { flex: 0 0 auto; }
+
+/* Participant editor */
+.ws-kind-modes { grid-template-columns: 1fr 1fr; }
+.ws-accent-field { display: grid; gap: 6px; }
+.ws-accent-picker { display: flex; gap: 8px; }
+.ws-accent-swatch { width: 26px; height: 26px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); }
+.ws-accent-swatch.selected { border-color: var(--text); }
+.ws-capabilities-field { display: grid; gap: 8px; }
+.ws-cap-edit-note { margin: -2px 0 4px 26px; }
+.ws-cap-edit-note code { background: #0c0f0d; border: 1px solid var(--line-soft); border-radius: 4px; padding: 0 4px; font: 10px var(--mono); }
+.ws-capability-chips { display: flex; gap: 8px; margin-top: 3px; }
+.ws-capability-chip { color: var(--muted); font-size: 9px; }
+
+/* An authored `display` on the same class always beats the `[hidden]` UA rule
+   at equal specificity (author origin wins), so any class below that sets its
+   own `display` needs the override spelled out — same reason `.form-row[hidden]`
+   and `#model-field[hidden]` already exist further up this file. */
+.workspace-empty-state[hidden], .workspace-grid[hidden], .ws-capabilities-field[hidden], #ws-workspace-cwd-field[hidden], .output-composer[hidden] { display: none; }
+
+@media (max-width: 1280px) {
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(360px, 1fr); }
+  .workspace-gutter-list, .workspace-gutter-roster, #workspace-gutter-list, #workspace-gutter-roster { display: none; }
+}
 
 #toast { visibility: hidden; position: fixed; right: 24px; bottom: 24px; z-index: 40; border: 1px solid var(--line); background: #191e1a; border-radius: 8px; padding: 11px 15px; font-size: 11px; box-shadow: 0 10px 40px #000; max-width: 420px; }
 #toast.show { visibility: visible; animation: toast 2.8s both; }

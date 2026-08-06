@@ -2,12 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { freshDefaults } from '../shared/defaults'
-import type { AppSettings, ProviderRuntime, ProxyTask } from '../shared/types'
+import type { AppSettings, ProviderRuntime, ProxyTask, Workspace } from '../shared/types'
 
 export interface PersistedState {
   settings: AppSettings
   tasks: ProxyTask[]
   providerRuntime?: Record<string, Pick<ProviderRuntime, 'usage' | 'sessions' | 'session'>>
+  // Optional so existing save() call sites (and pre-workspace state files) need no
+  // change; load() always fills this in, so an existing frontier-state.json needs no
+  // migration.
+  workspaces?: Workspace[]
 }
 
 export class JsonStore {
@@ -29,10 +33,18 @@ export class JsonStore {
         tasks: (raw.tasks ?? []).map((task) => task.status === 'running'
           ? { ...task, status: 'failed', error: 'Frontier Proxy closed while this task was running.', finishedAt: new Date().toISOString() }
           : task),
-        providerRuntime: raw.providerRuntime ?? {}
+        providerRuntime: raw.providerRuntime ?? {},
+        // A turn still 'running' at shutdown mirrors the task rule above: it never
+        // finished, so rerunning it silently would replay a partial reply.
+        workspaces: (raw.workspaces ?? []).map((workspace) => ({
+          ...workspace,
+          turns: workspace.turns.map((turn) => turn.status === 'running'
+            ? { ...turn, status: 'failed' as const, error: 'Frontier Proxy closed while this turn was running.', finishedAt: new Date().toISOString() }
+            : turn)
+        }))
       }
     } catch {
-      return { settings: freshDefaults(), tasks: [], providerRuntime: {} }
+      return { settings: freshDefaults(), tasks: [], providerRuntime: {}, workspaces: [] }
     }
   }
 

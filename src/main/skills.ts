@@ -17,30 +17,40 @@ const AGENTS_SKILLS_WALK_CAP = 10
 
 interface RootSpec { root: string; scope: SkillScope; nativeFor: ProviderKind[] }
 
-// The fixed roots every CLI is known to scan on its own, given a cwd and a
-// home directory. `home` is a parameter (not `os.homedir()` inline) so tests
-// never touch the real `~`. Deliberately excludes `.agents/skills`: that root
-// is found by walking upward from cwd, which needs filesystem access to find
-// the repo boundary and so lives in `discoverSkills`, not here.
-export function skillRoots(cwd: string, home: string = homedir()): SkillRootStatus[] {
-  const c = resolve(cwd)
+function personalRoots(home: string): RootSpec[] {
   const h = resolve(home)
-  const entries: RootSpec[] = [
+  return [
     { root: join(h, '.claude', 'skills'), scope: 'personal', nativeFor: ['claude'] },
     { root: join(h, '.copilot', 'skills'), scope: 'personal', nativeFor: ['copilot'] },
     { root: join(h, '.agents', 'skills'), scope: 'personal', nativeFor: ['copilot', 'codex', 'codex-oss'] },
-    { root: join(h, '.codex', 'skills'), scope: 'personal', nativeFor: ['codex', 'codex-oss'] },
-    { root: join(c, '.claude', 'skills'), scope: 'project', nativeFor: ['claude', 'copilot'] },
-    { root: join(c, '.github', 'skills'), scope: 'project', nativeFor: ['copilot'] }
+    { root: join(h, '.codex', 'skills'), scope: 'personal', nativeFor: ['codex', 'codex-oss'] }
   ]
-  return entries.map((entry) => ({ ...entry, exists: false }))
+}
+
+// The project roots that live under one directory. `discoverSkills` applies
+// this to every directory from the task cwd up to the repo root, so a skill at
+// the repo root is still found when the task runs in a nested package.
+function projectRoots(dir: string): RootSpec[] {
+  const d = resolve(dir)
+  return [
+    { root: join(d, '.claude', 'skills'), scope: 'project', nativeFor: ['claude', 'copilot'] },
+    { root: join(d, '.github', 'skills'), scope: 'project', nativeFor: ['copilot'] },
+    { root: join(d, '.agents', 'skills'), scope: 'project', nativeFor: ['copilot', 'codex', 'codex-oss'] }
+  ]
+}
+
+// The roots reachable from a single directory. `home` is a parameter (not
+// `os.homedir()` inline) so tests never touch the real `~`. This is the
+// one-level view; `discoverSkills` additionally walks project roots upward,
+// which needs filesystem access to find the repo boundary.
+export function skillRoots(cwd: string, home: string = homedir()): SkillRootStatus[] {
+  return [...personalRoots(home), ...projectRoots(cwd)].map((entry) => ({ ...entry, exists: false }))
 }
 
 // Directories from cwd up to (and including) the first one containing `.git`,
 // or the filesystem root, or the walk cap — whichever comes first. Each is a
-// candidate for its own `.agents/skills`, since Codex/Copilot's own walk does
-// the same thing.
-async function agentsSkillsWalk(cwd: string): Promise<string[]> {
+// candidate for its own project roots, mirroring the CLIs' own upward search.
+async function projectDirWalk(cwd: string): Promise<string[]> {
   const dirs: string[] = []
   let dir = resolve(cwd)
   for (let level = 0; level < AGENTS_SKILLS_WALK_CAP; level += 1) {
@@ -128,14 +138,14 @@ export async function discoverSkills(cwd: string, options: { refresh?: boolean; 
   if (!options.refresh && cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.catalog
 
   const home = options.home ?? homedir()
-  const agentsSkillsDirs = await agentsSkillsWalk(resolvedCwd)
+  // Project roots are collected for every directory up to the repo root, not
+  // just the task cwd — a task running in a nested package must still see the
+  // repo's own `.claude/skills` / `.github/skills` / `.agents/skills`.
   // De-duped by path, first spec winning: a non-git cwd under $HOME walks up
   // to `~` and would otherwise re-add `~/.agents/skills` — already listed as a
   // personal root — scanning it twice and relabelling it project scope.
-  const roots = uniqueByRoot([
-    ...skillRoots(resolvedCwd, home),
-    ...agentsSkillsDirs.map((dir): RootSpec => ({ root: join(dir, '.agents', 'skills'), scope: 'project', nativeFor: ['copilot', 'codex', 'codex-oss'] }))
-  ])
+  const projectDirs = await projectDirWalk(resolvedCwd)
+  const roots = uniqueByRoot([...personalRoots(home), ...projectDirs.flatMap(projectRoots)])
 
   const rootStatuses: SkillRootStatus[] = []
   // Merge by normalized name across every root; a project-scope hit's text

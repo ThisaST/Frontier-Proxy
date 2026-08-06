@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, SkillCatalog, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../shared/types'
+import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, SkillCatalog, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry, WorkspaceParticipant, WorkspaceStreamEvent } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
@@ -36,6 +36,16 @@ const api: FrontierApi = {
   disconnectMcpServer: (serverId: string) =>
     ipcRenderer.invoke('frontier:disconnect-mcp', serverId) as Promise<AppSnapshot>,
   chooseDirectory: (currentPath?: string) => ipcRenderer.invoke('frontier:choose-directory', currentPath) as Promise<string | null>,
+  createWorkspace: (name: string, cwd: string) => ipcRenderer.invoke('frontier:create-workspace', name, cwd) as Promise<AppSnapshot>,
+  updateWorkspace: (workspaceId: string, name: string) => ipcRenderer.invoke('frontier:update-workspace', workspaceId, name) as Promise<AppSnapshot>,
+  deleteWorkspace: (workspaceId: string) => ipcRenderer.invoke('frontier:delete-workspace', workspaceId) as Promise<AppSnapshot>,
+  upsertParticipant: (workspaceId: string, participant: Omit<WorkspaceParticipant, 'id'> & { id?: string }) =>
+    ipcRenderer.invoke('frontier:upsert-participant', workspaceId, participant) as Promise<AppSnapshot>,
+  removeParticipant: (workspaceId: string, participantId: string) =>
+    ipcRenderer.invoke('frontier:remove-participant', workspaceId, participantId) as Promise<AppSnapshot>,
+  postWorkspaceMessage: (workspaceId: string, text: string) => ipcRenderer.invoke('frontier:post-workspace-message', workspaceId, text) as Promise<AppSnapshot>,
+  retryWorkspaceTurn: (workspaceId: string, turnId: string) => ipcRenderer.invoke('frontier:retry-workspace-turn', workspaceId, turnId) as Promise<AppSnapshot>,
+  cancelWorkspaceTurn: (workspaceId: string, turnId: string) => ipcRenderer.invoke('frontier:cancel-workspace-turn', workspaceId, turnId) as Promise<void>,
   onSnapshot: (callback: (snapshot: AppSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: AppSnapshot): void => callback(snapshot)
     ipcRenderer.on('frontier:snapshot-changed', listener)
@@ -45,6 +55,11 @@ const api: FrontierApi = {
     const listener = (_event: Electron.IpcRendererEvent, streamEvent: StreamEvent): void => callback(streamEvent)
     ipcRenderer.on('frontier:stream', listener)
     return () => ipcRenderer.removeListener('frontier:stream', listener)
+  },
+  onWorkspaceStream: (callback: (event: WorkspaceStreamEvent) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, streamEvent: WorkspaceStreamEvent): void => callback(streamEvent)
+    ipcRenderer.on('frontier:workspace-stream', listener)
+    return () => ipcRenderer.removeListener('frontier:workspace-stream', listener)
   }
 }
 

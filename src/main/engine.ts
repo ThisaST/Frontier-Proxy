@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import { activeSessions, sessionWindowExpired } from '../shared/sessions'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, ResolvedSkill, SessionInfo, SkillCatalog, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, WorkspaceEntry
+  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, ResolvedSkill, SessionInfo, SkillCatalog, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageSample, Workspace, WorkspaceEntry, WorkspaceStreamEvent, WorkspaceView
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -57,6 +57,11 @@ export class OrchestrationEngine extends EventEmitter {
   private readonly runtimes = new Map<string, ProviderRuntime>()
   private readonly controllers = new Map<string, AbortController>()
   private pumping = false
+  // Raw + renderer-facing workspace state, owned by WorkspaceRuntime (constructed in
+  // index.ts, ADR D10) and mirrored here only so snapshot()/persistAndEmit() can expose
+  // it through the same paths task state already uses.
+  private workspaces: Workspace[] = []
+  private workspacesView: WorkspaceView[] = []
 
   constructor(private readonly store: JsonStore, private readonly mcpAuth?: McpAuthManager) { super() }
 
@@ -65,6 +70,7 @@ export class OrchestrationEngine extends EventEmitter {
     this.settings = state.settings
     this.settings.skills ??= { disabledIds: [] }
     this.tasks = state.tasks
+    this.workspaces = state.workspaces ?? []
     await this.mcpAuth?.initialize()
     await this.mcpAuth?.reconcile(this.settings.controlPlane)
     for (const provider of this.settings.providers) {
@@ -85,7 +91,8 @@ export class OrchestrationEngine extends EventEmitter {
       tasks: this.tasks,
       providers: this.settings.providers.map((provider) => ({ ...provider, runtime: this.runtimes.get(provider.id) ?? blankRuntime() })),
       settings: this.settings,
-      mcpAuth: this.mcpAuth?.statuses(this.settings.controlPlane) ?? []
+      mcpAuth: this.mcpAuth?.statuses(this.settings.controlPlane) ?? [],
+      workspaces: this.workspacesView
     })
   }
 
@@ -216,10 +223,11 @@ export class OrchestrationEngine extends EventEmitter {
     return attachment.path
   }
 
-  // Branches left behind by orchestrated tasks, grouped by the repo they belong
-  // to, so subtask work can be reviewed and merged without leaving the app.
+  // Branches left behind by orchestrated tasks and workspace writing-turns, grouped
+  // by the repo they belong to, so all subtask/turn work can be reviewed and merged
+  // without leaving the app. Union of task and workspace cwds, de-duplicated (ADR D6).
   async listBranchInbox(): Promise<BranchRepo[]> {
-    return await listBranchInbox(this.tasks.map((task) => task.cwd))
+    return await listBranchInbox([...this.tasks.map((task) => task.cwd), ...this.workspaces.map((workspace) => workspace.cwd)])
   }
 
   async readBranchFile(cwd: string, branch: string, path: string): Promise<string> {
@@ -355,6 +363,58 @@ export class OrchestrationEngine extends EventEmitter {
     const skills = options?.cwd ? resolveSkills(await discoverSkills(options.cwd), this.settings.skills, options.skillIds) : []
     return buildProviderCommand(provider, '<working directory>', '<task prompt>', profile ?? this.settings.controlPlane, undefined, [], skills).args
   }
+
+  // ---- Workspace wiring (Phase 4) ----
+  // The minimum surface WorkspaceRuntime and CliParticipantRunner need, injected as
+  // plain accessors from index.ts rather than importing either class here — the
+  // dependency arrow stays out of engine.ts (ADR D10). No workspace business logic lives
+  // in these; each just exposes state/helpers this class already has for tasks.
+
+  loadedWorkspaces(): Workspace[] { return this.workspaces }
+
+  listProviders(): ProviderConfig[] { return this.settings.providers }
+
+  providerRuntime(providerId: string): ProviderRuntime | undefined { return this.runtimes.get(providerId) }
+
+  // Shares the exact same running/maxConcurrent pool tasks use (ADR D5): a workspace
+  // turn and a task compete for the same provider slot.
+  claimProviderSlot(providerId: string): boolean {
+    const provider = this.settings.providers.find((item) => item.id === providerId)
+    const runtime = this.runtimes.get(providerId)
+    if (!provider || !runtime || runtime.running >= provider.maxConcurrent) return false
+    runtime.running += 1
+    return true
+  }
+
+  releaseProviderSlot(providerId: string): void {
+    const runtime = this.runtimes.get(providerId)
+    if (runtime) runtime.running = Math.max(0, runtime.running - 1)
+  }
+
+  // Persists workspace state through the same JsonStore/persistAndEmit path task
+  // mutations use, so both get identical durability and the same snapshot broadcast.
+  persistWorkspaces(workspaces: Workspace[], view: WorkspaceView[]): void {
+    this.workspaces = workspaces
+    this.workspacesView = view
+    void this.persistAndEmit()
+  }
+
+  emitWorkspaceStream(event: WorkspaceStreamEvent): void {
+    this.emit('workspace-stream', event)
+  }
+
+  modelOwners(): ModelOwner[] { return this.settings.providers.map((provider) => this.modelOwner(provider)) }
+
+  async controlPlaneProfile(): Promise<ControlPlaneProfile> {
+    return this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
+  }
+
+  async resolveSkillsForCwd(cwd: string, skillIds?: string[]): Promise<ResolvedSkill[]> {
+    const catalog = await discoverSkills(cwd)
+    return resolveSkills(catalog, this.settings.skills, skillIds)
+  }
+
+  frontierMemory(): string { return this.settings.memory ?? '' }
 
   private async pump(): Promise<void> {
     if (this.pumping) return
@@ -916,7 +976,7 @@ export class OrchestrationEngine extends EventEmitter {
   // Never hand a provider a model id belonging to another CLI: Codex fails the
   // whole run on `claude-opus-5` rather than ignoring it.
   private withModel(provider: ProviderConfig, task: ProxyTask): ProviderConfig {
-    const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.settings.providers.map((item) => this.modelOwner(item)))
+    const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.modelOwners())
     return model === provider.model ? provider : { ...provider, model }
   }
 
@@ -932,9 +992,8 @@ export class OrchestrationEngine extends EventEmitter {
   // of the same tree so native discovery still finds it by name, while the
   // absolute paths this injects should point at the stable main checkout.
   private async activeRunProfile(task: ProxyTask): Promise<{ controlPlane: ControlPlaneProfile; skills: ResolvedSkill[] }> {
-    const controlPlane = this.mcpAuth ? await this.mcpAuth.profileWithAuth(this.settings.controlPlane) : this.settings.controlPlane
-    const catalog = await discoverSkills(task.cwd)
-    return { controlPlane, skills: resolveSkills(catalog, this.settings.skills, task.skillIds) }
+    const [controlPlane, skills] = await Promise.all([this.controlPlaneProfile(), this.resolveSkillsForCwd(task.cwd, task.skillIds)])
+    return { controlPlane, skills }
   }
 
   private applyUsage(runtime: ProviderRuntime, usage: UsageSample, task?: ProxyTask): void {
@@ -1035,7 +1094,7 @@ export class OrchestrationEngine extends EventEmitter {
       usage: runtime.usage,
       sessions: runtime.sessions ?? (runtime.session ? [runtime.session] : undefined)
     }]))
-    await this.store.save({ settings: this.settings, tasks: this.tasks.slice(0, 200), providerRuntime })
+    await this.store.save({ settings: this.settings, tasks: this.tasks.slice(0, 200), providerRuntime, workspaces: this.workspaces })
     this.emitSnapshot()
   }
 

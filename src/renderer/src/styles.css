@@ -551,7 +551,10 @@ h4.md-h, h5.md-h, h6.md-h { font-size: 12px; color: var(--muted); text-transform
 /* ---------- Dialogs ---------- */
 dialog { width: min(660px, calc(100vw - 40px)); border: 1px solid #343c36; border-radius: 12px; color: var(--text); background: #121513; padding: 0; box-shadow: 0 24px 100px #000; }
 dialog::backdrop { background: rgba(0,0,0,.69); backdrop-filter: blur(4px); }
-#task-form { padding: 22px; display: grid; gap: 16px; max-height: 86vh; overflow-y: auto; }
+/* The workspace dialogs share the task dialog's form layout. Without this they fell back
+   to `display: block` with no padding or gap, which collapsed every field against the
+   next and left the actions row flush with the dialog edge. */
+#task-form, #participant-form, #workspace-form { padding: 22px; display: grid; gap: 16px; max-height: 86vh; overflow-y: auto; }
 .dialog-header { display: flex; justify-content: space-between; align-items: start; padding-bottom: 4px; }
 .path-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

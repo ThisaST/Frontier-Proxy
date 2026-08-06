@@ -18,9 +18,41 @@ redoing.
 | P2 workspace runtime | engine-orchestration | ✅ done | `e8b1366` |
 | P4 IPC bridge + app wiring | engine-orchestration | ✅ done | `01c1dcb` |
 | P5 renderer view | renderer-ui | ✅ done | `f1de5a6` |
-| P6 Review integration + branch safety | engine-orchestration | ⏳ running | — |
-| P6b Review deep link from branch chip | renderer-ui | ⏳ running | — |
-| P7 test hardening + invariant review | test-author → invariant-reviewer | ⬜ pending | — |
+| P6b Review deep link from branch chip | renderer-ui | ✅ done | `4ce028c` |
+| P6 Review integration + branch safety | engine-orchestration | ✅ done | `b7c6243` |
+| P7 test hardening | test-author | ✅ done | `2bbe275` |
+| P7 invariant review | invariant-reviewer | ✅ passed | — |
+
+**P1–P7 are complete and committed.** 229 tests across 21 files, `pnpm typecheck` clean,
+`electron-vite build` succeeds. The invariant review found no hits on any hard invariant
+or any of the feature's own stated invariants (ADR D2, D4–D8), each verified in code.
+
+## Remaining: three low-severity review findings
+
+Not blockers — the feature is functional and green without them. Both agents assigned to
+these died on a session limit before writing anything, so the tree is clean and they can
+simply be re-run.
+
+1. **Break the renderer circular import** (`renderer-ui`). `src/renderer/src/main.ts`
+   imports from `./workspace`, and `workspace.ts` imports `openBranchInReview` back from
+   `./main`. It builds today only because every cross-reference sits inside an
+   event-handler closure — evaluation-order luck. Extract `openBranchInReview` plus the
+   `reviewSelection` / `reviewFilePath` state into a one-way `src/renderer/src/navigation.ts`
+   both import. Behaviour-neutral; verify all three Review deep links still work (home row,
+   bench-lane chip, workspace turn chip).
+2. **Add a D8 regression test** (`test-author`). No test proves control plane and skills
+   resolve from `workspace.cwd` rather than the per-turn worktree `input.cwd`. The code is
+   correct; the test is missing. Construct an input where the two paths genuinely differ,
+   capture the argument passed to `resolveSkills`, and assert it is the workspace cwd —
+   this is what a "pass `input.cwd` everywhere for consistency" refactor would break.
+3. **Add the promised `tests/branches.test.ts` case** (`test-author`). The P6 gate called
+   for a case asserting a `frontier/ws-…` branch passes the guard and a non-`frontier/`
+   name still throws. The guard is generically correct and covered, but the specific case
+   was never added.
+
+Informational, no action needed: the `run-commands` capability is modelled, editable, and
+shown as a roster chip, but no code path differentiates it from `read-repo` yet. It is not
+a shipped capability.
 
 P4 was reassigned from renderer-ui to engine-orchestration: the hard part turned out to
 be main-process construction, not the bridge.

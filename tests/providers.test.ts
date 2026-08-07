@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProviderCommand, discoverModels, resolveTaskModel, runProvider, type ModelOwner } from '../src/main/providers'
+import { buildProviderCommand, codexErrorMessage, discoverModels, modelRejectionError, parseCodexModels, resolveTaskModel, runProvider, type ModelOwner } from '../src/main/providers'
 import type { ControlPlaneProfile, ProviderConfig } from '../src/shared/types'
 
 function custom(args: string[]): ProviderConfig {
@@ -171,6 +171,53 @@ describe('local provider process adapter', () => {
     expect(models.filter((m) => m === 'claude-opus-4-8')).toHaveLength(1)
     // A custom provider with no known set falls back to just its configured model.
     expect(await discoverModels({ ...custom([]), model: 'my-local-model' })).toEqual(['my-local-model'])
+  })
+})
+
+describe('Codex model catalog', () => {
+  // Shape of `codex debug models` (trimmed; the real entries also carry the
+  // model's full base instructions).
+  const catalog = JSON.stringify({
+    models: [
+      { slug: 'gpt-5.6-terra', visibility: 'list', supported_in_api: true, priority: 2 },
+      { slug: 'gpt-5.6-sol', visibility: 'list', supported_in_api: true, priority: 1 },
+      { slug: 'gpt-5.6-sol-wm', visibility: 'hide', supported_in_api: false, priority: 1 },
+      { slug: 'codex-auto-review', visibility: 'hide', supported_in_api: true, priority: 43 },
+      { slug: 'gpt-5.5', visibility: 'list', supported_in_api: true, priority: 7 }
+    ]
+  })
+
+  it('offers only the listed models, most current first', () => {
+    expect(parseCodexModels(catalog)).toEqual(['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.5'])
+  })
+
+  it('ignores output it cannot read rather than inventing models', () => {
+    expect(parseCodexModels('')).toEqual([])
+    expect(parseCodexModels('error: unrecognized subcommand \'debug\'')).toEqual([])
+    expect(parseCodexModels('{"models":[{"visibility":"list"}]}')).toEqual([])
+    // Warnings printed ahead of the JSON must not defeat the parse.
+    expect(parseCodexModels(`warning: update available\n${catalog}`)).toContain('gpt-5.6-sol')
+  })
+})
+
+describe('rejected model reporting', () => {
+  const envelope = '{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-5-codex\' model is not supported when using Codex with a ChatGPT account."}}'
+
+  it('unwraps a JSON error envelope into its sentence', () => {
+    expect(codexErrorMessage(envelope)).toBe("The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.")
+    expect(codexErrorMessage('plain failure text')).toBe('plain failure text')
+    expect(codexErrorMessage('{not json')).toBe('{not json')
+  })
+
+  it('turns a rejected model into an actionable error naming the model', () => {
+    const message = modelRejectionError(envelope, 'gpt-5-codex')
+    expect(message).toContain('not supported when using Codex with a ChatGPT account')
+    expect(message).toContain('cannot run "gpt-5-codex"')
+    expect(message).not.toContain('invalid_request_error')
+  })
+
+  it('leaves unrelated failures alone', () => {
+    expect(modelRejectionError('error: file not found', 'gpt-5.6-sol')).toBeUndefined()
   })
 })
 

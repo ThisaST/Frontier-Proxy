@@ -1,6 +1,6 @@
 {
   "name": "frontier-proxy",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "description": "A local-first desktop router for Codex, Claude Code, and open-source coding agents.",
   "author": {

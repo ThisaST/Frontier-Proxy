@@ -113,6 +113,35 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
         promptPrefix: cp.promptPrefix,
         env: cp.env
       }
+    case 'antigravity': {
+      // Three behaviours verified against agy 1.1.10, each of which breaks the
+      // shape every other provider here uses:
+      //  1. It parses flags with Go's `flag` package: parsing stops at the first
+      //     non-flag argument and `-p` swallows the token after it. So every
+      //     flag must precede `-p`, the prompt is the last argv element, and the
+      //     `--flag=value` form is used throughout. agy never reads stdin, so
+      //     this is the one provider whose prompt cannot go there.
+      //  2. The process cwd is not the agent's workspace. Without --add-dir it
+      //     writes into ~/.gemini/antigravity-cli/scratch/ while still reporting
+      //     the correct cwd on its init event, so --add-dir is mandatory.
+      //  3. Only --dangerously-skip-permissions actually executes tools. Under
+      //     the default request-review mode — and under --mode=accept-edits,
+      //     which does not change permission_mode — every write is soft-denied
+      //     and the process still exits 0. Scoping it to the task cwd (plus
+      //     Frontier's existing worktree isolation) is what bounds it.
+      const resumeConversation = resumeSessionId ? [`--conversation=${resumeSessionId}`] : []
+      // promptInArgs skips the stdin write, so fold the shared context in here
+      // rather than returning it as promptPrefix (which would be dropped).
+      const promptText = cp.promptPrefix ? `${cp.promptPrefix}\n\n${prompt}` : prompt
+      return {
+        executable: provider.executable,
+        args: ['--output-format=stream-json', '--dangerously-skip-permissions', `--add-dir=${cwd}`,
+          ...resumeConversation, ...(provider.model ? [`--model=${provider.model}`] : []), ...cp.args, ...extra,
+          '-p', promptText],
+        promptInArgs: true,
+        env: cp.env
+      }
+    }
     case 'ollama':
       return { executable: provider.executable, args: ['run', provider.model || 'qwen3-coder', ...extra] }
     case 'custom':
@@ -202,12 +231,24 @@ function condense(text: string, limit = 140): string {
 }
 
 // The most meaningful string in a tool's input, for a one-line activity detail.
+// Antigravity names its parameters in PascalCase (TargetFile, CommandLine), so
+// an exact miss falls back to a case- and underscore-insensitive match.
+const TOOL_INPUT_KEYS = ['file_path', 'path', 'command', 'pattern', 'url', 'query', 'notebook_path', 'prompt', 'description']
+const TOOL_INPUT_ALIASES = new Set([...TOOL_INPUT_KEYS, 'targetfile', 'commandline', 'absolutepath', 'searchdirectory', 'directorypath', 'querytext'].map(normalizeKey))
+
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replaceAll('_', '')
+}
+
 function summarizeToolInput(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined
   const dict = input as Dict
-  for (const key of ['file_path', 'path', 'command', 'pattern', 'url', 'query', 'notebook_path', 'prompt', 'description']) {
+  for (const key of TOOL_INPUT_KEYS) {
     const value = dict[key]
     if (typeof value === 'string' && value.trim()) return condense(value, 120)
+  }
+  for (const [key, value] of Object.entries(dict)) {
+    if (TOOL_INPUT_ALIASES.has(normalizeKey(key)) && typeof value === 'string' && value.trim()) return condense(value, 120)
   }
   return undefined
 }
@@ -357,11 +398,77 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
   if (event.type === 'error' && typeof event.message === 'string') handlers.onText(`\n${event.message}\n`)
 }
 
+export interface AntigravityStreamState { streamedText: boolean; blocked?: string }
+
+// A soft-denied tool call. agy reports these inside a run that still exits 0
+// with status SUCCESS, so the message is the only evidence the work never
+// happened. Recorded and surfaced as a run failure by runProvider.
+const ANTIGRAVITY_DENIED = /denied permission|permission denied|requires (approval|permission)|not allowed/i
+
+// Normalized so recordFileChange sees the same labels Claude and Codex produce.
+const ANTIGRAVITY_FILE_TOOLS: Record<string, string> = {
+  write_to_file: 'Write', replace_file_content: 'Edit', multi_replace_file_content: 'Edit',
+  sed_file: 'Edit', notebook_edit: 'Edit'
+}
+
+// Parse one `agy --output-format=stream-json` line. Events are `{event: <name>,
+// <name>: {...}}`; assistant text arrives as `text_delta` on agent_response
+// steps, tool calls as `tool` steps repeated for each state transition.
+export function parseAntigravityLine(event: Dict, handlers: StreamHandlers, state: AntigravityStreamState): void {
+  const name = typeof event.event === 'string' ? event.event : ''
+  const body = (event[name] ?? {}) as Dict
+  const at = new Date().toISOString()
+
+  if (name === 'init') {
+    const conversation = text(event.conversation_id ?? body.conversation_id)
+    if (conversation) handlers.onSessionId?.(conversation)
+    const model = text(body.model)
+    if (model) handlers.onModel(canonicalModel(model))
+    return
+  }
+
+  if (name === 'step_update') {
+    const stepType = text(body.step_type)
+    const stepState = text(body.state)
+    if (stepType === 'agent_response') {
+      if (typeof body.text_delta === 'string' && body.text_delta) { state.streamedText = true; handlers.onText(body.text_delta) }
+      return
+    }
+    if (stepType !== 'tool') return
+    const info = (body.tool_info ?? {}) as Dict
+    const tool = text(body.tool_name) ?? text(info.name) ?? 'Tool'
+    const label = ANTIGRAVITY_FILE_TOOLS[tool] ?? tool
+    if (stepState === 'ERROR') {
+      const message = text((info.error as Dict | undefined)?.message)
+      handlers.onActivity({ kind: 'tool', label: tool, detail: condense(message ?? 'failed', 120), at })
+      if (message && ANTIGRAVITY_DENIED.test(message)) state.blocked ??= message
+      return
+    }
+    // ACTIVE and DONE carry identical tool_info; report the call once.
+    if (stepState === 'ACTIVE') handlers.onActivity({ kind: 'tool', label, detail: summarizeToolInput(info.parameters), at })
+    return
+  }
+
+  if (name === 'result') {
+    const usage = body.usage as Dict | undefined
+    if (usage) {
+      const input = finiteNumber(usage.input_tokens) ?? 0
+      const output = finiteNumber(usage.output_tokens) ?? 0
+      handlers.onUsage?.({ inputTokens: input, outputTokens: output, costUsd: 0 })
+      // agy reports no context window, so the engine pairs this occupancy with
+      // the provider's configured one and labels it an estimate.
+      handlers.onContext?.({ tokens: input + output, window: undefined })
+    }
+    const response = text(body.response)
+    if (response && !state.streamedText) handlers.onText(response)
+  }
+}
+
 function consumeJsonLines(
   process: ChildProcessWithoutNullStreams,
   provider: ProviderConfig,
   handlers: StreamHandlers
-): { getOutput: () => string; getRawError: () => string; getModel: () => string | undefined; getUsage: () => UsageSample | undefined; getSession: () => SessionInfo | undefined; getSessionId: () => string | undefined } {
+): { getOutput: () => string; getRawError: () => string; getModel: () => string | undefined; getUsage: () => UsageSample | undefined; getSession: () => SessionInfo | undefined; getSessionId: () => string | undefined; getBlocked: () => string | undefined } {
   let pending = ''
   let output = ''
   let rawError = ''
@@ -370,6 +477,7 @@ function consumeJsonLines(
   let session: SessionInfo | undefined
   let sessionId: string | undefined
   const state: ClaudeStreamState = { streamedText: false, thinking: '', contextOutputTokens: 0 }
+  const antigravity: AntigravityStreamState = { streamedText: false }
   const textHandlers: StreamHandlers = {
     onText: (text) => { output += text; handlers.onText(text) },
     onModel: (value) => { model = value; handlers.onModel(value) },
@@ -395,6 +503,7 @@ function consumeJsonLines(
       try {
         const event = JSON.parse(line) as Dict
         if (provider.kind === 'claude') parseClaudeLine(event, textHandlers, state)
+        else if (provider.kind === 'antigravity') parseAntigravityLine(event, textHandlers, antigravity)
         else parseCodexLine(event, textHandlers)
       } catch {
         rawError += `${line}\n`
@@ -409,7 +518,8 @@ function consumeJsonLines(
     getModel: () => model,
     getUsage: () => usage,
     getSession: () => session,
-    getSessionId: () => sessionId
+    getSessionId: () => sessionId,
+    getBlocked: () => antigravity.blocked
   }
 }
 
@@ -459,7 +569,11 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
       const usage = collected.getUsage()
       const session = collected.getSession()
       const sessionId = collected.getSessionId()
+      const blocked = collected.getBlocked()
       if (options.signal.aborted || signal) resolve({ ok: false, output, error: 'Task cancelled.', failureKind: 'cancelled', model, usage, session, sessionId })
+      // A soft-denied tool call exits 0. Trusting the exit code would record a
+      // completed task that changed nothing, so the denial fails the run.
+      else if (code === 0 && blocked) resolve({ ok: false, output, error: `Provider denied a tool call: ${blocked}`, failureKind: 'failed', model, usage, session, sessionId })
       else if (code === 0) resolve({ ok: true, output, model, usage, session, sessionId })
       else {
         const haystack = `${error}\n${output}`
@@ -523,7 +637,10 @@ const KNOWN_MODELS: Partial<Record<ProviderConfig['kind'], string[]>> = {
   // picker would hand most users a model that always fails.
   claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-5'],
   codex: ['gpt-5-codex', 'gpt-5', 'o4-mini'],
-  copilot: ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'o3']
+  copilot: ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'o3'],
+  // Antigravity has real discovery via `agy models`; this is only the fallback
+  // for matching a model id before discovery has run. Observed on agy 1.1.10.
+  antigravity: ['gemini-3.6-flash-high', 'gemini-3.6-flash-medium', 'gemini-3.6-flash-low', 'gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'claude-sonnet-4-6', 'claude-opus-4-6-thinking', 'gpt-oss-120b-medium']
 }
 
 // The identity a model id can be matched against: what a provider is configured
@@ -573,13 +690,25 @@ function parseOllamaModels(output: string): string[] {
     .filter((name) => name && name.toUpperCase() !== 'NAME')
 }
 
+// Parse `agy models` — one bare model id per line, no header. Ids never contain
+// whitespace, so anything that does is a banner or warning line.
+function parseAntigravityModels(output: string): string[] {
+  return output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !/\s/.test(line))
+}
+
 // Models this provider can run. Real discovery for Ollama-backed providers
-// (`ollama list`); a curated known set for the subscription CLIs. The provider's
-// own configured model is always included so it appears selectable.
+// (`ollama list`) and Antigravity (`agy models`); a curated known set for the
+// subscription CLIs that have no headless listing. The provider's own
+// configured model is always included so it appears selectable.
 export async function discoverModels(provider: ProviderConfig): Promise<string[]> {
   const set = new Set<string>()
   if (provider.model?.trim()) set.add(provider.model.trim())
-  if (provider.kind === 'ollama') {
+  if (provider.kind === 'antigravity') {
+    // Unlike `ollama list`, an empty result here means the CLI failed rather
+    // than that nothing is installed — fall back to the known set.
+    const discovered = parseAntigravityModels(await captureCommand(provider.executable, ['models']))
+    for (const name of discovered.length ? discovered : KNOWN_MODELS.antigravity ?? []) set.add(name)
+  } else if (provider.kind === 'ollama') {
     for (const name of parseOllamaModels(await captureCommand(provider.executable, ['list']))) set.add(name)
   } else if (provider.kind === 'codex-oss') {
     for (const name of parseOllamaModels(await captureCommand('ollama', ['list']))) set.add(name)

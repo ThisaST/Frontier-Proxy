@@ -1,4 +1,4 @@
-export type ProviderKind = 'codex' | 'claude' | 'copilot' | 'codex-oss' | 'ollama' | 'custom'
+export type ProviderKind = 'codex' | 'claude' | 'copilot' | 'antigravity' | 'codex-oss' | 'ollama' | 'custom'
 export type RoutingMode = 'balanced' | 'quality' | 'saver'
 export type TaskType = 'coding' | 'debugging' | 'review' | 'planning' | 'documentation' | 'general'
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'

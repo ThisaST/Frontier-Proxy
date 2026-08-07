@@ -63,8 +63,8 @@ let taskSkillsDebounce: number | undefined
 
 // Kinds whose CLI can be handed a skill selection at all (ollama/custom never
 // see the control plane, so they never see skills either).
-const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss'] as const
-const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama' }
+const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss', 'antigravity'] as const
+const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama', antigravity: 'Antigravity' }
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const taskDialog = byId<HTMLDialogElement>('task-dialog')
@@ -1359,13 +1359,16 @@ function renderProviders(): void {
       form.append(field('GitHub MCP toolsets', copilotToolsets, true), field('Individual GitHub MCP tools', copilotTools, true), allToolsRow, help)
     }
 
-    const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind)
+    const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss', 'antigravity'].includes(provider.kind)
     let cpToggle: HTMLInputElement | undefined
     if (cpCapable) {
       cpToggle = document.createElement('input'); cpToggle.type = 'checkbox'; cpToggle.checked = provider.useControlPlane !== false
       const row = document.createElement('label'); row.className = 'checkbox-row wide'
       row.append(cpToggle, ' Apply shared Context & Tools profile')
       form.append(row)
+      if (provider.kind === 'antigravity') {
+        form.append(element('p', 'field-help wide', 'The Antigravity CLI has no per-run MCP or tool allow/deny flags, so only extra directories and the shared prompt are applied. MCP servers are not injected — configure them in Antigravity itself.'))
+      }
     }
 
     const footer = element('div', 'provider-card-footer')

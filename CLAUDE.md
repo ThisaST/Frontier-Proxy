@@ -6,12 +6,13 @@ Guidance for working in this repository.
 
 Frontier Proxy is a **local-first desktop orchestrator** (Electron) that routes coding
 tasks to **CLI agents already installed and authenticated on the user's machine** —
-Codex CLI, Claude Code, GitHub Copilot CLI, and Ollama-backed models.
+Codex CLI, Claude Code, GitHub Copilot CLI, Google's Antigravity CLI (`agy`), and
+Ollama-backed models.
 
 **Core principle — no API keys, ever.** The app does **not** call model APIs and does
 **not** hold API keys of its own. Authentication is entirely delegated to each CLI's own
-login/subscription session (`codex` login, `claude` login, `copilot login`, local
-`ollama`). When Frontier runs a provider it spawns that CLI in non-interactive mode and
+login/subscription session (`codex` login, `claude` login, `copilot login`, `agy`'s
+Google-account handshake, local `ollama`). When Frontier runs a provider it spawns that CLI in non-interactive mode and
 the CLI reuses its existing on-disk session.
 
 Do **not** add `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / token entry fields to providers.
@@ -51,6 +52,10 @@ unit-tested function (`tests/controlplane.test.ts`). Per CLI:
   `--add-dir`; it has no system-prompt flag, so the shared prompt is folded into the
   stdin prompt via `promptPrefix`. Copilot receives its required `tools: ["*"]` field
   and each enabled server name is added to `--allow-tool` for headless execution.
+- **Antigravity**: `--add-dir` only. It has no per-run MCP, tool allow/deny, or
+  system-prompt flag, so MCP servers are **not** injected and the shared prompt plus
+  skills catalog go through `promptPrefix` (folded into the `-p` argument, since agy
+  does not read stdin). See its gotcha below.
 - **Codex / Codex + Ollama**: stdio and Streamable HTTP MCP servers are supplied as
   per-invocation `-c 'mcp_servers.<name>={...}'` overrides; the shared system prompt
   and MCP session notice are supplied through Codex's native per-invocation
@@ -89,6 +94,13 @@ badge and a live "how it's working" feed like Claude Code.
 - **Codex** (`parseCodexLine`): best-effort — `command_execution` / `file_change` /
   `mcp_tool_call` / `reasoning` become activity; `agent_message` is text. Untested
   live (Codex not installed here).
+- **Antigravity** (`parseAntigravityLine`, unit-tested in `tests/antigravity.test.ts`):
+  events are `{event: <name>, <name>: {…}}`. `init` carries the model and the
+  `conversation_id` (→ `task.sessionId`, resumed with `--conversation=<id>`); text streams as
+  `text_delta` on `agent_response` steps; `tool` steps repeat identical `tool_info` for each
+  state transition, so only `ACTIVE` is reported; file-writing tool names are normalized to
+  `Write`/`Edit` so `recordFileChange` works unchanged. A `state: "ERROR"` step whose message
+  is a permission denial fails the run (see the gotcha below).
 - **Copilot / Ollama / custom**: raw text passthrough; `task.model` falls back to the
   provider's configured model.
 
@@ -153,13 +165,14 @@ Claude has a verified per-run lever:
   - `--disallowedTools Skill(<name>)` **blocks invocation**. Forcing the call under this flag
     fails with a permission error; the identical prompt without it succeeds. This is what
     makes a disabled skill actually disabled, so never drop the deny side as redundant.
-- **Copilot / Codex** — no per-run skill flag exists, so `Skill(...)` is **never** emitted into
-  their args. They get the enabled skills' name, description, and absolute `SKILL.md` path
+- **Copilot / Codex / Antigravity** — no per-run skill flag exists, so `Skill(...)` is **never**
+  emitted into their args. They get the enabled skills' name, description, and absolute `SKILL.md` path
   through the existing prompt seams (`promptPrefix` / `developer_instructions`), plus a
   "do not use" clause for disabled ones. **That exclusion is advisory and unenforceable** —
   the UI must label it best-effort, never imply a guarantee.
 - A skill is *ambient* for a CLI when none of its sources is native to it; those get the root
-  `--add-dir`'d (Copilot and Claude; Codex has no such flag) so the agent can read the file.
+  `--add-dir`'d (Copilot, Claude and Antigravity; Codex has no such flag) so the agent can read
+  the file. No scanned root is native to Antigravity, so every skill is ambient for it.
   The cited path always prefers a source that CLI can actually reach.
 
 `AppSettings.skills` persists a **disabled**-set, not an enabled-set: a new skill is on by
@@ -296,6 +309,10 @@ the engine, the router and the renderer so the three cannot drift apart):
 - **Codex** carries real percentages on its `token_count` events (`rate_limits.{primary,
   secondary}` → `used_percent`, `window_minutes`, `resets_in_seconds`); windows are named from
   their length. Best-effort, like the rest of the Codex parse.
+- **Antigravity** streams real token counts per step and cumulatively on `result`, but exposes
+  no plan/quota window at all (`/usage` is interactive-only), so it reports no session windows.
+  It reports no context window either, so the engine pairs its occupancy with the provider's
+  configured one and marks `contextSource = "estimated"`, exactly as for Codex.
 - **Copilot / Ollama** stream no JSON, so they legitimately report nothing.
 
 A window whose reset time has passed is **dropped**, not held at a stale percentage — on load,
@@ -317,6 +334,8 @@ provider can run and `checkProviders` stores the result on `runtime.models`:
 
 - **Ollama / Codex-OSS**: real discovery — parses `ollama list` (first column of the
   table, header dropped) for locally-pulled models.
+- **Antigravity**: real discovery — `agy models` prints bare ids, one per line, no header.
+  `KNOWN_MODELS.antigravity` is only the fallback when that command fails.
 - **Claude / Codex / Copilot**: a **curated** `KNOWN_MODELS` set — these CLIs have no
   headless "list models" command, so we ship sensible defaults.
 - The provider's own configured `model` is always folded in and the set de-duplicated.
@@ -343,8 +362,45 @@ first without making it the only option.
 - **codex-oss**: adds `--oss --local-provider ollama`
 - **claude**: `claude -p --output-format stream-json --permission-mode acceptEdits …`
 - **copilot**: `copilot -s --no-ask-user --allow-tool=<safe set> …` (non-interactive silent mode)
+- **antigravity**: `agy --output-format=stream-json --dangerously-skip-permissions --add-dir=<cwd> … -p <prompt>`
 - **ollama**: `ollama run <model>` (no agent tools; review/planning/docs/general only)
 - **custom**: user-defined argv; supports `{prompt}` `{cwd}` `{model}` placeholders
+
+## Known gotcha: Antigravity (`agy`) headless behaviour
+
+Three behaviours verified against agy 1.1.10. Each one breaks an assumption that
+holds for every other provider, and all three are load-bearing in
+`buildProviderCommand` — do not "clean them up".
+
+1. **Flags must precede `-p`, and the prompt is the last argv element.** agy uses
+   Go's `flag` package: parsing stops at the first non-flag argument, and `-p`
+   swallows whatever token follows it. `agy -p --output-format=stream-json "…"`
+   silently sends `--output-format=stream-json` *as the prompt*. **agy never
+   reads stdin**, so this is the one provider whose prompt cannot go there — the
+   repo-wide stdin rule does not apply to it. `shell: false` still holds, so
+   argv is not an injection surface.
+2. **The process cwd is not the agent's workspace.** Without `--add-dir=<cwd>` it
+   writes into `~/.gemini/antigravity-cli/scratch/` while still reporting the
+   correct cwd on its `init` event.
+3. **Only `--dangerously-skip-permissions` executes tools, and a denial is
+   silent.** The default `request-review` mode — and `--mode=accept-edits`, which
+   does *not* change `permission_mode` — soft-denies every write while the
+   process **still exits 0 with `status: "SUCCESS"`**. The denial appears only as
+   a `step_update` with `state: "ERROR"` and a permission message. `runProvider`
+   therefore fails a run on a recorded denial regardless of exit code; without
+   that, Frontier would mark a task complete that changed nothing.
+
+Its control-plane ceiling is `--add-dir`: agy has **no** per-run MCP flag, no
+tool allow/deny flags and no system-prompt flag. Those live in
+`~/.gemini/antigravity-cli/settings.json`, which Frontier must not write, so
+shared MCP servers are deliberately **not** injected and the shared prompt and
+skills catalog ride in the prompt text (as with Copilot). The provider card says
+so rather than implying the profile fully applies.
+
+`agy models` is real discovery (bare ids, one per line, no header), so
+Antigravity uses it instead of `KNOWN_MODELS`; the curated list is only a
+fallback for id matching before discovery runs. Auth is a Google-account
+handshake with no API key, so it fits the no-keys principle unchanged.
 
 ## Known gotcha: GitHub Copilot headless auth
 
@@ -420,4 +476,5 @@ Proxy instance and delete `release/win-unpacked*`, then re-run.
 
 - Keep the renderer free of Node APIs; go through the preload bridge.
 - Never launch a provider through a shell; keep `shell: false` and pass the prompt on stdin.
+  The one exception is Antigravity, whose CLI does not read stdin — see its gotcha above.
 - Match the existing terse, single-line-where-practical TS style in this repo.

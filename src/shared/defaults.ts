@@ -34,6 +34,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
     },
     {
+      id: 'antigravity', name: 'Antigravity', kind: 'antigravity', enabled: true, executable: 'agy',
+      priority: 72, maxConcurrent: 1,
+      // agy reports per-run token counts but never its model's window, so pair
+      // the occupancy with a Gemini-3-family default (~1M) as an estimate.
+      contextWindow: 1_000_000,
+      capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
+    },
+    {
       id: 'codex-ollama', name: 'Codex + Ollama', kind: 'codex-oss', enabled: false, executable: 'codex',
       model: 'qwen3-coder', priority: 65, maxConcurrent: 1,
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']

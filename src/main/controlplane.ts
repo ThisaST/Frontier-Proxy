@@ -303,6 +303,19 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       // Copilot has no system-prompt flag; fold context into the prompt text.
       return withEnvironment({ args, promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('copilot', profile), skillsSessionContext('copilot', [...nativeEnabled, ...ambientEnabled], disabled)) })
     }
+    case 'antigravity': {
+      // agy 1.1.10 exposes exactly one control-plane lever: --add-dir. It has
+      // no per-run MCP flag, no tool allow/deny flags and no system-prompt flag
+      // — those live in ~/.gemini/antigravity-cli/settings.json, which Frontier
+      // must not write. So the shared MCP servers are deliberately *not*
+      // injected (claiming otherwise in the preview would be a lie), and the
+      // shared prompt plus the skills catalog go through the prompt text, as
+      // they do for Copilot.
+      const { nativeEnabled, ambientEnabled, disabled } = skillsForKind('antigravity', skills)
+      const args: string[] = []
+      for (const dir of [...new Set([...addDirs, ...skillRootDirs(ambientEnabled)])]) args.push(`--add-dir=${dir}`)
+      return { args, promptPrefix: joinPromptContext(systemPrompt, skillsSessionContext('antigravity', [...nativeEnabled, ...ambientEnabled], disabled)) }
+    }
     case 'codex':
     case 'codex-oss': {
       // Tool scope is governed by Codex's sandbox mode. Shared MCP servers are

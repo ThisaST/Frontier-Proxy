@@ -32,6 +32,10 @@ with that provider's own CLI (e.g. `copilot login`), not to inject a key from th
 5. On quota/rate-limit/unavailable failures it cools that provider down and fails over to
    the next. A normal agent failure stops the task (rerunning partial edits is unsafe).
 
+That is the **task** shape. There is a second one — a **workspace**, where you `@mention`
+named participants in a long-lived per-repo thread and nothing is routed or failed over.
+It is a separate domain model on purpose; see *Collaborative workspaces* below.
+
 ## Control plane — Context & Tools (central config)
 
 Frontier owns one CLI-agnostic profile (`AppSettings.controlPlane`, type
@@ -209,10 +213,88 @@ concurrently. `task.output` is a factual scoreboard built from what happened (`b
 not another model call. The UI renders lanes as side-by-side columns instead of a transcript,
 and hides the follow-up composer (a comparison has no single conversation to continue).
 
+## Collaborative workspaces (`src/main/workspace.ts`, ADR 0001)
+
+A **workspace** is the second conversation shape alongside `ProxyTask`: one repo, one
+long-lived thread, and several named agent participants sitting in it next to you —
+Slack for engineering. You address a participant by `@handle`; **only addressed
+participants run**. There is no routing and no failover here, because a message is
+addressed to a *named identity*, not to "whichever agent is free".
+
+Design and rationale live in [`docs/adr/0001-collaborative-workspaces.md`](docs/adr/0001-collaborative-workspaces.md);
+the decision ids (D1–D10) referenced in the source comments are that document's.
+
+- **Domain model** (`src/shared/types.ts`, additive) — `Workspace { participants, messages,
+  turns, cwd, nextSeq }`. Messages are one flat log with a monotonic `seq`; a
+  `WorkspaceTurn` (one participant's run for one trigger message) is stored **beside** the
+  log, not inside a message, so a retry appends a turn without mutating history.
+  `PersistedState.workspaces` defaults to `[]`, so pre-workspace `frontier-state.json`
+  files load unchanged; `running` turns are reconciled on load like tasks.
+- **Participants, not provider kinds** (D2) — the snapshot exposes `ParticipantView =
+  WorkspaceParticipant & { available, unavailableReason }`, computed in the main process
+  from `ProviderRuntime` (disabled / not configured / CLI not detected / cooling down /
+  plan limit reached). **No `provider.kind` branching may appear under
+  `src/renderer/`** — adding a sixth provider kind must not touch the workspace UI. A
+  participant's `model` is only ever handed to its own `providerId`, enforced by
+  `resolveParticipantModel` (pure, unit-tested) reusing `resolveTaskModel`.
+- **Mentions are the only dispatch mechanism** (D3) — `parseMentions` in
+  `src/shared/mentions.ts` is pure and shared by the renderer's autocomplete and the
+  main-process dispatcher so the two cannot drift. Mentions inside fenced/inline code are
+  examples, not addresses. No mention → the message is logged and nobody runs. An
+  unknown or unreachable handle produces a **system message in the thread naming the
+  reason**, never a silent drop. `@here`/`@all` are deliberately not implemented — fan-out
+  to every agent is a quota event.
+- **Agent replies never re-dispatch** (D4) — `postMessage` is the only entry point that can
+  spawn turns, and `appendAgentMessage` never calls `dispatch`. An `@mention` inside an
+  agent's reply renders as a chip and starts nothing; without this, two participants that
+  mention each other burn the subscription.
+- **Parallel, independent fan-out** (D5) — every addressed participant starts at once and
+  sees the identical thread prefix (`seq <= trigger.seq`); none see each other's replies.
+  `dispatch` takes a `DispatchStrategy` so a future `sequential` mode drops in without
+  touching the message model. Turns claim slots from the **same** per-provider
+  `running`/`maxConcurrent` pool tasks use, and a busy provider makes the turn *wait*
+  (`awaitSlot`) rather than fail — the `awaitSubtaskProvider` lesson again.
+- **Per-turn worktree isolation** (D6) — a participant with the `edit-files` capability
+  runs in its own worktree off HEAD on `frontier/ws-<workspaceSlug>/<seq>-<handle>`
+  (retries get `-<attempt>` appended, or they would collide with the original), commits to
+  that branch (`turn.branch`/`turn.committed`), and the worktree is torn down. Unlike
+  orchestrate/bench, a worktree that cannot be created **fails the turn** instead of
+  silently falling back to the working tree — the UI promises branch isolation, so a
+  silent fallback is a broken promise. Don't "fix" this back to a fallback.
+  **Accepted risk, state it plainly in UI copy**: `capabilities` governs *isolation*, not
+  *enforcement* — `acceptEdits`/`workspace-write` still let a non-`edit-files` participant
+  write, it just writes in the shared cwd. Label `edit-files` as "works on an isolated
+  branch", never as a permission. (`run-commands` is modelled and editable but no code path
+  differentiates it from `read-repo` yet.)
+- **Transcript context, no session resume** (D7) — `buildParticipantPrompt`
+  (`src/main/participants.ts`, pure and unit-tested) builds a fresh prompt per turn:
+  workspace preamble (name, repo, roster with roles), the attributed thread
+  (`[@handle · role]`) trimmed from the head against a token budget but **always** keeping
+  the trigger, then "you are @handle, reply as yourself, answer only what you were asked".
+  Frontier memory is prepended. `--resume` is deliberately unused: a private CLI session
+  diverges from the shared log the moment another participant speaks.
+- **Control plane and skills are inherited** (D8) — resolved exactly as `activeRunProfile`
+  resolves them for a task, through `McpAuthManager.profileWithAuth` (a raw
+  `settings.controlPlane` read would skip OAuth header injection), and keyed on the
+  **workspace cwd, never the per-turn worktree path**. Per-participant MCP/skill sets are
+  out of scope.
+- **Separate stream channel** (D9) — `WorkspaceStreamEvent` on `frontier:workspace-stream`;
+  `StreamEvent`/`frontier:stream` are untouched so nothing in the task view can regress.
+- **Wiring, not edits to hot files** (D10) — `WorkspaceRuntime` gets provider access
+  through injected accessors (`WorkspaceRuntimeDeps`) instead of importing `engine.ts`, so
+  the dependency arrow never points inward and it is unit-testable with a fake runner.
+  `engine.ts` only holds the state (`persistWorkspaces`, `loadedWorkspaces`, slot
+  claim/release) and `src/main/index.ts` constructs the runtime and registers IPC. The
+  renderer view is its own file, `src/renderer/src/workspace.ts`.
+
+Tests: `tests/mentions.test.ts`, `tests/workspace.test.ts`, `tests/participants.test.ts`,
+`tests/workspace-e2e.test.ts` (lifecycle, persistence, concurrency).
+
 ## Branch review inbox (`src/main/branches.ts`)
 
-Split & delegate and bench runs leave `frontier/*` branches behind. The **Review** screen
-lists them per repo (`listBranchInbox` over the distinct task cwds) with each branch's
+Split & delegate, bench runs, and workspace writing-turns leave `frontier/*` branches
+behind. The **Review** screen lists them per repo (`listBranchInbox` over the distinct
+task **and workspace** cwds, de-duplicated) with each branch's
 commit subject, distance from HEAD, and per-file `+/-` counts measured from the merge base
 (`HEAD...branch`), then offers a diff view, **Merge**, and **Delete**.
 
@@ -375,10 +457,12 @@ because its CLI is logged out.
 
 ```
 src/main/       queue/engine, router, process adapters (providers), persistence, Electron main
+                workspace.ts + participants.ts hold the collaborative-workspace runtime
 src/preload/    narrow typed IPC bridge (contextIsolation, no Node in renderer)
-src/renderer/   desktop UI (vanilla TS + CSS)
-src/shared/     shared types, defaults, task classification
-tests/          routing, classification, persistence, process-safety
+src/renderer/   desktop UI (vanilla TS + CSS); src/workspace.ts is the workspace view
+src/shared/     shared types, defaults, task classification, mention parsing
+tests/          routing, classification, persistence, process-safety, workspaces
+docs/adr/       architecture decision records (0001 — collaborative workspaces)
 site/           Astro marketing + docs site, deployed to GitHub Pages
 ```
 

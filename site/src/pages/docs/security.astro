@@ -55,6 +55,12 @@ import { url } from "../../lib/site";
       committed, and use the <a href={url("docs/orchestration")}>Review screen</a> to inspect branch diffs before
       merging anything an agent produced.
     </p>
+    <p>
+      The same applies to <a href={url("docs/collaboration")}>workspace participants</a>. The
+      <strong>edit-files</strong> capability decides whether a participant gets its own branch, not whether it is
+      allowed to write — the modes above are in force for every run, so a participant without it is asked, not
+      prevented, to leave your files alone.
+    </p>
   </Callout>
 
   <h2>The desktop app itself</h2>

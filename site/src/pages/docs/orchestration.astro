@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import { url } from "../../lib/site";
 ---
 
 <Docs
@@ -82,7 +83,8 @@ import Callout from "../../components/Callout.astro";
 
   <h2>The Review inbox</h2>
   <p>
-    Delegated and benched runs leave <code>frontier/*</code> branches behind. The <strong>Review</strong> screen lists
+    Delegated runs, benched runs, and <a href={url("docs/collaboration")}>workspace</a> participants that write files
+    all leave <code>frontier/*</code> branches behind. The <strong>Review</strong> screen lists
     them per repository with each branch's commit subject, distance from HEAD, and per-file <code>+/-</code> counts
     measured from the merge base — then offers a diff view, <strong>Merge</strong>, and <strong>Delete</strong>.
   </p>

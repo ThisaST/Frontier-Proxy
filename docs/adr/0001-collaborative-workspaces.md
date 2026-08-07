@@ -1,9 +1,15 @@
 # ADR 0001 — Collaborative workspaces with AI participants
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented and shipped in v0.7.0 (PR #9)
 - **Date**: 2026-08-06
 - **Supersedes**: none
-- **Related**: `CLAUDE.md` (control plane, skills, worktree isolation, bench)
+- **Related**: `CLAUDE.md` (control plane, skills, worktree isolation, bench, collaborative
+  workspaces) · [build progress](../workspace-progress.md)
+
+Every decision below is implemented as written. Where the build diverged, it is recorded
+in *Corrections made during the build* in the progress file — the one to know is D6's
+worktree fallback: a workspace turn that cannot get an isolated branch **fails** instead of
+falling back to the shared working tree, unlike orchestrate/bench.
 
 ## Context
 

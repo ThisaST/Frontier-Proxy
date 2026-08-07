@@ -4,7 +4,7 @@ Resume file. If a session is interrupted, read this plus `git log --oneline main
 and continue at the first unchecked phase. Each phase is its own commit, so nothing needs
 redoing.
 
-- **Branch**: `feat/collaborative-workspaces`
+- **Branch**: `feat/collaborative-workspaces` — merged (PR #9), shipped in v0.7.0
 - **Design**: [ADR 0001](adr/0001-collaborative-workspaces.md) ·
   [wireframe](workspace-wireframe.md) · [plan](workspace-implementation-plan.md)
 - **Agents**: all implementation runs on sonnet, per the plan's phase assignments.
@@ -88,6 +88,17 @@ be main-process construction, not the bridge.
 - **Shared concurrency (P4).** Workspace turns claim slots from the same per-provider
   `runtimes` map tasks use, so a workspace turn and a task compete for one `maxConcurrent`
   slot rather than each getting a private pool.
+
+## Fixed after the merge
+
+- **Empty roster on restart** (`b762551`). The engine only populated `workspacesView` on a
+  mutation, so a saved workspace read as "No workspaces yet" until you changed something.
+  `src/main/index.ts` now publishes the loaded workspaces into the first snapshot.
+- **Participant roster moved into a dialog** (`eddbef9`), and both workspace dialogs were
+  given the task dialog's form layout (`e285c4d`).
+- **Handles derived from display names** (`7aff2cb`). Prefilling the participant editor with
+  `normalizeHandle("GitHub Copilot")` produced `github copilot`, which the same form then
+  rejected; `handleFromName` (in `src/shared/mentions.ts`) slugifies properly.
 
 ## Deferred, with reasons
 

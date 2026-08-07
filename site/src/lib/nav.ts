@@ -18,6 +18,7 @@ export const docsNav: NavGroup[] = [
       { label: "Routing & failover", href: url("docs/routing"), blurb: "How a provider is chosen and when work reroutes." },
       { label: "Context & Tools", href: url("docs/context-tools"), blurb: "One MCP and tool profile translated into every CLI's flags." },
       { label: "Orchestration & bench", href: url("docs/orchestration"), blurb: "Split work across agents, or race them head to head." },
+      { label: "Workspaces & participants", href: url("docs/collaboration"), blurb: "One thread per repo with named agents you address by @handle." },
       { label: "Task workspace", href: url("docs/workspace"), blurb: "Conversations, file changes, context meter, and usage." },
     ],
   },

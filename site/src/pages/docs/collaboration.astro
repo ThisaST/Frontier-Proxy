@@ -1,0 +1,165 @@
+---
+import Docs from "../../layouts/Docs.astro";
+import Callout from "../../components/Callout.astro";
+import { url, REPO_URL } from "../../lib/site";
+---
+
+<Docs
+  title="Workspaces & participants"
+  description="One long-lived conversation per repository with named agent participants you address by @handle — parallel replies, no routing, no failover, and a review branch for every writing turn."
+>
+  <p>
+    A <strong>workspace</strong> is the second conversation shape in Frontier, next to tasks. Where a task is one
+    prompt routed to whichever agent scores highest, a workspace is one repository, one long-lived thread, and the
+    agents you invite into it — each with a name, a role, and an <code>@handle</code>. You address them explicitly;
+    nothing is routed on your behalf.
+  </p>
+
+  <h2>Create a workspace</h2>
+  <ol class="steps">
+    <li>
+      <h4>Point it at a repository</h4>
+      <p class="muted">
+        Open <strong>Workspaces</strong> in the sidebar, choose <strong>＋</strong>, and give the workspace a name and
+        a folder. Every participant works in that folder.
+      </p>
+    </li>
+    <li>
+      <h4>Add participants</h4>
+      <p class="muted">
+        Each participant has a display name, a unique <code>@handle</code>, a free-text role such as "Backend
+        reviewer" or "Docs", the agent it runs on, an optional model for that agent, an avatar colour, and its
+        capabilities. You are in the roster too, as <code>@you</code>.
+      </p>
+    </li>
+    <li>
+      <h4>Talk to them</h4>
+      <p class="muted">
+        Type in the composer and press <code>@</code> to autocomplete a handle. Only the participants you mention
+        run — the rest of the roster just watches the thread.
+      </p>
+    </li>
+  </ol>
+
+  <h2>Mentions are the only way work starts</h2>
+  <ul class="ticks">
+    <li><strong>No mention, no run.</strong> The message is logged and nobody is spawned.</li>
+    <li>
+      <strong>Every mentioned participant starts at once</strong>, and each sees the same thread up to your message —
+      never each other's replies. Their answers land in the thread as they finish.
+    </li>
+    <li>
+      <strong>Mentions inside code are examples, not addresses.</strong> A handle in a fenced or inline code span
+      never dispatches anyone.
+    </li>
+    <li>
+      <strong>An agent's own <code>@mention</code> starts nothing.</strong> It renders as a chip. Agent-to-agent
+      conversation needs a turn budget and a stop condition, so it is deliberately not shipped.
+    </li>
+    <li>
+      <strong>An unreachable handle is answered, not ignored.</strong> A participant that is disabled, whose agent is
+      turned off, whose CLI is not detected, or that is cooling down after a usage limit produces a system message in
+      the thread naming the reason.
+    </li>
+  </ul>
+
+  <Callout title="No routing, and no failover — on purpose">
+    <p>
+      A workspace message is addressed to a <em>named identity</em>, not to "whichever agent is free". When
+      <code>@nova</code> hits a quota wall, that turn fails with its reason stated, exactly like a bench lane.
+      Rerouting the reply to another CLI would put words in someone else's mouth.
+    </p>
+  </Callout>
+
+  <h2>Capabilities and review branches</h2>
+  <p>
+    A participant marked <strong>edit-files</strong> runs in its own <code>git worktree</code> off HEAD on a branch
+    named <code>frontier/ws-&lt;workspace&gt;/&lt;seq&gt;-&lt;handle&gt;</code>, commits its changes there, and the
+    worktree is torn down. The reply carries a branch chip that opens the branch straight in the
+    <a href={url("docs/orchestration")}>Review</a> screen, where you can diff, merge, or delete it under the same
+    safety rules as delegated and benched work. Participants without the capability run in the workspace folder
+    itself.
+  </p>
+  <p>
+    If an isolated branch genuinely cannot be created, the turn <strong>fails</strong> rather than quietly writing to
+    your working tree — the interface promised isolation, so a silent fallback would be a broken promise. Retrying a
+    reply gets its own branch, so the original stays intact for comparison.
+  </p>
+
+  <Callout title="edit-files is isolation, not permission">
+    <p>
+      Frontier launches Claude Code in <code>acceptEdits</code> and Codex in <code>workspace-write</code> for every
+      run, so a participant without <strong>edit-files</strong> is <em>asked</em> not to modify files, not prevented
+      from doing so — it simply has no branch of its own and would write in the shared folder. Real per-participant
+      read-only enforcement needs per-run permission flags in the provider layer, which is not shipped.
+      <code>run-commands</code> is likewise a label today: no code path yet treats it differently from
+      <code>read-repo</code>.
+    </p>
+  </Callout>
+
+  <h2>What each participant is told</h2>
+  <p>
+    Every turn is built a fresh prompt — no CLI session is resumed, because a private session would diverge from the
+    shared thread the moment another participant speaks. The prompt contains:
+  </p>
+  <ul class="ticks">
+    <li>Your <a href={url("docs/workspace")}>Frontier memory</a> block, as persistent context.</li>
+    <li>The workspace name, repository path, and the full roster with each participant's role.</li>
+    <li>
+      The thread up to your message, attributed as <code>[@handle · role]</code>, trimmed from the oldest end against
+      a token budget — your triggering message is always kept, and an omission is marked.
+    </li>
+    <li>
+      A closing instruction: you are <code>@handle</code>, reply in your own voice, answer only what you were asked
+      because others were addressed separately, and don't roleplay as anyone else.
+    </li>
+  </ul>
+  <p>
+    Your <a href={url("docs/context-tools")}>Context &amp; Tools</a> profile and enabled skills apply to workspace
+    turns exactly as they do to tasks, resolved against the workspace folder. Per-participant MCP servers and skill
+    sets are not supported.
+  </p>
+
+  <h2>Running, cancelling, retrying</h2>
+  <p>
+    Workspace turns share the <em>same</em> per-provider concurrency limits as tasks — a workspace turn and a task
+    compete for one slot rather than each getting a private pool. A turn whose agent is busy waits for a slot instead
+    of failing. Each reply streams live with its model badge, tool-call activity, and the files it touched, and can be
+    cancelled while it runs or retried afterwards. A retry appends a new turn; the failed or cancelled original stays
+    visible.
+  </p>
+
+  <h2>Deliberately not in this version</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Not shipped</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>@here</code> / <code>@all</code></td>
+          <td class="muted">Fan-out to every agent in a repository is a quota event, and should be a deliberate decision.</td>
+        </tr>
+        <tr>
+          <td>Agents replying to each other</td>
+          <td class="muted">Without a turn budget and a stop condition, two participants that mention each other run until the subscription is gone.</td>
+        </tr>
+        <tr>
+          <td>Auto-routing an unaddressed message</td>
+          <td class="muted">A workspace is about named identities; picking one for you is the task shape's job.</td>
+        </tr>
+        <tr>
+          <td>More than one human</td>
+          <td class="muted">The model allows it, but there is no network layer — this is a local-first desktop app.</td>
+        </tr>
+        <tr>
+          <td>Threads or channels inside a workspace</td>
+          <td class="muted">One flat conversation per repository, for now.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    The full reasoning, including the alternatives that were rejected, is recorded in
+    <a href={`${REPO_URL}/blob/main/docs/adr/0001-collaborative-workspaces.md`}>ADR 0001</a>.
+  </p>
+</Docs>

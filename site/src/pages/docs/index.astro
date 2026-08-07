@@ -70,6 +70,15 @@ const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/do
     </li>
   </ol>
 
+  <h2>The other shape: workspaces</h2>
+  <p>
+    A task is routed. A <a href={url("docs/collaboration")}>workspace</a> is not: it is one long-lived conversation
+    per repository with named agent participants you address by <code>@handle</code>. Only the participants you
+    mention reply, they answer in parallel, and there is no failover — a message goes to a named identity, not to
+    whichever agent happens to be free. Everything else (your Context &amp; Tools profile, skills, memory, the Review
+    inbox, per-provider concurrency) is shared with tasks.
+  </p>
+
   <div class="arch" set:html={architecture} />
 
   <h2>What it deliberately is not</h2>

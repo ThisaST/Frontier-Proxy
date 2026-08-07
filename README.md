@@ -25,6 +25,7 @@ You still need at least one supported CLI installed and signed in — see [Provi
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
 - Streams provider output, keeps a local task history, supports cancellation, retries, and explicit provider switching between turns.
 - Opens each task in a dedicated workspace with its conversation, task-scoped context meter, route/activity history, and syntax-highlighted source and diff views for recorded file changes.
+- Hosts collaborative workspaces: one long-lived conversation per repository with named agent participants you address by `@handle`, answering in parallel, each writing participant on its own review branch.
 - Accepts image attachments by picker, paste, or drag-and-drop, and resolves `@` file/folder references from the task's selected working directory.
 - Provides a keyboard-first command palette for navigation, common actions, and task lookup (`⌘K` on macOS or `Ctrl+K` elsewhere).
 - Shows per-provider session usage, reset information, and the latest context-window occupancy.
@@ -139,6 +140,18 @@ Eligible providers must be enabled, detected, below their concurrency and option
 
 Only quota/unavailable failures automatically fail over. Intentional cancellation never triggers provider switching, and later messages remain pinned to the last provider unless the user changes the **Next provider** selector. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits. When a follow-up moves to another provider, Frontier replays the complete attributed conversation transcript—including partial or cancelled responses—to the replacement provider.
 
+## Workspaces
+
+A workspace is a second conversation shape next to tasks: one repository, one long-lived thread, and the agents you invite into it. Open **Workspaces** in the sidebar, create one against a repository folder, then add participants — each has a display name, a unique `@handle`, a free-text role such as "Backend reviewer", the agent (provider) it runs on, an optional model for that agent, and its capabilities.
+
+Addressing is explicit. Only participants you `@mention` run; a message with no mention is simply logged. Every mentioned participant starts at once and sees the same thread up to your message, not each other's replies. There is no routing and no failover: a participant that hits a quota wall, is turned off, or whose CLI is not detected produces a system message in the thread naming the reason, because rerouting the reply would put words in a named identity's mouth. Mentions inside code fences are treated as examples, and an `@mention` written by an agent renders as a chip without starting another run.
+
+Participants with the **edit-files** capability run in their own Git worktree on a `frontier/ws-…` branch off `HEAD`, commit there, and link that branch straight into the **Review** screen for diffing, merging, or deleting. Everyone else runs in the workspace folder itself. Note that this capability controls *isolation*, not permission: the underlying CLIs still run in their normal edit-capable modes, so a participant without it is asked, not prevented, to leave files alone.
+
+Each turn is built a fresh prompt containing the workspace roster, the attributed transcript, and Frontier memory, so no CLI session is resumed and the shared thread stays the single source of truth. Workspace turns share the same per-provider concurrency limits as tasks; a turn whose agent is busy waits for a slot. Individual replies can be cancelled or retried, and a retry appends a new turn rather than overwriting the original.
+
+Multiple humans, `@here` fan-out, agent-to-agent conversation, and auto-routing an unaddressed message are deliberately not implemented — see [ADR 0001](docs/adr/0001-collaborative-workspaces.md).
+
 ## Important boundaries
 
 - Frontier proxies **CLI processes**, not the private internals or UI automation of the Codex/Claude desktop apps. This is the stable local integration surface and still reuses the account sessions available to those CLIs.
@@ -163,8 +176,9 @@ State is stored in Electron's per-user application-data directory as `frontier-s
 src/main/       queue, router, process adapters, persistence, Electron main
 src/preload/    narrow typed IPC bridge
 src/renderer/   desktop user interface
-src/shared/     shared types, defaults, task classification
-tests/          routing, classification, persistence, process-safety tests
+src/shared/     shared types, defaults, task classification, mention parsing
+tests/          routing, classification, persistence, process-safety, workspace tests
+docs/adr/       architecture decision records
 site/           Astro marketing and documentation site (GitHub Pages)
 ```
 

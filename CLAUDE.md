@@ -317,9 +317,22 @@ provider can run and `checkProviders` stores the result on `runtime.models`:
 
 - **Ollama / Codex-OSS**: real discovery — parses `ollama list` (first column of the
   table, header dropped) for locally-pulled models.
-- **Claude / Codex / Copilot**: a **curated** `KNOWN_MODELS` set — these CLIs have no
-  headless "list models" command, so we ship sensible defaults.
+- **Codex**: real discovery — `codex debug models` renders the CLI's own model catalog as
+  JSON; `parseCodexModels` (pure, unit-tested) keeps the `visibility: "list"` slugs, ordered
+  by the catalog's `priority`. Hidden/internal entries are dropped. This must stay real: the
+  curated ids drifted out from under the ChatGPT-account backend, so the picker offered
+  `gpt-5-codex`/`o4-mini` and every task using them died on a 400 ("not supported when using
+  Codex with a ChatGPT account"). `KNOWN_MODELS.codex` survives only as the last-resort set
+  for a CLI too old to have `debug models`.
+- **Claude / Copilot**: a **curated** `KNOWN_MODELS` set — these CLIs have no headless
+  "list models" command, so we ship sensible defaults.
 - The provider's own configured `model` is always folded in and the set de-duplicated.
+
+A model the CLI or backend refuses is a *configuration* failure, not a capacity one:
+`modelRejectionError` rewrites it into a sentence naming the model and the fix, and the run
+stays a plain failure (failing over would silently run the task on an agent the user did not
+pick). `codexErrorMessage` unwraps Codex's verbatim `{"type":"error",…}` envelopes so the
+transcript shows the sentence instead of raw JSON.
 
 The **New Task** dialog's model field is a dropdown (`#task-model-select`) populated by
 `renderTaskModelOptions` from `runtime.models`, scoped to the chosen provider override

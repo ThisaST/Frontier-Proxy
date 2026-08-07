@@ -54,6 +54,21 @@ const QUOTA_PATTERN = /(rate.?limit|usage.?limit|request.?limit|premium requests
 // the common real-world failure. Matched only on a non-zero exit.
 const AUTH_PATTERN = /(not logged ?in|please run\s+\S{0,12}login|\blogin\b.{0,20}(required|expired)|unauthor(ised|ized)|authentication (failed|required|error)|no authentication|invalid api key|session (expired|has expired)|token (expired|has expired)|\b401\b|not authenticated)/i
 
+// A model id the CLI or its backend refuses (wrong CLI's id, a model the
+// account's plan does not serve, one that has been retired). This is a
+// configuration problem, not a capacity one: failing over would silently run
+// the task on an agent the user did not pick, so it stays a plain failure — but
+// it gets an error that names the fix instead of a raw 400 envelope.
+const MODEL_REJECTION_PATTERN = /(model[^.\n]{0,60}\b(is )?not supported|unsupported model|unknown model|model[ _]not[ _]found|invalid model|does not (support|have access to)[^.\n]{0,20}model)/i
+
+export function modelRejectionError(haystack: string, model: string | undefined): string | undefined {
+  const line = haystack.split(/\r?\n/).map((value) => codexErrorMessage(value.trim())).find((value) => MODEL_REJECTION_PATTERN.test(value))
+  if (!line && !MODEL_REJECTION_PATTERN.test(haystack)) return undefined
+  const detail = (line ?? '').replace(/\s+/g, ' ').trim()
+  const named = model ? ` Pick a different model for this agent (it cannot run "${model}").` : ' Pick a different model for this agent.'
+  return `${detail || 'The requested model was rejected.'}${named}`
+}
+
 const COPILOT_SAFE_TOOLS = 'write, shell(git:*), shell(npm:*), shell(npx:*), shell(pnpm:*), shell(yarn:*), shell(bun:*), shell(cargo:*), shell(go:*), shell(pytest:*)'
 
 function copilotGithubMcpArgs(provider: ProviderConfig): string[] {
@@ -354,7 +369,21 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
     else if (item?.type === 'mcp_tool_call') handlers.onActivity({ kind: 'tool', label: typeof item.tool === 'string' ? item.tool : 'MCP', detail: typeof item.server === 'string' ? item.server : undefined, at })
     else if (item?.type === 'reasoning' && typeof item.text === 'string') handlers.onActivity({ kind: 'thinking', label: 'Thinking', detail: condense(item.text), at })
   }
-  if (event.type === 'error' && typeof event.message === 'string') handlers.onText(`\n${event.message}\n`)
+  if (event.type === 'error' && typeof event.message === 'string') handlers.onText(`\n${codexErrorMessage(event.message)}\n`)
+}
+
+// Codex forwards backend failures verbatim, so its `error` event's message is
+// often a whole JSON envelope (`{"type":"error","status":400,"error":{…}}`).
+// Show the sentence inside it rather than dumping the envelope in the transcript.
+export function codexErrorMessage(message: string): string {
+  const text = message.trim()
+  if (!text.startsWith('{')) return message
+  try {
+    const parsed = JSON.parse(text) as Dict
+    const nested = parsed.error as Dict | string | undefined
+    const inner = typeof nested === 'string' ? nested : typeof nested?.message === 'string' ? nested.message : typeof parsed.message === 'string' ? parsed.message : undefined
+    return inner?.trim() || message
+  } catch { return message }
 }
 
 function consumeJsonLines(
@@ -467,7 +496,8 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
         // provider down and fails over to another logged-in CLI, instead of
         // stopping the whole task on a fixable login problem.
         const failureKind: RunFailureKind = QUOTA_PATTERN.test(haystack) ? 'quota' : AUTH_PATTERN.test(haystack) ? 'unavailable' : 'failed'
-        resolve({ ok: false, output, error: error || `Provider exited with code ${code}.`, failureKind, model, usage, session, sessionId })
+        const rejected = failureKind === 'failed' ? modelRejectionError(haystack, model ?? provider.model) : undefined
+        resolve({ ok: false, output, error: rejected || error || `Provider exited with code ${code}.`, failureKind, model, usage, session, sessionId })
       }
     })
 
@@ -522,7 +552,12 @@ const KNOWN_MODELS: Partial<Record<ProviderConfig['kind'], string[]>> = {
   // CLI knows the id but rejects it without usage credits, so offering it in the
   // picker would hand most users a model that always fails.
   claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-5'],
-  codex: ['gpt-5-codex', 'gpt-5', 'o4-mini'],
+  // Codex is discovered for real (`codex debug models`); this is only the
+  // last-resort set for a CLI too old to have that subcommand. It is
+  // deliberately tiny — a stale guess here hands the user a model the backend
+  // rejects outright ("not supported when using Codex with a ChatGPT account"),
+  // which fails the whole task.
+  codex: ['gpt-5-codex', 'gpt-5'],
   copilot: ['claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5', 'gpt-5-mini', 'o3']
 }
 
@@ -573,9 +608,28 @@ function parseOllamaModels(output: string): string[] {
     .filter((name) => name && name.toUpperCase() !== 'NAME')
 }
 
-// Models this provider can run. Real discovery for Ollama-backed providers
-// (`ollama list`); a curated known set for the subscription CLIs. The provider's
-// own configured model is always included so it appears selectable.
+interface CodexCatalogModel { slug?: unknown; visibility?: unknown; supported_in_api?: unknown; priority?: unknown }
+
+// Parse `codex debug models` (the CLI's own model catalog, as JSON) into the
+// slugs a user may actually pick. Only `visibility: "list"` entries are offered:
+// the catalog also carries internal/hidden models (`hide`) that the backend
+// refuses. Ordered by the catalog's own `priority` so the current flagship leads.
+export function parseCodexModels(output: string): string[] {
+  const start = output.indexOf('{')
+  if (start < 0) return []
+  let parsed: { models?: unknown }
+  try { parsed = JSON.parse(output.slice(start)) } catch { return [] }
+  const models = Array.isArray(parsed?.models) ? (parsed.models as CodexCatalogModel[]) : []
+  return models
+    .filter((model) => model.visibility === 'list' && model.supported_in_api !== false && typeof model.slug === 'string' && model.slug.trim())
+    .sort((a, b) => (typeof a.priority === 'number' ? a.priority : Number.MAX_SAFE_INTEGER) - (typeof b.priority === 'number' ? b.priority : Number.MAX_SAFE_INTEGER))
+    .map((model) => (model.slug as string).trim())
+}
+
+// Models this provider can run. Real discovery wherever the CLI can be asked:
+// `ollama list` for Ollama-backed providers, `codex debug models` for Codex.
+// The curated set is only a fallback for CLIs that cannot be asked at all. The
+// provider's own configured model is always included so it appears selectable.
 export async function discoverModels(provider: ProviderConfig): Promise<string[]> {
   const set = new Set<string>()
   if (provider.model?.trim()) set.add(provider.model.trim())
@@ -583,6 +637,9 @@ export async function discoverModels(provider: ProviderConfig): Promise<string[]
     for (const name of parseOllamaModels(await captureCommand(provider.executable, ['list']))) set.add(name)
   } else if (provider.kind === 'codex-oss') {
     for (const name of parseOllamaModels(await captureCommand('ollama', ['list']))) set.add(name)
+  } else if (provider.kind === 'codex') {
+    const discovered = parseCodexModels(await captureCommand(provider.executable, ['debug', 'models']))
+    for (const name of discovered.length ? discovered : KNOWN_MODELS.codex ?? []) set.add(name)
   } else {
     for (const name of KNOWN_MODELS[provider.kind] ?? []) set.add(name)
   }

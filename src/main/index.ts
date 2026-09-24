@@ -5,10 +5,11 @@ import { basename, extname, join } from 'node:path'
 import { OrchestrationEngine } from './engine'
 import { JsonStore } from './store'
 import { McpAuthManager } from './mcp-auth'
+import { AdvisorKeyManager } from './advisor'
 import { hydrateExecutablePath } from './env'
 import { WorkspaceRuntime } from './workspace'
 import { CliParticipantRunner } from './participants'
-import type { ChatContextItem, CreateTaskInput, ProviderPatch, ProxyTask, SelectedImage, WorkspaceParticipant } from '../shared/types'
+import type { AdvisorPreviewInput, ChatContextItem, CreateTaskInput, ProviderPatch, ProxyTask, SelectedImage, WorkspaceParticipant } from '../shared/types'
 
 let engine: OrchestrationEngine
 let workspaceRuntime: WorkspaceRuntime
@@ -122,6 +123,10 @@ function registerIpc(): void {
   ipcMain.handle('frontier:list-skills', (_event, cwd: string, refresh?: boolean) => engine.listSkills(cwd, refresh))
   ipcMain.handle('frontier:authenticate-mcp', (_event, serverId: string) => engine.authenticateMcpServer(serverId))
   ipcMain.handle('frontier:disconnect-mcp', (_event, serverId: string) => engine.disconnectMcpServer(serverId))
+  ipcMain.handle('advisor:set-key', (_event, key: string) => engine.setAdvisorKey(key))
+  ipcMain.handle('advisor:clear-key', () => engine.clearAdvisorKey())
+  ipcMain.handle('advisor:test', () => engine.testAdvisor())
+  ipcMain.handle('advisor:preview', (_event, input: AdvisorPreviewInput) => engine.previewAdvisor(input))
   ipcMain.handle('frontier:create-workspace', (_event, name: string, cwd: string) => {
     workspaceRuntime.createWorkspace(name, cwd)
     return engine.snapshot()
@@ -205,7 +210,17 @@ app.whenReady().then(async () => {
     },
     openExternal: async (url) => { await shell.openExternal(url) }
   })
-  engine = new OrchestrationEngine(store, mcpAuth)
+  const advisorKeys = new AdvisorKeyManager(join(userData, 'frontier-advisor.json'), {
+    encrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this system.')
+      return safeStorage.encryptString(value).toString('base64')
+    },
+    decrypt: (value) => {
+      if (!safeStorage.isEncryptionAvailable()) throw new Error('Secure credential storage is unavailable on this system.')
+      return safeStorage.decryptString(Buffer.from(value, 'base64'))
+    }
+  })
+  engine = new OrchestrationEngine(store, mcpAuth, advisorKeys)
   await engine.initialize()
   engine.on('snapshot', (snapshot) => broadcast('frontier:snapshot-changed', snapshot))
   engine.on('stream', (event) => broadcast('frontier:stream', event))

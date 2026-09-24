@@ -4,8 +4,20 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mergeSessionWindows, OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
+import { AdvisorKeyManager, JevClient } from '../src/main/advisor'
 import { freshDefaults } from '../src/shared/defaults'
-import type { ProviderConfig, ProxyTask } from '../src/shared/types'
+import type { AppSnapshot, ProviderConfig, ProxyTask } from '../src/shared/types'
+
+// Poll the engine snapshot until the task reaches a terminal state.
+async function waitForTask(engine: OrchestrationEngine, taskId: string, timeoutMs = 8_000): Promise<AppSnapshot['tasks'][number]> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const task = engine.snapshot().tasks.find((item) => item.id === taskId)
+    if (task && (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')) return task
+    if (Date.now() > deadline) throw new Error(`Task ${taskId} did not settle; last status: ${task?.status}`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
 
 describe('provider session windows', () => {
   it('retains different limits and updates only the matching window', () => {
@@ -152,5 +164,79 @@ describe('skill selection', () => {
 
     const snapshot = await engine.updateSettings({ skills: { disabledIds: ['skill-a', 'skill-a', 'skill-b'] } })
     expect(snapshot.settings.skills.disabledIds).toEqual(['skill-a', 'skill-b'])
+  })
+})
+
+function trivialCipher() {
+  return { encrypt: (value: string) => Buffer.from(value).toString('base64'), decrypt: (value: string) => Buffer.from(value, 'base64').toString('utf8') }
+}
+
+describe('Jev routing advisor', () => {
+  it('never blocks the queue: a task still completes on the heuristic fallback when the advisor call hangs', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    // JsonStore.load() always re-merges the built-in default providers by id
+    // (see tests/e2e.test.ts's makeEngine), so any actually-installed CLI on
+    // this machine (codex, claude, …) would otherwise outrank the fake one below.
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // A fetch that only ever settles when its AbortSignal fires — like a real
+    // network call that hangs until something else cancels it. Only
+    // JevClient's own per-attempt timeout can end this.
+    const hangingFetch = ((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+    })) as unknown as typeof fetch
+    const jevClient = new JevClient({ fetch: hangingFetch, timeoutMs: 30, retryDelayCapMs: 5 })
+
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient)
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    // Heuristic advice is set synchronously at creation, before Jev is ever asked.
+    expect(created.advice?.source).toBe('heuristic')
+
+    const finished = await waitForTask(engine, created.id)
+    expect(finished.status).toBe('completed')
+    // The advisor call timed out (bounded, never indefinite) and the task
+    // routed and ran on the heuristic fallback regardless.
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toContain('Jev did not respond in time.')
+  })
+
+  it('never asks Jev, and never blocks, when the advisor is off', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-off-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    let called = false
+    const fetchSpy = (async () => { called = true; throw new Error('should never be called') }) as unknown as typeof fetch
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchSpy }))
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    const finished = await waitForTask(engine, created.id)
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toBeUndefined()
+    expect(called).toBe(false)
   })
 })

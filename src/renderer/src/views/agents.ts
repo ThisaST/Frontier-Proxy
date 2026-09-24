@@ -1,9 +1,12 @@
 // Agents — the provider registry (config) and usage (quota/spend) tabs.
 import type { UsageDay } from '../../../shared/types'
 import { byId, element, field, textArea, textInput } from '../ui/dom'
+import { gaugeSeg, lamp, type Tone } from '../ui/components'
+import { setIconLabel } from '../ui/icons'
 import { reportError, showToast } from '../ui/feedback'
 import { countdown, formatArguments, formatCost, formatNumber, listValues, splitArguments } from '../ui/format'
 import { activeCooldown, providerCapacity, providerLimitReached, providerSessions, trackedTokens } from '../providers-view-model'
+import { providerLampTone } from './home'
 import { sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../../shared/sessions'
 import { snapshot } from '../state'
 
@@ -29,7 +32,7 @@ function renderProviders(): void {
       badge.title = auth.detail ?? (auth.state === 'logged-out' ? 'This CLI is installed but not signed in.' : '')
       identityText.append(badge)
     }
-    identity.append(element('span', `provider-dot ${provider.runtime.available ? 'online' : ''}`), identityText)
+    identity.append(lamp(providerLampTone(provider), providerCapacity(provider).label), identityText)
     const toggleLabel = document.createElement('label'); toggleLabel.className = 'switch'
     const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = provider.enabled
     toggleLabel.append(toggle, element('span', 'slider'))
@@ -83,7 +86,11 @@ function renderProviders(): void {
     }
 
     const footer = element('div', 'provider-card-footer')
-    const health = element('span', 'health-label', provider.runtime.available ? `● Ready · ${provider.runtime.version ?? 'detected'}` : provider.enabled ? '● Not detected' : '○ Disabled')
+    const health = element('span', 'health-label')
+    health.append(
+      lamp(provider.runtime.available ? 'phosphor' : 'muted', provider.runtime.available ? 'Ready' : 'Not ready'),
+      document.createTextNode(provider.runtime.available ? `Ready · ${provider.runtime.version ?? 'detected'}` : provider.enabled ? 'Not detected' : 'Disabled')
+    )
     const save = element('button', 'secondary-button', 'Save agent') as HTMLButtonElement
     save.addEventListener('click', async () => {
       save.setAttribute('disabled', '')
@@ -131,14 +138,11 @@ function usageStat(label: string, value: string): HTMLElement {
   return stat
 }
 
-function usageGauge(label: string, percent: number | undefined, detail: string, tone = ''): HTMLElement {
-  const node = element('div', `usage-gauge ${tone}`.trim())
+function usageGauge(label: string, percent: number | undefined, detail: string, tone: Tone = 'phosphor'): HTMLElement {
+  const node = element('div', 'usage-gauge')
   const head = element('div', 'usage-gauge-head')
-  head.append(element('span', undefined, label), element('strong', undefined, percent === undefined ? '—' : `${Math.round(percent)}%`))
-  const bar = element('div', 'usage-bar')
-  const fill = element('div', 'usage-bar-fill'); fill.style.width = `${Math.min(100, Math.max(0, percent ?? 0))}%`
-  bar.append(fill)
-  node.append(head, bar, element('div', 'usage-budget-label', detail))
+  head.append(element('span', undefined, label), element('strong', 'readout', percent === undefined ? '—' : `${Math.round(percent)}%`))
+  node.append(head, gaugeSeg(percent, tone, label), element('div', 'usage-budget-label', detail))
   return node
 }
 
@@ -151,7 +155,7 @@ function usageHistory(history: UsageDay[], todayUsage: UsageDay): HTMLElement | 
   if (days.length < 2 || peak <= 0) return undefined
   const section = element('div', 'usage-history')
   section.append(element('div', 'usage-section-label', `Tracked tokens · last ${days.length} day${days.length === 1 ? '' : 's'}`))
-  const chart = element('div', 'usage-history-chart')
+  const chart = element('div', 'usage-history-chart screen')
   days.forEach((day, index) => {
     const column = element('div', `usage-history-bar${index === days.length - 1 ? ' today' : ''}`)
     const fill = element('div', 'usage-history-fill')
@@ -193,7 +197,7 @@ export function renderUsage(): void {
     const card = element('article', `panel usage-card ${capacity.tone === 'limited' ? 'limited' : ''}`)
     const header = element('div', 'usage-card-header')
     const identity = element('div', 'usage-card-identity')
-    identity.append(element('span', `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`), element('h3', undefined, provider.name))
+    identity.append(lamp(providerLampTone(provider), capacity.label), element('h3', undefined, provider.name))
     header.append(identity, element('span', `capacity-badge ${capacity.tone}`, capacity.label))
 
     const stats = element('div', 'usage-stats')
@@ -224,17 +228,17 @@ export function renderUsage(): void {
         percent === undefined ? `${sessionWindowLabel(session)} window elapsed` : `${sessionWindowLabel(session)} limit used`,
         percent ?? elapsed,
         percent === undefined ? `${detail} · this CLI reports no usage percentage` : detail,
-        percent === undefined ? 'time' : percent >= 90 ? 'high' : ''
+        percent === undefined ? 'muted' : percent >= 90 ? (capacity.tone === 'limited' ? 'alarm' : 'caution') : 'phosphor'
       ))
     }
     if (provider.dailyTokenBudget) {
       const trackedPct = Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100)
-      gauges.append(usageGauge('Tracked daily budget', trackedPct, `${formatNumber(trackedTokens(provider))} / ${formatNumber(provider.dailyTokenBudget)} tracked tokens`, trackedPct >= 90 ? 'high' : ''))
+      gauges.append(usageGauge('Tracked daily budget', trackedPct, `${formatNumber(trackedTokens(provider))} / ${formatNumber(provider.dailyTokenBudget)} tracked tokens`, trackedPct >= 90 ? (capacity.tone === 'limited' ? 'alarm' : 'caution') : 'phosphor'))
     } else if (!sessions.length) {
       const cooldown = activeCooldown(provider)
       gauges.append(usageGauge('Session usage', cooldown ? 100 : undefined,
         cooldown ? `Automatic fallback active · retries in ${countdown(provider.runtime.cooldownUntil)}` : `${formatNumber(trackedTokens(provider))} tracked tokens · no plan limit reported`,
-        cooldown ? 'high' : ''))
+        cooldown ? 'alarm' : 'phosphor'))
     }
 
     const footer = element('div', 'usage-card-footer')
@@ -272,10 +276,10 @@ export function initAgentsView(): void {
     renderAgentsTab()
   }))
   byId('health-check').addEventListener('click', async () => {
-    const button = byId<HTMLButtonElement>('health-check'); button.disabled = true; button.textContent = 'Checking…'
+    const button = byId<HTMLButtonElement>('health-check'); button.disabled = true; setIconLabel(button, undefined, 'Checking…')
     try { await window.frontier.checkProviders(); showToast('Agent health refreshed') }
     catch (error) { reportError('Agent check failed', error) }
-    finally { button.disabled = false; button.textContent = '↻ Check agents' }
+    finally { button.disabled = false; setIconLabel(button, 'refresh', 'Check agents') }
   })
   byId('add-provider').addEventListener('click', async () => {
     try {

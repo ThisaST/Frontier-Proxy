@@ -4,12 +4,14 @@
 .settings-card h2, .explainer-card h2 { margin-bottom: 18px; }
 .settings-card label { margin-bottom: 14px; }
 .settings-card button { margin-top: 6px; justify-self: start; }
-.policy { display: grid; grid-template-columns: 110px 1fr; gap: 16px; border-top: 1px solid var(--line-soft); padding: 14px 0; font-size: 11px; line-height: 1.5; }
-.policy strong { color: #dfe5e0; }
-.policy span { color: var(--muted); }
+.settings-card .field-label { margin-top: 4px; }
+#appearance-theme { margin-bottom: 14px; }
+.policy { display: grid; grid-template-columns: 110px 1fr; gap: 16px; border-top: 1px solid var(--bezel); padding: 14px 0; font-size: 11px; line-height: 1.5; }
+.policy strong { color: var(--fg); }
+.policy span { color: var(--fg-muted); }
 .memory-card { grid-column: 1 / -1; }
 .memory-card label { margin-top: 8px; }
-.field-help { color: #6f7871; font-size: 9px; line-height: 1.45; margin: 8px 0 0; }
+.field-help { color: var(--fg-faint); font-size: 9px; line-height: 1.45; margin: 8px 0 0; }
 
 @media (max-width: 1120px) {
   .settings-grid { grid-template-columns: 1fr; }

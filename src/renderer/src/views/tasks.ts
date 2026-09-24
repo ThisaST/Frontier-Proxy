@@ -2,11 +2,13 @@
 // subtask/bench lanes, the Route tab, and the Files & changes tab.
 import type { ChatContextItem, ConversationTurn, ProxyTask, RoutingCandidate, SubTask, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../../shared/types'
 import { renderMarkdown } from '../markdown'
-import { byId, codeLine, element, emptyState, gauge, metaChip, renderDiffInto } from '../ui/dom'
+import { byId, codeLine, element, emptyState, metaChip, renderDiffInto } from '../ui/dom'
+import { gaugeSeg, probabilityBar } from '../ui/components'
+import { icon, type IconName } from '../ui/icons'
 import { errorMessage, reportError, showToast } from '../ui/feedback'
 import { baseName, formatCost, formatDuration, formatNumber, timeAgo } from '../ui/format'
 import { providerName, providerSelectableForTask } from '../providers-view-model'
-import { taskElapsed, taskIsBusy, taskKindLabel, taskTokens, verificationChip } from '../task-helpers'
+import { taskElapsed, taskIsBusy, taskKindLabel, taskStatusIndicator, taskTokens, verificationChip } from '../task-helpers'
 import { snapshot, selectedTaskId, setSelectedTaskId, currentView, surfaceTab, setSurfaceTab } from '../state'
 import { attachmentPreviewCache, composerDraft, messageContext, clearComposerDraft, renderDraftImages } from '../composer'
 import { persistControlPlaneDraft } from '../views/control'
@@ -79,7 +81,7 @@ export function renderTasks(): void {
       meta.append(element('span', 'tag-context', `${Math.round(percent)}% ctx`))
     }
     body.append(meta)
-    row.append(element('span', `task-state-dot ${task.status}`), body, element('span', 'task-time', timeAgo(task.createdAt)))
+    row.append(taskStatusIndicator(task.status), body, element('span', 'task-time', timeAgo(task.createdAt)))
     row.addEventListener('click', () => { setSelectedTaskId(task.id); setSurfaceTab('conversation'); renderTasks() })
     return row
   }))
@@ -104,7 +106,7 @@ function renderSurfaceMeta(task: ProxyTask): void {
     const chip = element('div', 'meta-chip context-meter')
     chip.append(element('span', 'meta-label', task.contextSource === 'estimated' ? 'Context (estimate)' : 'Context'))
     const row = element('div', 'context-row')
-    row.append(gauge(percent, percent >= 80 ? 'high' : ''), element('strong', undefined, `${Math.round(percent)}%`))
+    row.append(gaugeSeg(percent, percent >= 80 ? 'caution' : 'cyan', 'Context window occupancy'), element('strong', 'readout', `${Math.round(percent)}%`))
     chip.title = `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens`
     chip.append(row)
     chips.push(chip)
@@ -131,7 +133,7 @@ function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement
   const card = element('article', `lane ${lane.status}${columns ? ' lane-column' : ''}`)
   const head = element('div', 'lane-head')
   const identity = element('div', 'lane-identity')
-  identity.append(element('span', `task-state-dot ${lane.status}`), element('strong', undefined, lane.title))
+  identity.append(taskStatusIndicator(lane.status), element('strong', undefined, lane.title))
   head.append(identity, element('span', 'lane-meta', [lane.model, lane.status].filter(Boolean).join(' · ')))
   card.append(head)
 
@@ -153,7 +155,7 @@ function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement
 
   if (lane.branch) {
     const branch = element('button', 'lane-branch') as HTMLButtonElement
-    branch.textContent = lane.committed ? `⑃ ${lane.branch}` : `⑃ ${lane.branch} · no changes`
+    branch.append(icon('branch', 14), document.createTextNode(lane.committed ? ` ${lane.branch}` : ` ${lane.branch} · no changes`))
     branch.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !lane.committed
     branch.addEventListener('click', () => openBranchInReview(task.cwd, lane.branch!))
@@ -243,7 +245,7 @@ function appendTurnAttachments(taskId: string, body: HTMLElement, attachments: C
         .catch(() => { image.alt = `${attachment.name} (preview unavailable)` })
     } else {
       const reference = element('span', 'turn-reference'); reference.title = attachment.path
-      reference.append(element('span', undefined, attachment.kind === 'folder' ? '▱' : '◇'), element('span', undefined, `@${attachment.path}${attachment.kind === 'folder' ? '/' : ''}`))
+      reference.append(icon(attachment.kind === 'folder' ? 'folder' : 'file', 14), element('span', undefined, `@${attachment.path}${attachment.kind === 'folder' ? '/' : ''}`))
       container.append(reference)
     }
   }
@@ -258,16 +260,12 @@ function candidateRow(candidate: RoutingCandidate, chosen: boolean): HTMLElement
   const name = element('strong', undefined, candidate.providerName)
   head.append(name)
   if (chosen) head.append(element('span', 'receipt-chip', 'chosen'))
-  head.append(element('span', 'receipt-score', candidate.eligible ? String(Math.round(candidate.score ?? 0)) : '—'))
+  head.append(element('span', 'receipt-score readout', candidate.eligible ? String(Math.round(candidate.score ?? 0)) : '—'))
   row.append(head)
 
   if (candidate.eligible && candidate.factors?.length) {
     const factors = element('div', 'receipt-factors')
-    for (const factor of candidate.factors) {
-      const item = element('div', `receipt-factor ${factor.points < 0 ? 'negative' : 'positive'}`)
-      item.append(element('span', undefined, factor.label), element('span', 'receipt-points', `${factor.points > 0 ? '+' : ''}${Math.round(factor.points)}`))
-      factors.append(item)
-    }
+    for (const factor of candidate.factors) factors.append(probabilityBar(factor.label, factor.points))
     row.append(factors)
   } else if (candidate.skippedReason) {
     row.append(element('p', 'receipt-reason', candidate.skippedReason))
@@ -291,7 +289,7 @@ function renderReceipt(task: ProxyTask): void {
   container.replaceChildren(summary, ...rows)
 }
 
-const ACTIVITY_ICON: Record<string, string> = { tool: '⚙', thinking: '✳', notice: '•' }
+const ACTIVITY_ICON: Record<string, IconName> = { tool: 'tool', thinking: 'thinking', notice: 'notice' }
 
 function renderRouteTab(task: ProxyTask): void {
   renderReceipt(task)
@@ -314,7 +312,7 @@ function renderRouteTab(task: ProxyTask): void {
     const body = element('div')
     body.append(element('strong', undefined, event.label))
     if (event.detail) body.append(element('small', undefined, event.detail))
-    row.append(element('span', undefined, ACTIVITY_ICON[event.kind] ?? '•'), body)
+    row.append(icon(ACTIVITY_ICON[event.kind] ?? 'notice', 14), body)
     return row
   }))
 }
@@ -453,7 +451,8 @@ function renderFilesTab(task: ProxyTask): void {
         const folder = element('button', `task-detail-folder ${open ? 'open' : ''}`)
         folder.style.setProperty('--tree-depth', String(depth))
         folder.setAttribute('aria-expanded', String(open))
-        folder.append(element('span', 'tree-caret', open ? '▾' : '▸'), element('strong', undefined, entry.name))
+        const caret = element('span', 'tree-caret'); caret.append(icon(open ? 'chevron-down' : 'chevron-right', 14))
+        folder.append(caret, element('strong', undefined, entry.name))
         const changed = changedInFolder.get(entry.path)
         if (changed) folder.append(element('small', 'tree-changed-count', String(changed)))
         folder.addEventListener('click', () => {
@@ -653,7 +652,7 @@ export function initTasksView(): void {
     byId('content-grid').classList.toggle('focus-mode', focusMode)
     const button = byId<HTMLButtonElement>('surface-focus')
     button.setAttribute('aria-pressed', String(focusMode))
-    button.textContent = focusMode ? '⤡' : '⤢'
+    button.replaceChildren(icon(focusMode ? 'collapse' : 'expand', 16))
     button.title = focusMode ? 'Show the queue' : 'Focus this task'
   })
   byId('task-file-mode').querySelectorAll<HTMLElement>('button').forEach((button) => button.addEventListener('click', () => {

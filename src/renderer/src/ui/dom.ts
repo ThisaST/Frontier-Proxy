@@ -35,14 +35,6 @@ export function metaChip(label: string, value: string, className = ''): HTMLElem
   return chip
 }
 
-export function gauge(percent: number | undefined, tone = ''): HTMLElement {
-  const bar = element('div', `home-bar ${tone}`.trim())
-  const fill = element('div')
-  fill.style.width = `${Math.min(100, Math.max(0, percent ?? 0))}%`
-  bar.append(fill)
-  return bar
-}
-
 // Diff/source code line rendering, shared by the task Files tab and the Review
 // branch diff viewer.
 export function codeLine(oldNumber: number | undefined, newNumber: number | undefined, marker: string, source: string, kind: string, language: string): HTMLElement {

@@ -2,6 +2,7 @@
 // split & delegate, bench, and workspace runs.
 import type { BranchRepo, TaskBranch } from '../../../shared/types'
 import { byId, element, emptyState, renderDiffInto } from '../ui/dom'
+import { lamp } from '../ui/components'
 import { confirmAction, errorMessage, reportError, showToast } from '../ui/feedback'
 import { baseName, formatDuration, timeAgo } from '../ui/format'
 import { verificationChip } from '../task-helpers'
@@ -91,7 +92,7 @@ function renderReviewChecks(branch: TaskBranch): void {
       const row = element('details', `review-check ${check.ok ? 'pass' : 'fail'}`)
       const summary = element('summary')
       summary.append(
-        element('span', `check-dot ${check.ok ? 'pass' : 'fail'}`),
+        lamp(check.ok ? 'phosphor' : 'alarm', check.ok ? 'Passed' : 'Failed'),
         element('strong', undefined, check.name),
         element('code', undefined, check.command),
         element('span', 'review-check-meta', `${check.timedOut ? 'timed out' : check.ok ? 'passed' : `exit ${check.exitCode ?? 1}`} · ${formatDuration(check.durationMs)}`)

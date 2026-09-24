@@ -1,6 +1,6 @@
 /* ---------- Workspaces ---------- */
 .workspace-empty-state { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.workspace-empty-glyph { color: var(--green); font-size: 30px; margin-bottom: 8px; }
+.workspace-empty-glyph { color: var(--amber); margin-bottom: 8px; display: flex; }
 .workspace-empty-state p { max-width: 40ch; }
 .workspace-empty-state button { margin-top: 10px; }
 
@@ -9,43 +9,43 @@
 .workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(220px, .34fr)) 7px minmax(420px, 1fr); gap: 0; flex: 1 1 auto; min-height: 0; }
 .workspace-list-panel, .workspace-conversation-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .workspace-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px; }
-.workspace-item { width: 100%; display: block; text-align: left; padding: 10px 11px; border: 0; border-radius: 8px; background: transparent; }
+.workspace-item { width: 100%; display: block; text-align: left; padding: 10px 11px; border: 0; border-radius: var(--r-md); background: transparent; }
 .workspace-item:hover { background: var(--surface-2); }
-.workspace-item.selected { background: var(--surface-2); box-shadow: inset 2px 0 var(--green); }
+.workspace-item.selected { background: var(--surface-2); box-shadow: inset 2px 0 var(--amber); }
 .workspace-item strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-item-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--muted); font-size: 9px; }
-.workspace-item-online { color: var(--green); white-space: nowrap; }
-.workspace-repo-context { flex: 0 0 auto; margin: 10px; padding: 12px 13px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--surface-2); display: grid; gap: 6px; }
-.workspace-repo-context p { margin: 0; color: var(--muted); font-size: 9px; font-family: var(--mono); overflow-wrap: anywhere; }
+.workspace-item-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--fg-muted); font-size: 9px; }
+.workspace-item-online { display: inline-flex; align-items: center; gap: 5px; color: var(--phosphor); white-space: nowrap; }
+.workspace-repo-context { flex: 0 0 auto; margin: 10px; padding: 12px 13px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); display: grid; gap: 6px; }
+.workspace-repo-context p { margin: 0; color: var(--fg-muted); font-size: 9px; font-family: var(--font-mono); overflow-wrap: anywhere; }
 .workspace-repo-context .text-button { justify-self: start; padding-top: 2px; }
 
-.workspace-conv-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 15px 18px 13px; border-bottom: 1px solid var(--line-soft); }
+.workspace-conv-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 15px 18px 13px; border-bottom: 1px solid var(--bezel); }
 .workspace-conv-heading { min-width: 0; }
 .workspace-conv-heading h2 { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-conv-actions { flex: 0 0 auto; display: flex; gap: 10px; }
+.workspace-conv-actions { flex: 0 0 auto; display: flex; gap: 10px; align-items: center; }
 .workspace-thread { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
 
-.ws-message { flex: 0 0 auto; border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden; background: #0e110f; }
+.ws-message { flex: 0 0 auto; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; background: var(--surface-1); }
 .ws-message.human { margin-left: 14%; background: var(--surface-2); }
 .ws-message.system { border-style: dashed; background: transparent; }
-.ws-message.failed { border-color: rgba(251,141,136,.3); }
+.ws-message.failed { border-color: color-mix(in srgb, var(--alarm) 30%, transparent); }
 .ws-message.cancelled { opacity: .75; }
-.ws-message-head { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--line-soft); }
+.ws-message-head { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--bezel); }
 .ws-message.system .ws-message-head { border-bottom-color: transparent; }
-.ws-avatar-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--muted); }
+.ws-avatar-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--fg-muted); }
 .ws-message-head strong { font-size: 11px; }
-.ws-message-head small { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .5px; margin-left: auto; white-space: nowrap; }
-.ws-message-status { color: var(--yellow); font-size: 9px; white-space: nowrap; }
-.ws-message.failed .ws-message-status { color: var(--red); }
-.ws-message-body { padding: 12px 15px; color: #d5dcd6; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+.ws-message-head small { color: var(--fg-muted); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; white-space: nowrap; }
+.ws-message-status { display: inline-flex; align-items: center; gap: 5px; color: var(--amber); font-size: 9px; white-space: nowrap; }
+.ws-message.failed .ws-message-status { color: var(--alarm); }
+.ws-message-body { padding: 12px 15px; color: var(--fg); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
 .ws-message-body.markdown { white-space: normal; }
-.ws-message.system .ws-message-body { color: var(--muted); font-size: 11px; padding: 4px 13px 11px; }
+.ws-message.system .ws-message-body { color: var(--fg-muted); font-size: 11px; padding: 4px 13px 11px; }
 .ws-message-activity { margin: 0 15px 12px; display: grid; gap: 5px; }
 .ws-turn-foot { display: flex; align-items: center; gap: 10px; padding: 0 15px 13px; }
 .ws-turn-foot:empty { display: none; }
 
-.workspace-addressing-hint { flex: 0 0 auto; margin: 0; padding: 0 18px 12px; color: var(--muted); font-size: 10px; }
-.workspace-addressing-hint.addressed { color: var(--green); }
+.workspace-addressing-hint { flex: 0 0 auto; margin: 0; padding: 0 18px 12px; color: var(--fg-muted); font-size: 10px; }
+.workspace-addressing-hint.addressed { color: var(--phosphor); }
 
 /* Lives inside #participants-dialog-body now, whose own padding/scroll applies —
    this just lays out the groups within it. */
@@ -53,18 +53,18 @@
 .workspace-roster { display: grid; gap: 14px; }
 .workspace-roster-group .eyebrow { margin-bottom: 8px; }
 .workspace-roster-list { display: grid; gap: 8px; }
-.workspace-roster-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--surface-2); }
+.workspace-roster-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
 .workspace-roster-row.suggested { border-style: dashed; background: transparent; }
 .workspace-roster-row-body { min-width: 0; flex: 1 1 auto; }
 .workspace-roster-row-body strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-roster-row-body small { display: block; margin-top: 2px; color: var(--muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-roster-row-body .ws-unavailable-reason { color: var(--red); white-space: normal; }
-.ws-roster-menu-button { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: 15px; }
-.ws-roster-menu-button:hover { color: var(--text); }
-.ws-roster-menu { position: absolute; z-index: 20; top: 34px; right: 8px; display: grid; border: 1px solid var(--line); border-radius: 8px; background: #171b18; box-shadow: 0 12px 34px rgba(0,0,0,.5); overflow: hidden; }
-.ws-roster-menu button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--text); font-size: 11px; text-align: left; white-space: nowrap; }
-.ws-roster-menu button:hover { background: var(--surface-2); }
-.workspace-roster-footer { margin-top: auto; padding: 12px 10px 4px; color: var(--muted); font-size: 9px; line-height: 1.5; border-top: 1px solid var(--line-soft); }
+.workspace-roster-row-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-roster-row-body .ws-unavailable-reason { color: var(--alarm); white-space: normal; }
+.ws-roster-menu-button { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--fg-muted); display: grid; place-items: center; }
+.ws-roster-menu-button:hover { color: var(--fg); }
+.ws-roster-menu { position: absolute; z-index: 20; top: 34px; right: 8px; display: grid; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); box-shadow: var(--e-2); overflow: hidden; }
+.ws-roster-menu button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--fg); font-size: 11px; text-align: left; white-space: nowrap; }
+.ws-roster-menu button:hover { background: var(--surface-3); }
+.workspace-roster-footer { margin-top: auto; padding: 12px 10px 4px; color: var(--fg-muted); font-size: 9px; line-height: 1.5; border-top: 1px solid var(--bezel); }
 .ws-add-button { flex: 0 0 auto; }
 
 /* Participant editor */
@@ -72,12 +72,12 @@
 .ws-accent-field { display: grid; gap: 6px; }
 .ws-accent-picker { display: flex; gap: 8px; }
 .ws-accent-swatch { width: 26px; height: 26px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); }
-.ws-accent-swatch.selected { border-color: var(--text); }
+.ws-accent-swatch.selected { border-color: var(--fg); }
 .ws-capabilities-field { display: grid; gap: 8px; }
 .ws-cap-edit-note { margin: -2px 0 4px 26px; }
-.ws-cap-edit-note code { background: #0c0f0d; border: 1px solid var(--line-soft); border-radius: 4px; padding: 0 4px; font: 10px var(--mono); }
+.ws-cap-edit-note code { background: var(--surface-2); border: 1px solid var(--bezel); border-radius: var(--r-sm); padding: 0 4px; font: 10px var(--font-mono); }
 .ws-capability-chips { display: flex; gap: 8px; margin-top: 3px; }
-.ws-capability-chip { color: var(--muted); font-size: 9px; }
+.ws-capability-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 9px; }
 
 /* An authored `display` on the same class always beats the `[hidden]` UA rule
    at equal specificity (author origin wins), so any class below that sets its

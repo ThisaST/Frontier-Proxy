@@ -1,6 +1,8 @@
 import './styles/index.css'
 import { handleWorkspaceStream, renderWorkspaceView } from './workspace'
 import { byId } from './ui/dom'
+import { hydrateIcons, icon } from './ui/icons'
+import { initTheme } from './theme'
 import { reportError } from './ui/feedback'
 import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId, surfaceTab } from './state'
 import { taskIsBusy } from './task-helpers'
@@ -85,10 +87,12 @@ function setSidebarCollapsed(collapsed: boolean, persist = true): void {
   toggle.setAttribute('aria-expanded', String(!collapsed))
   toggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation')
   toggle.title = collapsed ? 'Expand navigation' : 'Collapse navigation'
-  toggle.querySelector('span')!.textContent = collapsed ? '›' : '‹'
+  toggle.replaceChildren(icon(collapsed ? 'chevron-right' : 'chevron-left'))
   if (persist) localStorage.setItem(SIDEBAR_STATE_KEY, String(collapsed))
 }
 
+initTheme()
+hydrateIcons()
 setSidebarCollapsed(localStorage.getItem(SIDEBAR_STATE_KEY) === 'true', false)
 byId('sidebar-toggle').addEventListener('click', () => {
   setSidebarCollapsed(!document.querySelector('.shell')?.classList.contains('sidebar-collapsed'))

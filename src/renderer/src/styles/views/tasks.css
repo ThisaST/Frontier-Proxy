@@ -1,20 +1,34 @@
-/* ---------- Tasks: queue + conversation + inspector ---------- */
+/* ---------- Tasks: queue + conversation + inspector ----------
+   The conversation is the primary surface: it gets a `minmax(420px, 1fr)`
+   floor that the list and inspector can never squeeze past (views/tasks.ts's
+   drag clamps enforce the same 420px floor), and the two side panels default
+   to fixed, comfortable widths (280px / 320px) rather than a flex share. */
 .content-grid {
   display: grid;
-  grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(380px, 1fr) 7px var(--insp-col, minmax(260px, 320px));
-  gap: 0; flex: 1 1 auto; min-height: 0;
+  grid-template-columns: var(--wq-col, 280px) 7px minmax(420px, 1fr) 7px var(--insp-col, 320px);
+  gap: 0; flex: 1 1 auto; min-height: 0; position: relative;
 }
 /* Collapsing the list or the inspector removes its column (and the gutter
    next to it) from the track list entirely, rather than hiding it in place —
    otherwise the empty track would still reserve its width. */
-.content-grid.list-collapsed { grid-template-columns: minmax(380px, 1fr) 7px var(--insp-col, minmax(260px, 320px)); }
+.content-grid.list-collapsed { grid-template-columns: minmax(420px, 1fr) 7px var(--insp-col, 320px); }
 .content-grid.list-collapsed .task-panel, .content-grid.list-collapsed > #grid-gutter { display: none; }
-.content-grid.inspector-collapsed { grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(380px, 1fr); }
+.content-grid.inspector-collapsed { grid-template-columns: var(--wq-col, 280px) 7px minmax(420px, 1fr); }
 .content-grid.inspector-collapsed .inspector, .content-grid.inspector-collapsed > #inspector-gutter { display: none; }
 .content-grid.list-collapsed.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }
 /* Focus mode hides both side panels so the conversation gets the full width. */
 .content-grid.focus-mode { grid-template-columns: minmax(0, 1fr) !important; }
 .content-grid.focus-mode .task-panel, .content-grid.focus-mode .grid-gutter, .content-grid.focus-mode .inspector { display: none; }
+/* Too narrow to fit the inspector alongside a 420px centre: it auto-collapses
+   (views/tasks.ts computes this from measured widths, not a fixed viewport
+   breakpoint), but its own toggle can still raise it as a floating overlay
+   over the conversation instead of squeezing the grid. */
+.content-grid.inspector-overlay-open .inspector {
+  display: flex; position: fixed; top: 104px; right: 0; bottom: 0;
+  width: min(360px, 92vw); z-index: 15; border-left: 1px solid var(--bezel-strong);
+  border-radius: 0; box-shadow: var(--e-2);
+}
+.content-grid.inspector-overlay-open > #inspector-gutter { display: none; }
 .grid-gutter { cursor: col-resize; margin: 0 4px; border-radius: var(--r-sm); background: transparent; transition: background var(--t-fast) var(--ease); }
 .grid-gutter:hover, .grid-gutter.dragging { background: var(--bezel); }
 .task-panel { display: flex; flex-direction: column; min-height: 0; }
@@ -216,7 +230,7 @@
 .inspector-branch-item { display: flex; align-items: center; gap: 8px; }
 .inspector-branch-item .lane-branch { margin: 0; width: auto; flex: 1 1 auto; }
 
-/* The inspector's auto-collapse below 1240px is driven from JS
-   (`applyInspectorState` in views/tasks.ts, mirroring the same breakpoint)
-   rather than a media query here, so there is one source of truth for
-   whether the `.inspector-collapsed` class is applied. */
+/* The inspector's auto-collapse is driven from JS (`applyInspectorState` in
+   views/tasks.ts), which measures the grid's real width rather than reading
+   a fixed viewport breakpoint here — the decision is "would the centre fall
+   below 480px", not "is the window narrower than some number". */

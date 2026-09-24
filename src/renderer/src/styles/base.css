@@ -10,23 +10,27 @@ button { color: inherit; }
 
 .shell { display: grid; grid-template-columns: var(--sidebar-width) minmax(0, 1fr); height: 100vh; overflow: hidden; }
 .shell.sidebar-collapsed { --sidebar-width: 72px; }
-.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: var(--sidebar-width); border-right: 1px solid var(--bezel); background: var(--surface-1); display: flex; flex-direction: column; padding: 42px 16px 18px; }
+/* All eight nav items plus the (now compact) bottom rail fit without
+   scrolling at a window height of 680px or more. Below that, the sidebar is
+   one scroll region — `overflow-y: auto` only actually scrolls once the
+   column's content is taller than the viewport, so nothing below 680px needs
+   its own breakpoint; the nav never scrolls on its own (that just moved the
+   crowding from "CAPACITY under the last item" to "Routing/Skills hidden"). */
+.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; width: var(--sidebar-width); border-right: 1px solid var(--bezel); background: var(--surface-1); display: flex; flex-direction: column; padding: 42px 16px 18px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .brand { display: flex; gap: var(--s-3); align-items: center; padding: 0 10px 32px; }
 .brand-copy { min-width: 0; }
 .brand strong { display: block; font-family: var(--font-display); font-weight: 600; font-size: 20px; letter-spacing: .04em; }
 .brand small { display: block; color: var(--fg-faint); font-size: 8px; font-weight: 700; letter-spacing: 1.8px; margin-top: 3px; }
 .brand-mark { width: 30px; height: 30px; flex: 0 0 auto; }
-.sidebar-toggle { position: absolute; top: 39px; right: -15px; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--bezel); border-radius: 50%; background: var(--surface-2); color: var(--fg-muted); box-shadow: 0 5px 16px var(--shadow-color); }
+/* Fixed to the viewport rather than absolute within `.sidebar` — the sidebar
+   itself can now scroll on a short window, and an absolutely-positioned
+   toggle would have scrolled out of view with it. */
+.sidebar-toggle { position: fixed; top: 39px; left: calc(var(--sidebar-width) - 15px); z-index: 11; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--bezel); border-radius: 50%; background: var(--surface-2); color: var(--fg-muted); box-shadow: 0 5px 16px var(--shadow-color); }
 .sidebar-toggle, .nav-item { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .sidebar-toggle:hover { border-color: var(--bezel-strong); background: var(--surface-3); color: var(--amber); }
 
-nav { display: grid; gap: 4px; align-content: start; }
-/* On a short window the nav list plus the rail below it can exceed the
-   sidebar's height; without its own scroll region the whole sidebar content
-   just overflowed, crowding CAPACITY against the last nav item instead of
-   sitting below a clear divider. */
-#primary-navigation { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-.nav-group-label { margin: 14px 10px 4px; color: var(--fg-faint); font: 750 10px var(--font-display); letter-spacing: .12em; text-transform: uppercase; }
+nav { display: grid; gap: 4px; align-content: start; flex: 0 0 auto; }
+.nav-group-label { margin: 11px 10px 4px; color: var(--fg-faint); font: 750 10px var(--font-display); letter-spacing: .12em; text-transform: uppercase; }
 .nav-group-label:first-child { margin-top: 0; }
 .nav-item { position: relative; display: flex; align-items: center; min-width: 0; border: 0; background: transparent; color: var(--fg-muted); text-align: left; padding: 10px var(--s-3); border-radius: var(--r-md); cursor: pointer; font: 13px var(--font-body); white-space: nowrap; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .nav-icon { flex: 0 0 25px; color: var(--fg-muted); display: flex; }
@@ -45,10 +49,9 @@ nav { display: grid; gap: 4px; align-content: start; }
 .sidebar-collapsed .provider-rail > .eyebrow,
 .sidebar-collapsed .mini-provider > span:not(.lamp),
 .sidebar-collapsed .mini-provider small,
-.sidebar-collapsed .privacy-copy,
+.sidebar-collapsed .advisor-status-label,
 .sidebar-collapsed .project-switcher-label,
-.sidebar-collapsed .project-switcher-caret,
-.sidebar-collapsed .app-version { display: none; }
+.sidebar-collapsed .project-switcher-caret { display: none; }
 .sidebar-collapsed .nav-item { justify-content: center; padding-inline: 11px; }
 .sidebar-collapsed .project-switcher-trigger { justify-content: center; padding-inline: 0; }
 .sidebar-collapsed .nav-icon { flex-basis: auto; }
@@ -72,22 +75,42 @@ nav { display: grid; gap: 4px; align-content: start; }
 .project-switcher-item-copy strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-switcher-item-copy small { color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* `margin-top: auto` pins this to the bottom when the column above it has
+   slack; once the sidebar's own content is taller than the viewport (short
+   window) there is no slack left to distribute and `.sidebar`'s own
+   `overflow-y: auto` takes over instead. */
 .sidebar-rail-bottom { flex: 0 0 auto; margin-top: auto; padding-top: var(--s-3); border-top: 1px solid var(--bezel); display: flex; flex-direction: column; gap: var(--s-2); }
 .provider-rail { padding: 0 10px; }
 .sidebar-collapsed .provider-rail { padding-inline: 0; }
 .eyebrow { color: var(--fg-faint); font: 750 10px/1.2 var(--font-display); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 7px; }
-.mini-provider { display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: var(--s-2); padding: 9px 0; border-bottom: 1px solid var(--bezel); font-size: 12px; }
-.sidebar-collapsed .mini-provider { display: flex; justify-content: center; min-height: 33px; }
-.mini-provider small { color: var(--fg-muted); font: 9px var(--font-mono); }
-.privacy-note { display: grid; grid-template-columns: 8px 1fr; gap: var(--s-2); padding: 13px 11px; background: color-mix(in srgb, var(--phosphor) 4%, transparent); border: 1px solid color-mix(in srgb, var(--phosphor) 12%, transparent); border-radius: var(--r-md); width: 100%; text-align: left; cursor: pointer; }
-.privacy-note:hover { background: color-mix(in srgb, var(--phosphor) 8%, transparent); }
-.privacy-note.active { background: color-mix(in srgb, var(--cyan) 5%, transparent); border-color: color-mix(in srgb, var(--cyan) 20%, transparent); }
-.privacy-note.active:hover { background: color-mix(in srgb, var(--cyan) 9%, transparent); }
-.sidebar-collapsed .privacy-note { display: flex; justify-content: center; padding-inline: 0; }
-.privacy-note strong { display: block; font: 600 11px var(--font-body); margin-bottom: 4px; }
-.privacy-note small { display: block; color: var(--fg-muted); font-size: 9px; line-height: 1.45; }
+
+/* One line per agent — lamp, name, a short capacity readout, no gauges — kept
+   to about 22px a row so several agents still cost little vertical space. */
+.mini-provider { display: flex; align-items: center; gap: var(--s-2); padding: 3px 0; min-height: 22px; font-size: 11px; }
+.mini-provider-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-provider small { flex: 0 0 auto; color: var(--fg-muted); font: 9px var(--font-mono); }
+.sidebar-collapsed .mini-provider { justify-content: center; min-height: 26px; }
+
+/* Below this height even the compact list is too tall; it collapses to a
+   single wrapped row of lamps (views/home.ts renders both, CSS picks one). */
+.provider-mini-lamps { display: none; flex-wrap: wrap; gap: 6px; }
+.mini-provider-lamp { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; }
+.mini-provider-lamp:hover { background: var(--surface-2); }
+@media (max-height: 820px) {
+  .provider-mini-list { display: none; }
+  .provider-mini-lamps { display: flex; }
+}
+
+/* Advisor status, collapsed to one line — lamp plus "Local" or "Jev ·
+   Active"/"Jev · Shadow". The full, ADR-0002-truthful sentence still lives in
+   the tooltip and aria-label; see main.ts's renderAdvisorStatus. */
+.advisor-status { display: flex; align-items: center; gap: var(--s-2); padding: 8px 11px; background: color-mix(in srgb, var(--phosphor) 4%, transparent); border: 1px solid color-mix(in srgb, var(--phosphor) 12%, transparent); border-radius: var(--r-md); width: 100%; text-align: left; cursor: pointer; }
+.advisor-status:hover { background: color-mix(in srgb, var(--phosphor) 8%, transparent); }
+.advisor-status.active { background: color-mix(in srgb, var(--cyan) 5%, transparent); border-color: color-mix(in srgb, var(--cyan) 20%, transparent); }
+.advisor-status.active:hover { background: color-mix(in srgb, var(--cyan) 9%, transparent); }
+.advisor-status-label { color: var(--fg); font: 600 11px var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-collapsed .advisor-status { justify-content: center; padding-inline: 0; }
 .rail-settings { margin-top: 2px; }
-.app-version { color: var(--fg-faint); font: 8px var(--font-mono); letter-spacing: 1px; text-align: center; margin-top: 3px; }
 
 main { grid-column: 2; min-width: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 .topbar { flex: 0 0 auto; height: 104px; border-bottom: 1px solid var(--bezel); display: flex; justify-content: space-between; align-items: end; padding: 28px 34px 20px; background: color-mix(in srgb, var(--bg) 93%, transparent); z-index: 5; }

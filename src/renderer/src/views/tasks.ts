@@ -151,13 +151,20 @@ export function renderTasks(): void {
 
 // --- Left/right pane collapse, widths ---
 
-// Queue/surface split. Widths are clamped against the live grid width, so a
-// value saved on a small window can never collapse the layout later.
-// SURFACE_MIN_WIDTH and GUTTER_WIDTH mirror the stylesheet's own track sizes for
-// `.content-grid`; a queue width clamped against smaller numbers would overflow.
-const QUEUE_MIN_WIDTH = 260
-const SURFACE_MIN_WIDTH = 380
-const INSPECTOR_MIN_WIDTH = 260
+// The conversation is the primary surface, so it gets a hard floor neither
+// drag gutter may squeeze past; the list and inspector default to fixed,
+// comfortable widths rather than a flex share of whatever is left.
+// GUTTER_WIDTH mirrors the stylesheet's own track size for `.content-grid`;
+// a width clamped against a different number would overflow the grid.
+const QUEUE_MIN_WIDTH = 220
+const QUEUE_DEFAULT_WIDTH = 280
+const SURFACE_MIN_WIDTH = 420
+const INSPECTOR_MIN_WIDTH = 240
+const INSPECTOR_DEFAULT_WIDTH = 320
+// Below this, the inspector auto-collapses rather than letting the centre
+// shrink further — softer than SURFACE_MIN_WIDTH, which is the absolute
+// floor a drag can never cross.
+const CENTRE_AUTO_COLLAPSE_WIDTH = 480
 const GUTTER_WIDTH = 7
 let queueWidth: number | undefined
 let inspectorWidth: number | undefined
@@ -166,9 +173,13 @@ export let applyInspectorWidth: () => void = () => undefined
 
 const LIST_COLLAPSE_KEY = 'fp-list-collapsed'
 const INSPECTOR_COLLAPSE_KEY = 'fp-inspector-collapsed'
-const INSPECTOR_AUTO_COLLAPSE_WIDTH = 1240
 let listCollapsed = readLS(LIST_COLLAPSE_KEY) === 'true'
 let inspectorCollapsedManual = readLS(INSPECTOR_COLLAPSE_KEY) === 'true'
+// Set only while the inspector is auto-collapsed for lack of room; toggling
+// it there raises the inspector as a floating overlay instead of trying to
+// squeeze the grid below its floor. Transient — not persisted.
+let inspectorOverlayOpen = false
+let lastAutoCollapse = false
 
 function applyListState(): void {
   byId('content-grid').classList.toggle('list-collapsed', listCollapsed)
@@ -180,18 +191,37 @@ export function toggleTaskList(): void {
   applyListState()
 }
 
-function applyInspectorState(): void {
-  const collapsed = inspectorCollapsedManual || window.innerWidth < INSPECTOR_AUTO_COLLAPSE_WIDTH
-  byId('content-grid').classList.toggle('inspector-collapsed', collapsed)
+export function applyInspectorState(): void {
+  const grid = byId('content-grid')
+  const available = grid.getBoundingClientRect().width
+  const listSpace = listCollapsed ? 0 : (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH
+  const inspectorSpace = (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH
+  // Only a real, laid-out measurement counts — the grid reports 0 while the
+  // Tasks view is hidden, which must never look like "too narrow to fit".
+  const autoCollapse = available > 0 && (available - listSpace - inspectorSpace) < CENTRE_AUTO_COLLAPSE_WIDTH
+  lastAutoCollapse = autoCollapse
+  const collapsed = inspectorCollapsedManual || autoCollapse
+  const overlay = autoCollapse && !inspectorCollapsedManual && inspectorOverlayOpen
+  grid.classList.toggle('inspector-collapsed', collapsed)
+  grid.classList.toggle('inspector-overlay-open', overlay)
+
+  const visible = !collapsed || overlay
   const toggle = byId<HTMLButtonElement>('inspector-toggle')
-  toggle.setAttribute('aria-pressed', String(!collapsed))
-  toggle.setAttribute('aria-expanded', String(!collapsed))
-  toggle.title = collapsed ? 'Expand inspector' : 'Collapse inspector'
+  toggle.setAttribute('aria-pressed', String(visible))
+  toggle.setAttribute('aria-expanded', String(visible))
+  toggle.title = visible ? (autoCollapse ? 'Hide inspector' : 'Collapse inspector') : (autoCollapse ? 'Show inspector' : 'Expand inspector')
   toggle.setAttribute('aria-label', toggle.title)
-  toggle.replaceChildren(icon(collapsed ? 'panel-right' : 'panel-right-close', 16))
+  toggle.replaceChildren(icon(visible ? 'panel-right-close' : 'panel-right', 16))
 }
 
 export function toggleInspector(): void {
+  // Too narrow for the inspector to sit inline: its own toggle opens it as a
+  // floating overlay instead, rather than fighting the auto-collapse.
+  if (lastAutoCollapse && !inspectorCollapsedManual) {
+    inspectorOverlayOpen = !inspectorOverlayOpen
+    applyInspectorState()
+    return
+  }
   inspectorCollapsedManual = !inspectorCollapsedManual
   writeLS(INSPECTOR_COLLAPSE_KEY, String(inspectorCollapsedManual))
   applyInspectorState()
@@ -1092,21 +1122,29 @@ export function initTasksView(): void {
   applyListState()
   applyInspectorState()
 
+  // How much column width the *other* side panel currently reserves
+  // (itself plus its own gutter), so dragging one gutter accounts for the
+  // other rather than assuming a fixed constant for it. 0 while that panel
+  // is collapsed or floating as an overlay — neither takes grid column space.
+  const grid = byId('content-grid')
+  const listColumnSpace = (): number => (grid.classList.contains('list-collapsed') ? 0 : (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH)
+  const inspectorColumnSpace = (): number => (grid.classList.contains('inspector-collapsed') ? 0 : (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH)
+
   // Draggable divider between the queue and the task surface.
   ;(function setupResizer(): void {
-    const grid = byId('content-grid')
     const gutter = byId('grid-gutter')
     let dragging = false
 
-    // Clamp the queue column so the task surface always keeps room. On a narrow
+    // Clamp the queue column so the task surface always keeps its 420px floor,
+    // accounting for whatever the inspector currently reserves too. On a narrow
     // window the upper bound can fall below the lower one; that range is unusable,
-    // and the previous `Math.min(Math.max(...))` silently returned a width under
-    // the minimum — sometimes zero or negative. Because the result was persisted,
-    // one drag in a small window collapsed the queue on every later launch.
-    // An unusable range now falls back to the stylesheet's proportional columns.
+    // and a naive `Math.min(Math.max(...))` would silently return a width under
+    // the minimum — sometimes zero or negative. Because the result is persisted,
+    // one drag in a small window would collapse the queue on every later launch.
+    // An unusable range now falls back to the stylesheet's own default column.
     const clampQueueWidth = (width: number): number | undefined => {
       const available = grid.getBoundingClientRect().width
-      const widest = available - GUTTER_WIDTH - SURFACE_MIN_WIDTH
+      const widest = available - GUTTER_WIDTH - inspectorColumnSpace() - SURFACE_MIN_WIDTH
       if (!Number.isFinite(width) || width <= 0 || widest < QUEUE_MIN_WIDTH) return undefined
       return Math.round(Math.min(Math.max(QUEUE_MIN_WIDTH, width), widest))
     }
@@ -1120,9 +1158,12 @@ export function initTasksView(): void {
       // applied when the view is shown rather than at startup.
       const clamped = queueWidth === undefined ? undefined : clampQueueWidth(queueWidth)
       if (clamped === undefined) grid.style.removeProperty('--wq-col')
-      else grid.style.setProperty('--wq-col', `${clamped}px`)
+      else { grid.style.setProperty('--wq-col', `${clamped}px`); queueWidth = clamped }
     }
 
+    // A stored width from before this pane's rules changed is reclamped the
+    // moment it is next applied (`applyQueueWidth`/`clampQueueWidth` above),
+    // never taken at face value.
     const stored = Number(readLS('fp-wq-width'))
     queueWidth = Number.isFinite(stored) && stored > 0 ? stored : undefined
 
@@ -1149,13 +1190,12 @@ export function initTasksView(): void {
   // Draggable divider between the surface and the inspector — same pattern,
   // mirrored to measure from the grid's right edge.
   ;(function setupInspectorResizer(): void {
-    const grid = byId('content-grid')
     const gutter = byId('inspector-gutter')
     let dragging = false
 
     const clampInspectorWidth = (width: number): number | undefined => {
       const available = grid.getBoundingClientRect().width
-      const widest = available - GUTTER_WIDTH * 2 - SURFACE_MIN_WIDTH - QUEUE_MIN_WIDTH
+      const widest = available - GUTTER_WIDTH - listColumnSpace() - SURFACE_MIN_WIDTH
       if (!Number.isFinite(width) || width <= 0 || widest < INSPECTOR_MIN_WIDTH) return undefined
       return Math.round(Math.min(Math.max(INSPECTOR_MIN_WIDTH, width), widest))
     }
@@ -1163,7 +1203,7 @@ export function initTasksView(): void {
     applyInspectorWidth = (): void => {
       const clamped = inspectorWidth === undefined ? undefined : clampInspectorWidth(inspectorWidth)
       if (clamped === undefined) grid.style.removeProperty('--insp-col')
-      else grid.style.setProperty('--insp-col', `${clamped}px`)
+      else { grid.style.setProperty('--insp-col', `${clamped}px`); inspectorWidth = clamped }
     }
 
     const stored = Number(readLS('fp-inspector-width'))

@@ -7,7 +7,7 @@ import { reportError } from './ui/feedback'
 import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId } from './state'
 import { taskIsBusy } from './task-helpers'
 import { renderMiniProviders, renderHome, initHomeView } from './views/home'
-import { renderTasks, renderSurface, applyQueueWidth, applyInspectorWidth, initTasksView } from './views/tasks'
+import { renderTasks, renderSurface, applyQueueWidth, applyInspectorWidth, applyInspectorState, initTasksView } from './views/tasks'
 import { renderReview, loadReview, setReviewSelection, setReviewFilePath, initReviewView } from './views/review'
 import { renderAgentsView, refreshAgentDrawer, initAgentsView } from './views/agents'
 import { renderControlPlane, initControlView } from './views/control'
@@ -23,25 +23,29 @@ import { initProjectSwitcher } from './project'
 
 // Truthful even while advisor state is in flux (ADR 0002's sidebar exception):
 // it must never say "local only" while an advisor is active. Off, or on
-// without a stored key, is still exactly local process mode.
+// without a stored key, is still exactly local process mode. Collapsed to a
+// single line for the sidebar rail — the full sentence still lives in the
+// tooltip/aria-label, it just is not spelled out in the row itself any more.
 function renderAdvisorStatus(): void {
   const advisor = snapshot.settings.advisor
   const active = advisor.mode !== 'off' && snapshot.advisor.hasKey
   const note = byId('advisor-status')
   note.classList.toggle('active', active)
   byId('advisor-status-lamp').className = `lamp ${active ? 'lamp-cyan' : 'lamp-phosphor'}`
-  const title = byId('advisor-status-title')
-  const detail = byId('advisor-status-detail')
+  let shortLabel: string
+  let sentence: string
   if (active) {
-    const label = advisor.mode === 'shadow' ? 'Shadow' : 'Active'
+    const modeLabel = advisor.mode === 'shadow' ? 'Shadow' : 'Active'
     const scope = advisor.shareRepoFacts ? 'Prompt text and repo facts are' : 'Prompt text is'
-    title.textContent = `Routing advisor: Jev (${label})`
-    detail.textContent = `${scope} sent to TypeSafe.`
+    shortLabel = `Jev · ${modeLabel}`
+    sentence = `Routing advisor: Jev (${modeLabel}). ${scope} sent to TypeSafe.`
   } else {
-    title.textContent = 'Local process mode'
-    detail.textContent = 'Prompts stay between this app and your CLIs.'
+    shortLabel = 'Local'
+    sentence = 'Local process mode. Prompts stay between this app and your CLIs.'
   }
-  note.setAttribute('aria-label', `${title.textContent}. ${detail.textContent}`)
+  byId('advisor-status-label').textContent = shortLabel
+  note.title = sentence
+  note.setAttribute('aria-label', sentence)
 }
 
 function render(): void {
@@ -100,7 +104,7 @@ export function switchView(view: string): void {
   if (view === 'skills') void renderSkills()
   if (view === 'agents') renderAgentsView()
   if (view === 'home') renderHome()
-  if (view === 'tasks') { renderTasks(); applyQueueWidth(); applyInspectorWidth() }
+  if (view === 'tasks') { renderTasks(); applyQueueWidth(); applyInspectorWidth(); applyInspectorState() }
   if (view === 'review') { renderReview(); void loadReview(true) }
   if (view === 'workspace') renderWorkspaceView(snapshot)
   if (view === 'routing') renderRouting()

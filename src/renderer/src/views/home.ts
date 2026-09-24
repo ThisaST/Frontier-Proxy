@@ -28,15 +28,31 @@ export function providerLampTone(provider: SnapshotProvider): Tone {
 
 // --- Sidebar rail ---
 
+// Two representations of the same data: one compact row per agent (lamp,
+// name, short readout — no gauges), and, for short windows, a single row of
+// lamps (CSS picks which is visible at `max-height: 820px`, see base.css).
+// Both stay in the DOM together so there is nothing to (re)build on resize.
 export function renderMiniProviders(): void {
-  const container = byId('provider-mini-list')
-  container.replaceChildren(...snapshot.providers.filter((provider) => provider.enabled).map((provider) => {
+  const enabled = snapshot.providers.filter((provider) => provider.enabled)
+
+  byId('provider-mini-list').replaceChildren(...enabled.map((provider) => {
     const row = element('div', 'mini-provider')
     const capacity = providerCapacity(provider)
     row.title = `${provider.name} · ${capacity.label}`
     row.setAttribute('aria-label', `${provider.name}: ${capacity.label}`)
-    row.append(lamp(providerLampTone(provider), capacity.label), element('span', undefined, provider.name), element('small', undefined, capacity.label.toLowerCase()))
+    row.append(lamp(providerLampTone(provider), capacity.label), element('span', 'mini-provider-name', provider.name), element('small', undefined, capacity.label.toLowerCase()))
     return row
+  }))
+
+  byId('provider-mini-lamps').replaceChildren(...enabled.map((provider) => {
+    const capacity = providerCapacity(provider)
+    const button = element('button', 'mini-provider-lamp') as HTMLButtonElement
+    button.type = 'button'
+    button.title = `${provider.name} · ${capacity.label}`
+    button.setAttribute('aria-label', `${provider.name}: ${capacity.label}`)
+    button.append(lamp(providerLampTone(provider), capacity.label))
+    button.addEventListener('click', () => switchView('agents'))
+    return button
   }))
 }
 

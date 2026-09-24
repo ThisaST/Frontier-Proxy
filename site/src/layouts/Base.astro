@@ -2,6 +2,7 @@
 import SiteNav from "../components/SiteNav.astro";
 import SiteFooter from "../components/SiteFooter.astro";
 import { SITE_NAME, TAGLINE, url } from "../lib/site";
+import "../styles/fonts.css";
 import "../styles/theme.css";
 
 interface Props { title?: string; description?: string }
@@ -19,7 +20,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://frontier.th
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical.href} />
     <link rel="icon" href={`${url("/")}favicon.svg`} type="image/svg+xml" />
-    <meta name="theme-color" content="#0a0c0b" />
+    <meta name="theme-color" content="#0b0d0c" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:title" content={pageTitle} />

@@ -507,6 +507,71 @@ Intentional cancellation is terminal for the current run and never enters automa
 Without an explicit change, subsequent turns stay pinned to the most recently selected provider
 even when that CLI has no resumable session id.
 
+## Renderer architecture & design system
+
+The renderer is split by responsibility, not by screen alone — `src/renderer/src/`:
+
+- **`main.ts`** — bootstrap only: wires the IPC snapshot listener to `render()`, initializes
+  every view module (`init*View`), the theme, the command palette, and the project switcher,
+  and owns the one cross-cutting render each snapshot triggers (`renderMiniProviders`,
+  `renderTasks`, `renderAdvisorStatus`, …) before dispatching to the current view.
+- **`state.ts`** — the shared mutable slice every view reads: the latest `AppSnapshot`,
+  `currentView`, `selectedTaskId`. State only one view touches stays local to that view's
+  module instead of living here.
+- **`ui/`** — presentation primitives with no domain knowledge: `dom.ts` (element/byId
+  helpers), `format.ts` (number/cost/duration/time formatting), `feedback.ts` (toasts, error
+  reporting), `icons.ts` (Lucide, tree-shaken, `currentColor`), `components.ts` (the Phosphor
+  Console kit — `button`, `lamp`, `chip`, `panel`, `gaugeSeg`, `probabilityBars`, `radar`,
+  `dataTable`, `inspectorSection`, …, per `docs/design-phosphor-console.md` §6).
+- **`views/*.ts`** — one file per screen (`home`, `tasks`, `routing`, `agents`, `review`,
+  `control`, `skills`, `settings`), each owning its own render function and DOM event wiring.
+- **`task-form.ts`** — the task-creation form (prompt, mode, provider override, model,
+  skills) is shared, not duplicated, between Home's composer and the ⌘N New Task dialog;
+  both call `createTaskForm` with their own root selector and field ids.
+- **`project.ts`** — the project switcher: which cwd Home, Tasks, Review, and Workspaces are
+  scoped to (`currentProject`, `onProjectChange`, `projectMatches`), persisted to
+  `localStorage` and defaulting to "All projects" so it changes nothing for code that
+  predates it.
+- **`theme.ts`** — live Console/Daylight/effects switching for Settings → Appearance. The
+  before-first-paint choice is made separately by `public/theme-init.js` (a plain script,
+  not a module, so it can run before anything else parses) reading the same `localStorage`
+  keys; `theme.ts` takes over afterwards so a change applies without a reload. Renderer-only
+  preference — never sent to the main process.
+
+**Design system rules**, enforced by convention (see `docs/design-phosphor-console.md` for
+the full spec):
+- Components use only the semantic tokens in `styles/tokens.css` (`--bg`, `--surface-*`,
+  `--amber`, `--cyan`, `--phosphor`, `--alarm`, `--caution`, …) — no raw hex or `rgb()`
+  literal outside that file.
+- Theme and motion are two independent flags on `<html>`: `data-theme="console|daylight"`
+  and `data-effects="on|off"` (off under `prefers-reduced-motion` too). Every glow/sweep/
+  blink/scanline reads `data-effects` rather than reimplementing the check.
+- Fonts (Chakra Petch, IBM Plex Sans, JetBrains Mono) are bundled via `@fontsource` and
+  imported from `styles/fonts.css` — the CSP is `default-src 'self'`, so no CDN.
+- `scripts/check-contrast.mjs` computes WCAG contrast ratios for the token pairs actually
+  used as text, in both themes, against the ratios `docs/design-phosphor-console.md` §8
+  requires; it duplicates the hex values deliberately so it keeps working even if the CSS
+  import graph breaks. Not yet wired into `pnpm` scripts or CI — run it directly when
+  touching tokens.
+
+**Live snapshots must not clobber an unsaved form edit.** A streamed task run touches
+snapshot state continuously (see "Snapshot coalescing" below), and every view re-renders
+from that snapshot on each one. A form seeded from settings — the Routing screen's advisor
+form is the shipped example — therefore tracks its own dirty flag (`advisorFormDirty` /
+`markAdvisorDirty` / `clearAdvisorDirty`) the moment the user changes a control, and stops
+overwriting that control from the snapshot until the edit is explicitly saved or discarded.
+Without this, a value the user just typed snaps back to the last-saved one the instant an
+unrelated task streams a token, and Save silently persists the stale value. Any new
+settings-editing view needs the same guard.
+
+**The sidebar privacy line must stay truthful.** `renderAdvisorStatus()` (`main.ts`) reads
+`snapshot.settings.advisor` and `snapshot.advisor.hasKey` on every render and shows "Local
+process mode · Prompts stay between this app and your CLIs" only when no advisor is
+active; the moment Shadow or Active mode has a stored key, it names Jev, the mode, and
+exactly what leaves the machine ("Prompt text and repo facts are sent to TypeSafe" vs.
+"Prompt text is sent to TypeSafe"), per ADR 0002. It is computed from live settings, never
+hardcoded, so it cannot silently go stale as advisor state changes.
+
 ## Layout, context window & memory
 
 - **Snapshot coalescing** — a streamed run touches task state per token, and `snapshot()`
@@ -515,9 +580,9 @@ even when that CLI has no resumable session id.
   `{ immediate: true }`. Live text is unaffected: it arrives on the separate `stream`
   channel, which is never throttled.
 - **Fixed app shell** — `body`/`.shell`/`main` are `height:100vh; overflow:hidden`; the
-  Tasks view fills remaining height and its panels scroll independently (no full-page
-  scroll). Other views scroll internally. A draggable `.grid-gutter` between the work
-  queue and live output resizes the columns (persisted to `localStorage` `fp-wq-width`).
+  Tasks view fills remaining height and its three panes scroll independently (no
+  full-page scroll). Other views scroll internally. See "Tasks is three panes" above for
+  the queue/inspector resize gutters.
 - **Context window** — usage and context are separate streams. `parseClaudeLine` reads the
   latest `message_start` input/cache usage plus `message_delta` output usage for current
   conversation occupancy, then pairs it with the active model's `modelUsage[*].contextWindow`.
@@ -527,16 +592,26 @@ even when that CLI has no resumable session id.
   report its window, the engine pairs the occupancy with the provider's configured/known
   `contextWindow` (default 400k for the GPT-5 family) and stores `task.contextSource = "estimated"`.
   The UI labels estimates accordingly.
-- **Task workspace** — **Open details** (or double-clicking a task) opens the `task-detail`
-  view with a large conversation pane, provider route/work log, task context meter, and a
-  **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
-  `filesChanged`; it enforces workspace containment, caps text at 1 MB, identifies binary
-  files, and returns a Git working-tree diff. The renderer uses `highlight.js` for language-
-  aware source/diff highlighting. The file tree comes from `git ls-files --cached --others
-  --exclude-standard` when the cwd is a repo, so it respects the project's own `.gitignore`
-  (non-Git folders fall back to a directory walk filtered by `IGNORED_TASK_TREE_NAMES`);
-  `entriesFromPaths` rebuilds the folder hierarchy from those paths. Folders in the tree are
-  collapsible and start collapsed except the branches holding this task's changed files.
+- **Tasks is three panes, not a detail view** (`views/tasks.ts`) — the work queue (grouped
+  into Running / Needs review / Done / Failed-cancelled, filterable, project-scoped), the
+  conversation (the primary surface, composer at the bottom), and a collapsible route/
+  files/activity **inspector**. Selecting a task swaps the centre and right panes in place;
+  there is no modal and no double-click-to-open. The old Conversation/Files/Route tabs are
+  gone — the inspector's sections (`inspectorSection` in `ui/components.ts`) replace them.
+  Two independent draggable gutters (`#grid-gutter`, `#inspector-gutter`) resize the queue
+  and inspector columns (`applyQueueWidth` / `applyInspectorWidth`), each persisted to
+  `localStorage` (`fp-wq-width` / `fp-inspector-width`) and re-clamped on resize so a width
+  that stops fitting falls back to the stylesheet's proportional columns instead of
+  collapsing a pane to zero.
+- **The file viewer is an overlay**, opened from the inspector's "Files changed" section,
+  not a tab. `engine.readTaskFile` only reads paths present in that task's `filesChanged`;
+  it enforces workspace containment, caps text at 1 MB, identifies binary files, and returns
+  a Git working-tree diff. The renderer uses `highlight.js` for language-aware source/diff
+  highlighting. The file tree comes from `git ls-files --cached --others --exclude-standard`
+  when the cwd is a repo, so it respects the project's own `.gitignore` (non-Git folders
+  fall back to a directory walk filtered by `IGNORED_TASK_TREE_NAMES`); `entriesFromPaths`
+  rebuilds the folder hierarchy from those paths. Folders in the tree are collapsible and
+  start collapsed except the branches holding this task's changed files.
 - **Frontier memory** — `AppSettings.memory` (edited in Settings) is prepended by
   `promptWithMemory` as shared context to every new task's first turn and the planner
   prompt, so knowledge carries across tasks. Continuations inherit it via the resumed session.

@@ -2,7 +2,9 @@
 
 [![Latest release](https://img.shields.io/github/v/release/ThisaST/Frontier-Proxy?label=download&sort=semver)](https://github.com/ThisaST/Frontier-Proxy/releases/latest)
 
-Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude Code**, **GitHub Copilot CLI**, and **Ollama-backed coding models**. It sends work to executables already installed and authenticated on your computer; it does not call model APIs or require API keys of its own.
+Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude Code**, **GitHub Copilot CLI**, and **Ollama-backed coding models**. It sends work to executables already installed and authenticated on your computer; it never calls a model API or holds a key on a coding agent's behalf. The one narrow, opt-in exception is the **Jev routing advisor** — see [Routing advisor (Jev)](#routing-advisor-jev) below.
+
+The desktop UI is themed **Phosphor Console** — a retro-future instrument panel in dark **Console** or light **Daylight**, following your OS by default (Settings → Appearance).
 
 Website and documentation: **https://frontier.thisara.me**
 
@@ -18,13 +20,14 @@ You still need at least one supported CLI installed and signed in — see [Provi
 
 ## What works
 
-- Detects enabled local providers and their CLI versions.
+- Detects enabled local providers and their CLI versions, and reads each CLI's own on-disk session to tell "installed" apart from "signed in."
 - Classifies tasks as coding, debugging, review, planning, documentation, or general work.
-- Routes with `Balanced`, `Quality first`, or `Token saver` policies.
+- Routes to an agent **and a model**, on `Balanced`, `Quality first`, or `Token saver` policies, with an optional outcome-learning factor once a provider (or model) has a track record.
+- Optionally consults **Jev**, an auxiliary routing advisor — off by default; see [Routing advisor (Jev)](#routing-advisor-jev).
 - Balances recent task/token estimates across subscriptions and respects optional per-provider daily budgets.
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
 - Streams provider output, keeps a local task history, supports cancellation, retries, and explicit provider switching between turns.
-- Opens each task in a dedicated workspace with its conversation, task-scoped context meter, route/activity history, and syntax-highlighted source and diff views for recorded file changes.
+- A composer-first **Home** with a live route preview, a **project switcher** scoping the app to one repo, three-pane **Tasks** (queue, conversation, route/files/activity inspector), a **Routing** screen for the advisor, and an **Agents** table with a per-provider detail drawer.
 - Hosts collaborative workspaces: one long-lived conversation per repository with named agent participants you address by `@handle`, answering in parallel, each writing participant on its own review branch.
 - Accepts image attachments by picker, paste, or drag-and-drop, and resolves `@` file/folder references from the task's selected working directory.
 - Provides a keyboard-first command palette for navigation, common actions, and task lookup (`⌘K` on macOS or `Ctrl+K` elsewhere).
@@ -140,6 +143,18 @@ Eligible providers must be enabled, detected, below their concurrency and option
 
 Only quota/unavailable failures automatically fail over. Intentional cancellation never triggers provider switching, and later messages remain pinned to the last provider unless the user changes the **Next provider** selector. A normal agent failure stops the task, because rerunning a partially completed coding task through another agent could duplicate or conflict with edits. When a follow-up moves to another provider, Frontier replays the complete attributed conversation transcript—including partial or cancelled responses—to the replacement provider.
 
+## Routing advisor (Jev)
+
+**Jev** (TypeSafe's System One model) is an auxiliary service, not a coding agent — it never generates text and never runs on your behalf, which is why it is the one narrow, opt-in exception to "no API keys" (see [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)). Jev advises; the router still decides — its answers only ever become bounded, labelled routing factors and can never override eligibility, an explicit pick, or a user-picked model.
+
+- **Off by default.** Turning it on is explicit, in the **Routing** screen.
+- **Modes:** `Off` (routing scores exactly as it would with no advisor), `Shadow` (Jev's pick is recorded next to the real route, changing nothing), `Active` (its answers become real, bounded factors that can influence the route).
+- **What's sent, when it's on:** the prompt text (trimmed to fit) and attachment *names* only, plus — when "share repo facts" is enabled (the default) — lightweight repository metadata (top languages, file count, manifest names, top-level folder names). **File contents never leave the machine.**
+- **Credentials:** the API key is encrypted with Electron `safeStorage` (Keychain / DPAPI / OS keyring) and kept in the main process only; the renderer learns just `hasKey`, and the key is never written to logs, task output, or `frontier-state.json`.
+- **Never blocks the queue:** a confidence threshold ignores low-confidence answers, and every request is bounded by a hard ~3-second deadline; a slow, failed, or low-confidence response simply falls back to Frontier's own heuristic classifier.
+- **Per-subtask advice:** once an orchestrated plan has two or more subtasks, one extra Jev call can route each subtask independently by its own complexity, instead of every subtask inheriting one provider default.
+- **Calibration view:** the Routing screen buckets finished, Jev-advised tasks by answer confidence and reports completion/verification/agreement per bucket, so you can judge the advisor before switching it to active.
+
 ## Workspaces
 
 A workspace is a second conversation shape next to tasks: one repository, one long-lived thread, and the agents you invite into it. Open **Workspaces** in the sidebar, create one against a repository folder, then add participants — each has a display name, a unique `@handle`, a free-text role such as "Backend reviewer", the agent (provider) it runs on, an optional model for that agent, and its capabilities.
@@ -169,6 +184,8 @@ If a provider is Ready but later receives an operating-system permission error, 
 ## Data and security
 
 State is stored in Electron's per-user application-data directory as `frontier-state.json`. Prompts are passed through stdin by default and never interpolated into a shell command. Executables are launched with a cross-platform argument-safe process wrapper (including Windows `.cmd` shims). Renderer code has no Node.js access; a small context-isolated preload API exposes only task and settings operations. No telemetry is included.
+
+Auxiliary-service credentials (today, only the Jev advisor's key) follow the same `safeStorage` encryption pattern as MCP OAuth tokens: main-process only, never logged, never persisted in plain text, and redacted from every error message — see [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md).
 
 ## Project layout
 

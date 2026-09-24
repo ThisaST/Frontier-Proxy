@@ -9,8 +9,10 @@ Status: **accepted** (2026-09-24). Priority order: **UI** and **Jev routing** fi
   folders). File contents are never sent. Repo facts are on by default and can be turned off.
   The Routing screen shows the exact payload.
 - Forges (§3) are **deferred**. The first cut is routing + UI only.
-- Theme: a **visual rebrand** with an uncommon identity is in scope. The direction is chosen
-  before P3 (the P1 renderer split is theme-neutral).
+- Theme: a **visual rebrand** with an uncommon identity is in scope. The chosen direction is
+  **Phosphor Console**, specified in [design-phosphor-console.md](design-phosphor-console.md).
+  P1 is split into **P1a** (theme-neutral renderer split) and **P1b** (design system +
+  Phosphor Console re-skin of the current layout).
 - Implementation: Sonnet 5 subagents implement each phase in isolated worktrees; the lead
   session reviews and merges.
 
@@ -334,5 +336,5 @@ UI phases.
 
 ## 5. Open questions
 
-All four were answered on 2026-09-24; see *Decisions* at the top. The one still open is
-which rebrand direction to take.
+All four were answered on 2026-09-24; see *Decisions* at the top. The rebrand direction is
+Phosphor Console.

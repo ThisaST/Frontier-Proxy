@@ -1,7 +1,7 @@
 import type { AdvisorMode, ModelTier, OutcomeStats, ProviderConfig, ProviderRuntime, ProxyTask, RoutingAdvice, RoutingCandidate, RoutingDecision, RoutingFactor, RoutingMode, TaskType } from '../shared/types'
 import { activeSessions, sessionBlocked } from '../shared/sessions'
 import { efficiencyBaselines, efficiencyFactors, type EfficiencyBaselines } from './evidence'
-import { tierFor } from '../shared/model-profiles'
+import { desiredTier, TIER_ORDER, tierFor, type DesiredTier } from '../shared/model-profiles'
 
 export interface RoutableProvider extends ProviderConfig {
   runtime: ProviderRuntime
@@ -78,7 +78,6 @@ export function outcomeFactor(stats: OutcomeStats | undefined, taskType: TaskTyp
 // advisor is active AND the task's advice actually came from Jev (routeTask
 // gates this; the functions below assume both are already true).
 
-const TIER_ORDER: ModelTier[] = ['local', 'fast', 'standard', 'frontier']
 const MAX_TIER_FIT_POINTS = 20
 const MAX_TARGET_FIT_POINTS = 15
 const READ_ONLY_LOCAL_BONUS = 8
@@ -86,24 +85,16 @@ const READ_ONLY_LOCAL_BONUS = 8
 // margin above 0 so an uncertain-but-leaning-false answer still counts.
 const READ_ONLY_THRESHOLD = 0.2
 
-// The tier the task calls for, from Jev's complexity score, shifted by the
-// routing mode. Between 1.75 and 2.5 a "standard" desire also accepts
-// "frontier" at full credit — the complexity band explicitly says either is a
-// fine fit there, rather than penalising reaching for the bigger model.
-function desiredTier(complexity: number, mode: RoutingMode): { tier: ModelTier; frontierAlsoFits: boolean } {
-  const base: ModelTier = complexity < 0.75 ? 'fast' : complexity < 2.5 ? 'standard' : 'frontier'
-  const frontierAlsoFits = base === 'standard' && complexity >= 1.75
-  const shift = mode === 'saver' ? -1 : mode === 'quality' ? 1 : 0
-  if (!shift) return { tier: base, frontierAlsoFits }
-  const shifted = TIER_ORDER[Math.max(0, Math.min(TIER_ORDER.length - 1, TIER_ORDER.indexOf(base) + shift))]
-  return { tier: shifted, frontierAlsoFits: false }
-}
+// `desiredTier` (the tier a task calls for, from Jev's complexity score and
+// the routing mode) lives in `src/shared/model-profiles.ts` — it is also used
+// to display the same tier on the Routing screen and the Route tab, so the
+// rule can never drift between what the router scores and what the UI shows.
 
 // Distance (in tier steps) from one tier to the desired one — 0 when they
 // match, or when the "frontier also fits" band applies. Shared by tier-fit
 // scoring and pickModel so the two can never disagree about which model a
 // provider would actually run for a given desire.
-function tierDistance(tier: ModelTier, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+function tierDistance(tier: ModelTier, desired: DesiredTier): number {
   if (tier === desired.tier) return 0
   if (desired.frontierAlsoFits && tier === 'frontier' && desired.tier === 'standard') return 0
   return Math.abs(TIER_ORDER.indexOf(tier) - TIER_ORDER.indexOf(desired.tier))
@@ -117,7 +108,7 @@ function tierDistance(tier: ModelTier, desired: { tier: ModelTier; frontierAlsoF
 // even though it would run haiku for it. A provider with no known models at
 // all falls back to its kind's natural tier (local for Ollama-backed CLIs,
 // standard otherwise) rather than being penalised for a discovery gap.
-function closestTierDistance(models: string[], kind: ProviderConfig['kind'], defaultModel: string | undefined, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+function closestTierDistance(models: string[], kind: ProviderConfig['kind'], defaultModel: string | undefined, desired: DesiredTier): number {
   const candidates = [...new Set([...(models ?? []), defaultModel].filter((value): value is string => Boolean(value)))]
   if (!candidates.length) return tierDistance(kind === 'ollama' || kind === 'codex-oss' ? 'local' : 'standard', desired)
   let best = Number.POSITIVE_INFINITY

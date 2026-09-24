@@ -25,6 +25,14 @@
 .routing-confidence-readout { justify-self: start; }
 #routing-view input[type='range'] { appearance: none; -webkit-appearance: none; border: 0; background: transparent; padding: 0; height: 20px; accent-color: var(--amber); }
 
+.routing-save-row { display: flex; align-items: center; gap: 12px; }
+.dirty-hint { color: var(--caution); font: 600 10px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.dirty-hint[hidden] { display: none; }
+/* `.text-button` sets `display: inline-flex` unconditionally (base.css), which
+   otherwise wins the cascade over the UA stylesheet's `[hidden]` rule and
+   leaves the Discard button visible while hidden. */
+#routing-advisor-discard[hidden] { display: none; }
+
 .routing-sent-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
 .routing-sent-form label:first-child { grid-column: 1 / -1; }
 #routing-sent-preview { grid-column: 2; justify-self: end; }

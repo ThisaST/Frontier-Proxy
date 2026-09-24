@@ -2,7 +2,7 @@
 // preview, the model catalog, routing policies, and shadow-mode insights.
 // The whole view is built once here since index.html only ever gets an empty
 // `#routing-view` section (P3a/P3b split — see CLAUDE.md).
-import type { AdvisorMode, AdvisorPreviewResult, ModelTier, ProxyTask, RoutingMode } from '../../../shared/types'
+import type { AdvisorMode, AdvisorPreviewResult, ModelTier, ProxyTask, RoutingAdvisorSettings } from '../../../shared/types'
 import { describeCandidate, profileFor, tierFor } from '../../../shared/model-profiles'
 import { byId, element, emptyState, field, textArea, textInput } from '../ui/dom'
 import { chip, lamp, probabilityBar, type Tone } from '../ui/components'
@@ -20,23 +20,18 @@ const MODE_COPY: Record<AdvisorMode, { title: string; body: string }> = {
 
 const TIER_LABEL: Record<ModelTier, string> = { local: 'Local', fast: 'Fast', standard: 'Standard', frontier: 'Frontier' }
 const TIER_TONE: Record<ModelTier, Tone> = { local: 'muted', fast: 'cyan', standard: 'phosphor', frontier: 'amber' }
-const TIER_ORDER: ModelTier[] = ['local', 'fast', 'standard', 'frontier']
-
-// Mirrors `desiredTier` in `src/main/router.ts` (kept local: the renderer
-// never imports from src/main). Used only for the Routing/Route-tab display,
-// never to decide anything — the real thresholds live with the router.
-export function desiredTierForDisplay(complexity: number, mode: RoutingMode): ModelTier {
-  const base: ModelTier = complexity < 0.75 ? 'fast' : complexity < 2.5 ? 'standard' : 'frontier'
-  const shift = mode === 'saver' ? -1 : mode === 'quality' ? 1 : 0
-  if (!shift) return base
-  return TIER_ORDER[Math.max(0, Math.min(TIER_ORDER.length - 1, TIER_ORDER.indexOf(base) + shift))]
-}
 
 const EXAMPLE_PROMPT = 'Fix the flaky test in src/auth/session.test.ts and add a regression test for the race it hits.'
 
 let sentCwdTouched = false
 let previewResult: AdvisorPreviewResult | undefined
 let previewUsedJev = false
+// Dirty tracking: once the user edits an advisor-form control, snapshots (a
+// task streaming elsewhere fires one roughly every 60ms — see CLAUDE.md's
+// "Snapshot coalescing") stop overwriting it until the edit is saved or
+// discarded. Without this a control the user just changed snaps back to the
+// last-saved value the moment focus leaves it, and Save persists the OLD value.
+let advisorFormDirty = false
 
 function modeExplainRows(): HTMLElement {
   const list = element('div', 'routing-mode-explain')
@@ -104,8 +99,12 @@ function buildAdvisorCard(): HTMLElement {
   typingRow.append(typingInput, ' Ask Jev while I type (sends drafts to TypeSafe)')
   const typingCaution = element('p', 'field-help caution', 'Every keystroke in the composer would be sent as a draft prompt while this is on.')
 
+  const saveRow = element('div', 'routing-save-row')
   const save = element('button', 'primary-button', 'Save advisor settings') as HTMLButtonElement; save.id = 'routing-advisor-save'; save.type = 'button'
-  card.append(shareRow, typingRow, typingCaution, save)
+  const discard = element('button', 'text-button', 'Discard') as HTMLButtonElement; discard.id = 'routing-advisor-discard'; discard.type = 'button'; discard.hidden = true
+  const hint = element('span', 'dirty-hint', 'Unsaved changes'); hint.id = 'routing-advisor-dirty-hint'; hint.hidden = true
+  saveRow.append(save, discard, hint)
+  card.append(shareRow, typingRow, typingCaution, saveRow)
   return card
 }
 
@@ -159,9 +158,7 @@ function buildPolicyCard(): HTMLElement {
   const learnLabel = document.createElement('label'); learnLabel.setAttribute('for', 'learn-outcomes'); learnLabel.textContent = 'Let recent outcomes influence routing'
   learnRow.append(learnInput, learnLabel)
   card.append(learnRow)
-  card.append(element('p', 'field-help', "Outcome learning nudges the router with how each agent's recent runs of the same kind of work turned out — finished, passed the repo's checks, and above all whether you merged or discarded its branch. It is capped at ±14 points and always shown as a labelled factor on the task's Route tab."))
-  const save = element('button', 'primary-button', 'Save policy') as HTMLButtonElement; save.id = 'routing-policy-save'; save.type = 'button'
-  card.append(save)
+  card.append(element('p', 'field-help', "Outcome learning nudges the router with how each agent's recent runs of the same kind of work turned out — finished, passed the repo's checks, and above all whether you merged or discarded its branch. It is capped at ±14 points and always shown as a labelled factor on the task's Route tab. Saved immediately when changed."))
   return card
 }
 
@@ -184,8 +181,14 @@ export function initRoutingView(): void {
     button.addEventListener('click', async () => {
       const mode = (button.dataset.advisorMode as AdvisorMode) ?? 'off'
       renderModeSegmented(mode); renderModeExplain(mode)
-      try { await window.frontier.updateSettings({ advisor: { ...snapshot.settings.advisor, mode } }); showToast(`Advisor set to ${MODE_COPY[mode].title}`) }
-      catch (error) { reportError('Could not change advisor mode', error); renderRouting() }
+      // Save the mode together with whatever is currently in the other
+      // fields, dirty or not — otherwise a mode switch mid-edit would discard
+      // an unsaved model/confidence/switch change by saving the old snapshot.
+      try {
+        await window.frontier.updateSettings({ advisor: { ...currentAdvisorForm(), mode } })
+        clearAdvisorDirty()
+        showToast(`Advisor set to ${MODE_COPY[mode].title}`)
+      } catch (error) { reportError('Could not change advisor mode', error); renderRouting() }
     })
   })
 
@@ -217,19 +220,18 @@ export function initRoutingView(): void {
   byId('routing-advisor-save').addEventListener('click', async () => {
     const button = byId<HTMLButtonElement>('routing-advisor-save'); button.disabled = true
     try {
-      await window.frontier.updateSettings({
-        advisor: {
-          mode: currentSegmentedMode(),
-          model: byId<HTMLInputElement>('routing-model-input').value.trim() || 'jev-latest',
-          minConfidence: Number(byId<HTMLInputElement>('routing-confidence-range').value) || 0.5,
-          shareRepoFacts: byId<HTMLInputElement>('routing-share-facts').checked,
-          previewWhileTyping: byId<HTMLInputElement>('routing-preview-typing').checked
-        }
-      })
+      await window.frontier.updateSettings({ advisor: currentAdvisorForm() })
+      clearAdvisorDirty()
       showToast('Advisor settings saved')
     } catch (error) { reportError('Could not save advisor settings', error) } finally { button.disabled = false }
   })
+  byId('routing-advisor-discard').addEventListener('click', () => { clearAdvisorDirty(); renderRouting() })
+
+  byId('routing-model-input').addEventListener('input', markAdvisorDirty)
+  byId('routing-share-facts').addEventListener('change', markAdvisorDirty)
+  byId('routing-preview-typing').addEventListener('change', markAdvisorDirty)
   byId<HTMLInputElement>('routing-confidence-range').addEventListener('input', (event) => {
+    markAdvisorDirty()
     byId('routing-confidence-readout').textContent = Number((event.target as HTMLInputElement).value).toFixed(2)
   })
 
@@ -244,15 +246,48 @@ export function initRoutingView(): void {
   })
   byId('routing-sent-preview').addEventListener('click', () => void runPreview())
 
-  byId('routing-policy-save').addEventListener('click', async () => {
-    const button = byId<HTMLButtonElement>('routing-policy-save'); button.disabled = true
-    try { await window.frontier.updateSettings({ learnFromOutcomes: byId<HTMLInputElement>('learn-outcomes').checked }); showToast('Routing policy saved') }
-    catch (error) { reportError('Could not save routing policy', error) } finally { button.disabled = false }
+  // One boolean, no draft worth tracking — save the moment it changes rather
+  // than adding a second dirty-tracked form for a single switch.
+  byId<HTMLInputElement>('learn-outcomes').addEventListener('change', async (event) => {
+    const input = event.target as HTMLInputElement
+    input.disabled = true
+    try { await window.frontier.updateSettings({ learnFromOutcomes: input.checked }); showToast('Routing policy saved') }
+    catch (error) { reportError('Could not save routing policy', error); renderRouting() }
+    finally { input.disabled = false }
   })
 }
 
 function currentSegmentedMode(): AdvisorMode {
   return (byId('routing-mode-segmented').querySelector<HTMLButtonElement>('button.active')?.dataset.advisorMode as AdvisorMode) ?? 'off'
+}
+
+// The advisor form as it currently reads in the DOM — the single source of
+// truth for both the explicit Save button and a mode-segmented click, so
+// neither can silently save a stale (snapshot) value over an unsaved edit.
+function currentAdvisorForm(): RoutingAdvisorSettings {
+  return {
+    mode: currentSegmentedMode(),
+    model: byId<HTMLInputElement>('routing-model-input').value.trim() || 'jev-latest',
+    minConfidence: Number(byId<HTMLInputElement>('routing-confidence-range').value) || 0.5,
+    shareRepoFacts: byId<HTMLInputElement>('routing-share-facts').checked,
+    previewWhileTyping: byId<HTMLInputElement>('routing-preview-typing').checked
+  }
+}
+
+function markAdvisorDirty(): void {
+  if (advisorFormDirty) return
+  advisorFormDirty = true
+  applyAdvisorDirtyState()
+}
+
+function clearAdvisorDirty(): void {
+  advisorFormDirty = false
+  applyAdvisorDirtyState()
+}
+
+function applyAdvisorDirtyState(): void {
+  byId('routing-advisor-dirty-hint').hidden = !advisorFormDirty
+  byId<HTMLButtonElement>('routing-advisor-discard').hidden = !advisorFormDirty
 }
 
 function renderModeSegmented(mode: AdvisorMode): void {
@@ -404,15 +439,21 @@ export function renderRouting(): void {
   renderModeExplain(settings.mode)
   renderStatus()
 
-  const modelInput = byId<HTMLInputElement>('routing-model-input')
-  if (document.activeElement !== modelInput) modelInput.value = settings.model
-  const confidence = byId<HTMLInputElement>('routing-confidence-range')
-  if (document.activeElement !== confidence) confidence.value = String(settings.minConfidence)
-  byId('routing-confidence-readout').textContent = settings.minConfidence.toFixed(2)
-  const shareInput = byId<HTMLInputElement>('routing-share-facts')
-  if (document.activeElement !== shareInput) shareInput.checked = settings.shareRepoFacts
-  const typingInput = byId<HTMLInputElement>('routing-preview-typing')
-  if (document.activeElement !== typingInput) typingInput.checked = settings.previewWhileTyping
+  applyAdvisorDirtyState()
+  // A dirty form is left entirely alone: syncing any one of these fields from
+  // the snapshot while the user is mid-edit is what silently discarded their
+  // change before (see `advisorFormDirty`'s comment above).
+  if (!advisorFormDirty) {
+    const modelInput = byId<HTMLInputElement>('routing-model-input')
+    if (document.activeElement !== modelInput) modelInput.value = settings.model
+    const confidence = byId<HTMLInputElement>('routing-confidence-range')
+    if (document.activeElement !== confidence) confidence.value = String(settings.minConfidence)
+    byId('routing-confidence-readout').textContent = settings.minConfidence.toFixed(2)
+    const shareInput = byId<HTMLInputElement>('routing-share-facts')
+    if (document.activeElement !== shareInput) shareInput.checked = settings.shareRepoFacts
+    const typingInput = byId<HTMLInputElement>('routing-preview-typing')
+    if (document.activeElement !== typingInput) typingInput.checked = settings.previewWhileTyping
+  }
 
   const cwd = byId<HTMLInputElement>('routing-sent-cwd')
   if (!sentCwdTouched && !cwd.value && snapshot.tasks[0]?.cwd) cwd.value = snapshot.tasks[0].cwd

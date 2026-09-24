@@ -12,8 +12,8 @@ import { taskElapsed, taskIsBusy, taskKindLabel, taskStatusIndicator, taskTokens
 import { snapshot, selectedTaskId, setSelectedTaskId, currentView, surfaceTab, setSurfaceTab } from '../state'
 import { attachmentPreviewCache, composerDraft, messageContext, clearComposerDraft, renderDraftImages } from '../composer'
 import { persistControlPlaneDraft } from '../views/control'
-import { desiredTierForDisplay } from '../views/routing'
 import { openBranchInReview, switchView } from '../main'
+import { desiredTier } from '../../../shared/model-profiles'
 
 let taskQuery = ''
 let focusMode = false
@@ -344,7 +344,7 @@ function renderAdvicePanel(task: ProxyTask): void {
 
   if (advice.complexity !== undefined) {
     const complexitySection = element('div', 'advice-section')
-    const tier = desiredTierForDisplay(advice.complexity, task.mode)
+    const tier = desiredTier(advice.complexity, task.mode).tier
     complexitySection.append(element('p', 'advice-label', 'Complexity'))
     complexitySection.append(gaugeSeg((advice.complexity / 3) * 100, 'amber', 'Complexity', 4))
     complexitySection.append(element('p', 'advice-value', `${advice.complexity.toFixed(1)} → ${tier} tier`))

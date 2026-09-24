@@ -5,7 +5,7 @@
 import {
   AlertTriangle as TriangleAlert, Check, ChevronDown, ChevronLeft, ChevronRight, Circle, Clock,
   Command, Cpu, Eye, FileText, Folder, GitBranch, House, ListChecks, LoaderCircle, Maximize2,
-  Merge, Minimize2, MessagesSquare, MoreHorizontal, Paperclip, Plug, Plus, RefreshCw, Scale,
+  Merge, Minimize2, MessagesSquare, MoreHorizontal, Paperclip, Plug, Plus, Radar, RefreshCw, Scale,
   Settings, Sparkle, Terminal, Trash2, Users, UserPlus, Wrench, X
 } from 'lucide'
 
@@ -17,6 +17,7 @@ const ICONS = {
   agents: Cpu,
   control: Plug,
   skills: Sparkle,
+  routing: Radar,
   settings: Settings,
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,

@@ -30,7 +30,6 @@ export function renderSettings(): void {
   byId<HTMLInputElement>('verify-timeout').value = String(verification?.timeoutSeconds ?? 300)
   byId<HTMLInputElement>('notify-enabled').checked = snapshot.settings.notifications?.enabled ?? true
   byId<HTMLInputElement>('notify-unfocused').checked = snapshot.settings.notifications?.onlyWhenUnfocused ?? true
-  byId<HTMLInputElement>('learn-outcomes').checked = snapshot.settings.learnFromOutcomes !== false
 }
 
 export function initSettingsView(): void {
@@ -76,8 +75,7 @@ export function initSettingsView(): void {
         notifications: {
           enabled: byId<HTMLInputElement>('notify-enabled').checked,
           onlyWhenUnfocused: byId<HTMLInputElement>('notify-unfocused').checked
-        },
-        learnFromOutcomes: byId<HTMLInputElement>('learn-outcomes').checked
+        }
       })
       showToast('Preferences saved')
     } catch (error) { reportError('Could not save preferences', error) } finally { button.disabled = false }

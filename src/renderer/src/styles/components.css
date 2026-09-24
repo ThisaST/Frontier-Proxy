@@ -41,6 +41,16 @@
 .status-pill.failed { color: var(--alarm); }
 .status-pill.queued, .status-pill.cancelled, .status-pill.muted { color: var(--fg-muted); }
 
+/* ---------- Chip (spec §6) — a one-word coloured pill ---------- */
+.chip { display: inline-block; border: 1px solid var(--bezel); border-radius: 20px; padding: 2px 8px; font: 700 9px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; color: var(--fg-muted); }
+.chip.tone-amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.chip.tone-cyan { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.chip.tone-phosphor { color: var(--phosphor); border-color: color-mix(in srgb, var(--phosphor) 40%, transparent); }
+.chip.tone-caution { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 40%, transparent); }
+.chip.tone-alarm { color: var(--alarm); border-color: color-mix(in srgb, var(--alarm) 40%, transparent); }
+.chip.tone-muted { color: var(--fg-muted); }
+.cyan-text { color: var(--cyan); }
+
 /* ---------- Readouts (spec §4.2) ---------- */
 .readout { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(--glow-amber); }
@@ -92,6 +102,15 @@ strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(-
 .probability-bar-value { font-size: 10px; }
 .probability-bar.positive .probability-bar-value { color: var(--phosphor); }
 .probability-bar.negative .probability-bar-value { color: var(--caution); }
+.probability-bars { display: grid; gap: 3px; }
+.probability-bar.tone-cyan .probability-bar-fill { background: var(--cyan); }
+.probability-bar.tone-cyan .probability-bar-value { color: var(--cyan); text-shadow: var(--glow-cyan); }
+.probability-bar.tone-amber .probability-bar-fill { background: var(--amber); }
+.probability-bar.tone-amber .probability-bar-value { color: var(--amber); }
+.probability-bar.tone-phosphor .probability-bar-fill { background: var(--phosphor); }
+.probability-bar.tone-phosphor .probability-bar-value { color: var(--phosphor); }
+.probability-bar.tone-muted .probability-bar-fill { background: var(--fg-faint); }
+.probability-bar.tone-muted .probability-bar-value { color: var(--fg-muted); }
 
 /* ---------- Scanlines (spec §4.6) — `.screen` wells only, never on text ---------- */
 .screen { position: relative; }

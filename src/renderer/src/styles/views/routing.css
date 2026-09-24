@@ -1,0 +1,57 @@
+/* ---------- Routing (Jev advisor console) ---------- */
+#routing-view.active { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+.routing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.routing-card { padding: 18px; display: grid; gap: 12px; }
+.routing-card-wide { grid-column: 1 / -1; }
+.routing-card h2 { font-size: 16px; }
+.routing-card-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.routing-status { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 11px; max-width: 260px; text-align: right; }
+
+/* Mode explanation rows reuse `.policy` from settings.css; the active mode is
+   picked out so the segmented control and the copy below it never disagree. */
+.routing-mode-explain { display: grid; }
+.routing-mode-explain .policy { opacity: .55; transition: opacity var(--t-fast) var(--ease); }
+.routing-mode-explain .policy.active { opacity: 1; }
+.routing-mode-explain .policy.active strong { color: var(--amber); }
+
+.routing-key-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 10px; align-items: end; }
+.routing-key-row label { margin: 0; }
+.field-help.caution { color: var(--caution); }
+#routing-key-result.caution { color: var(--caution); }
+
+.routing-config-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.routing-config-row label { margin: 0; display: grid; gap: 6px; }
+.routing-confidence-readout { justify-self: start; }
+#routing-view input[type='range'] { appearance: none; -webkit-appearance: none; border: 0; background: transparent; padding: 0; height: 20px; accent-color: var(--amber); }
+
+.routing-sent-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.routing-sent-form label:first-child { grid-column: 1 / -1; }
+#routing-sent-preview { grid-column: 2; justify-self: end; }
+.routing-sent-result { display: grid; gap: 12px; }
+.routing-sent-banner { margin: 0; padding: 9px 12px; border-radius: var(--r-md); border: 1px solid var(--bezel); font-size: 11px; color: var(--fg-muted); }
+.routing-sent-banner.jev { border-color: color-mix(in srgb, var(--cyan) 40%, transparent); color: var(--cyan); }
+.routing-sent-request { padding: 0; overflow: hidden; border: 1px solid var(--bezel); border-radius: var(--r-md); }
+.routing-sent-request-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; border-bottom: 1px solid var(--bezel); background: var(--surface-2); }
+.routing-sent-request-head span { font: 9px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--fg-muted); }
+.routing-sent-request .cp-preview { border: 0; border-radius: 0; max-height: 320px; }
+.routing-sent-route { border-top: 1px solid var(--bezel); padding-top: 10px; font-size: 12px; }
+.routing-sent-route > p:first-child { margin: 0 0 6px; color: var(--fg); }
+
+.routing-table-wrap { overflow-x: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.data-table th, .data-table td { border-bottom: 1px solid var(--bezel); padding: 8px 10px; text-align: left; vertical-align: top; }
+.data-table th { color: var(--fg-muted); font: 600 9px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
+.data-table td.mono { font-family: var(--font-mono); font-size: 11px; color: var(--amber); }
+
+.routing-shadow-summary { font-size: 12px; color: var(--fg); }
+.routing-shadow-list { display: grid; gap: 8px; }
+.routing-shadow-row { border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); padding: 10px 12px; display: grid; gap: 6px; }
+.routing-shadow-prompt { margin: 0; font-size: 12px; color: var(--fg); }
+.routing-shadow-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 10px; color: var(--fg-muted); align-items: center; }
+
+@media (max-width: 1120px) {
+  .routing-grid { grid-template-columns: 1fr; }
+  .routing-config-row, .routing-sent-form { grid-template-columns: 1fr; }
+  #routing-sent-preview { grid-column: 1; justify-self: start; }
+}

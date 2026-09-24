@@ -3,7 +3,7 @@
 import type { ChatContextItem, ConversationTurn, ProxyTask, RoutingCandidate, SubTask, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../../shared/types'
 import { renderMarkdown } from '../markdown'
 import { byId, codeLine, element, emptyState, metaChip, renderDiffInto } from '../ui/dom'
-import { gaugeSeg, probabilityBar } from '../ui/components'
+import { chip, gaugeSeg, lamp, probabilityBar, probabilityBars, type Tone } from '../ui/components'
 import { icon, type IconName } from '../ui/icons'
 import { errorMessage, reportError, showToast } from '../ui/feedback'
 import { baseName, formatCost, formatDuration, formatNumber, timeAgo } from '../ui/format'
@@ -12,6 +12,7 @@ import { taskElapsed, taskIsBusy, taskKindLabel, taskStatusIndicator, taskTokens
 import { snapshot, selectedTaskId, setSelectedTaskId, currentView, surfaceTab, setSurfaceTab } from '../state'
 import { attachmentPreviewCache, composerDraft, messageContext, clearComposerDraft, renderDraftImages } from '../composer'
 import { persistControlPlaneDraft } from '../views/control'
+import { desiredTierForDisplay } from '../views/routing'
 import { openBranchInReview, switchView } from '../main'
 
 let taskQuery = ''
@@ -265,12 +266,122 @@ function candidateRow(candidate: RoutingCandidate, chosen: boolean): HTMLElement
 
   if (candidate.eligible && candidate.factors?.length) {
     const factors = element('div', 'receipt-factors')
-    for (const factor of candidate.factors) factors.append(probabilityBar(factor.label, factor.points))
+    for (const factor of candidate.factors) {
+      const bar = probabilityBar(factor.label, factor.points)
+      // Jev's own factors (see CLAUDE.md's "Routing advisor" section) are
+      // labelled distinctly from the router's own scoring so it is always
+      // visible which rows the advisor actually influenced.
+      if (factor.label.startsWith('Jev')) bar.querySelector('.probability-bar-label')?.prepend(chip('cyan', 'JEV'))
+      factors.append(bar)
+    }
     row.append(factors)
   } else if (candidate.skippedReason) {
     row.append(element('p', 'receipt-reason', candidate.skippedReason))
   }
   return row
+}
+
+// --- Advisor panel (Jev) ---
+
+function signalLamp(label: string, value: number | undefined): HTMLElement {
+  const row = element('span', 'advice-signal')
+  const tone: Tone = value === undefined ? 'muted' : value >= 0.66 ? 'phosphor' : value >= 0.33 ? 'amber' : 'muted'
+  row.append(lamp(tone, label), element('span', undefined, `${label}${value !== undefined ? ` · ${Math.round(value * 100)}%` : ''}`))
+  return row
+}
+
+// Jev's `target` choice keys options as `providerId::model` (see
+// `src/main/advisor.ts`); shown to the user as "Agent · model".
+function targetLabel(key: string): string {
+  const separator = key.indexOf('::')
+  if (separator < 0) return key
+  const providerId = key.slice(0, separator)
+  const model = key.slice(separator + 2)
+  return `${providerName(providerId)}${model ? ` · ${model}` : ''}`
+}
+
+function ensureAdvicePanel(): HTMLElement {
+  let panel = document.getElementById('surface-advice')
+  if (!panel) {
+    panel = element('section', 'route-card screen advice-card')
+    panel.id = 'surface-advice'
+    const grid = document.querySelector('#surface-route .route-grid')
+    grid?.insertBefore(panel, grid.firstElementChild)
+  }
+  return panel
+}
+
+function renderAdvicePanel(task: ProxyTask): void {
+  const panel = ensureAdvicePanel()
+  const advice = task.advice
+  if (!advice) { panel.hidden = true; panel.replaceChildren(); return }
+  panel.hidden = false
+  const nodes: HTMLElement[] = [element('p', 'eyebrow', 'ADVISOR')]
+
+  const badgeRow = element('div', 'advice-badge-row')
+  if (advice.source === 'jev') {
+    badgeRow.append(chip('cyan', `JEV · ${advice.model ?? snapshot.settings.advisor.model}`))
+    const meta = [
+      advice.latencyMs !== undefined ? formatDuration(advice.latencyMs) : undefined,
+      advice.inputTokens !== undefined ? `${formatNumber(advice.inputTokens)} tokens in` : undefined
+    ].filter(Boolean).join(' · ')
+    if (meta) badgeRow.append(element('span', 'advice-badge-meta', meta))
+  } else {
+    badgeRow.append(chip('muted', 'LOCAL RULES'))
+    if (advice.error) badgeRow.append(element('span', 'advice-badge-meta caution', `Jev unavailable: ${advice.error}`))
+  }
+  nodes.push(badgeRow)
+
+  const typeSection = element('div', 'advice-section')
+  typeSection.append(element('p', 'advice-label', 'Task type'))
+  typeSection.append(element('p', 'advice-value', `${advice.taskType}${advice.taskTypeConfidence !== undefined ? ` · ${Math.round(advice.taskTypeConfidence * 100)}% confidence` : ''}`))
+  if (advice.taskTypeProbs) {
+    const entries = Object.entries(advice.taskTypeProbs).map(([label, value]) => ({ label, value })).sort((left, right) => right.value - left.value)
+    typeSection.append(probabilityBars(entries, 'cyan'))
+  }
+  if (advice.taskType !== advice.heuristicTaskType) typeSection.append(element('p', 'advice-note', `Local rules said ${advice.heuristicTaskType}.`))
+  nodes.push(typeSection)
+
+  if (advice.complexity !== undefined) {
+    const complexitySection = element('div', 'advice-section')
+    const tier = desiredTierForDisplay(advice.complexity, task.mode)
+    complexitySection.append(element('p', 'advice-label', 'Complexity'))
+    complexitySection.append(gaugeSeg((advice.complexity / 3) * 100, 'amber', 'Complexity', 4))
+    complexitySection.append(element('p', 'advice-value', `${advice.complexity.toFixed(1)} → ${tier} tier`))
+    nodes.push(complexitySection)
+  }
+
+  const signalsSection = element('div', 'advice-section')
+  signalsSection.append(element('p', 'advice-label', 'Signals'))
+  const signalsRow = element('div', 'advice-signals')
+  signalsRow.append(
+    signalLamp('Edits files', advice.editsFiles),
+    signalLamp('Needs broad context', advice.longContext),
+    signalLamp('Splits well', advice.splitWorthy)
+  )
+  signalsSection.append(signalsRow)
+  nodes.push(signalsSection)
+
+  if (advice.target) {
+    const bestFitSection = element('div', 'advice-section')
+    bestFitSection.append(element('p', 'advice-label', 'Best fit'))
+    const entries = Object.entries(advice.target.probabilities)
+      .sort((left, right) => right[1] - left[1]).slice(0, 3)
+      .map(([key, value]) => ({ label: targetLabel(key), value }))
+    bestFitSection.append(probabilityBars(entries, 'cyan'))
+    nodes.push(bestFitSection)
+  }
+
+  if (task.routedModel) nodes.push(element('p', 'advice-note', `Model chosen: ${task.routedModel.model} — ${task.routedModel.reason}`))
+
+  const advisorDecision = task.routing?.advisor
+  if (advisorDecision?.note) nodes.push(element('p', 'advice-note', advisorDecision.note))
+  if (advisorDecision?.mode === 'shadow' && advisorDecision.wouldChooseProviderId) {
+    const would = `${providerName(advisorDecision.wouldChooseProviderId)}${advisorDecision.wouldChooseModel ? ` · ${advisorDecision.wouldChooseModel}` : ''}`
+    nodes.push(element('p', 'advice-note cyan-text', `Shadow: Jev would have picked ${would}.`))
+  }
+
+  panel.replaceChildren(...nodes)
 }
 
 function renderReceipt(task: ProxyTask): void {
@@ -292,6 +403,7 @@ function renderReceipt(task: ProxyTask): void {
 const ACTIVITY_ICON: Record<string, IconName> = { tool: 'tool', thinking: 'thinking', notice: 'notice' }
 
 function renderRouteTab(task: ProxyTask): void {
+  renderAdvicePanel(task)
   renderReceipt(task)
   const attempts = byId('surface-attempts')
   if (!task.attempts.length) attempts.replaceChildren(element('p', 'detail-empty', 'No agent has been launched yet.'))

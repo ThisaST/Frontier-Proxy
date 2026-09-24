@@ -34,7 +34,14 @@ import { url } from "../../lib/site";
       <strong>What leaves the machine when it's on:</strong> the prompt text, trimmed to fit the advisor's budget, and
       attachment <em>names</em> only — never attachment contents. When "share repo facts" is enabled (the default), it
       also sends lightweight repository metadata: top languages, file count, manifest names, and top-level folder
-      names. <strong>File contents never leave the machine</strong>, in either case.
+      names. Frontier never reads a file to send it.
+    </li>
+    <li>
+      <strong>Split &amp; delegate sends the plan too.</strong> With the advisor on, a split run makes one extra call
+      after planning. It sends each subtask's title, type, and prompt, so every subtask can get its own model. The
+      planner is an agent that has read your repository, so its subtask prompts can quote code or file names. If
+      that matters for a repository, keep the advisor off, or in Shadow, where the call still happens but changes
+      nothing, for that work.
     </li>
     <li>
       <strong>Advisory, never authoritative.</strong> Its answers only ever become bounded, labelled routing factors

@@ -390,7 +390,10 @@ a user-picked model.
   (trimmed to fit Jev's budget, keeping head and tail), attachment *names* only, and —
   when `AppSettings.advisor.shareRepoFacts` is on (default) — lightweight `repoFacts(cwd)`:
   top languages, file count, manifests, and top-level folder names from `git ls-files`.
-  File contents never leave the machine. One request asks five questions at once:
+  Frontier never reads a file in order to send it. The subtask-advice call is the exception
+  to "prompt only": it sends the planner's subtask titles and prompts, and those can quote code
+  the planner read. Every disclosure surface must say so: the site, the README, the Routing
+  screen and the sidebar tooltip. One request asks five questions at once:
   `task_type` (choice over the six `TaskType`s), `complexity` (score, 4 levels: trivial →
   single-file → multi-file → architectural), `edits_files`/`long_context`/`split_worthy`
   (nouls), and `target` — a choice over every eligible `(provider, model)` pair, each

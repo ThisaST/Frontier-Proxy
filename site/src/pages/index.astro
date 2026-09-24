@@ -407,7 +407,8 @@ const steps = [
         <p>
           The prompt text (trimmed to fit) and attachment <em>names</em> only — never attachment contents. When
           "share repo facts" is on (the default), also lightweight metadata: top languages, file count, manifest
-          names, and top-level folder names. <strong>File contents never leave the machine.</strong> The key itself
+          names, and top-level folder names. Frontier never reads a file to send it. A split &amp; delegate run also sends
+          the planner's subtask prompts, which can quote code the planner read. The key itself
           is encrypted with your OS keychain and never reaches the renderer or the state file.
         </p>
       </Callout>

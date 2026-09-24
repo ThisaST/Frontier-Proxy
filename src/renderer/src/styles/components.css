@@ -231,7 +231,10 @@ h4.md-h, h5.md-h, h6.md-h { font-size: 12px; color: var(--fg-muted); text-transf
 .markdown hr { border: 0; border-top: 1px solid var(--bezel); margin: 16px 0; }
 
 /* ---------- Dialogs ---------- */
-dialog { width: min(660px, calc(100vw - 40px)); border: 1px solid var(--bezel); border-radius: var(--r-lg); color: var(--fg); background: var(--surface-1); padding: 0; box-shadow: var(--e-2); }
+/* `calc(100vw - 32px)` per the responsive pass — every dialog stays clear of
+   the viewport edge down to the 720px floor; the body (not the dialog
+   itself) scrolls when its content is taller than the viewport allows. */
+dialog { width: min(660px, calc(100vw - 32px)); max-width: calc(100vw - 32px); border: 1px solid var(--bezel); border-radius: var(--r-lg); color: var(--fg); background: var(--surface-1); padding: 0; box-shadow: var(--e-2); }
 dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 /* The workspace dialogs share the task dialog's form layout. Without this they fell back
    to `display: block` with no padding or gap, which collapsed every field against the
@@ -241,6 +244,9 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 .path-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
 .form-row[hidden] { display: none; }
+@media (max-width: 640px) {
+  .form-row { grid-template-columns: 1fr; }
+}
 .task-model-custom:not([hidden]) { margin-top: 6px; }
 .dialog-actions { justify-content: flex-end; margin-top: 3px; }
 .form-error { color: var(--alarm); font-size: 10px; margin: -5px 0; min-height: 13px; }
@@ -274,12 +280,12 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 .task-skill-body strong { display: block; font: 600 12px var(--font-body); color: var(--fg); }
 .task-skill-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 9px; line-height: 1.4; }
 
-.confirm-dialog { width: min(440px, calc(100vw - 40px)); }
+.confirm-dialog { width: min(440px, calc(100vw - 32px)); }
 .confirm-shell { padding: var(--s-5); display: grid; gap: var(--s-4); }
 .confirm-shell h2 { font-size: 18px; }
 .confirm-shell p { margin: 0; color: var(--fg-muted); font-size: 12px; line-height: 1.6; word-break: break-word; }
 
-.command-palette { width: min(620px, calc(100vw - 40px)); margin-top: 14vh; border-color: var(--bezel-strong); background: var(--surface-1); }
+.command-palette { width: min(620px, calc(100vw - 32px)); margin-top: 14vh; border-color: var(--bezel-strong); background: var(--surface-1); }
 .command-palette-shell { display: grid; }
 .command-palette-search { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 11px; padding: 14px 16px; border-bottom: 1px solid var(--bezel); }
 .command-palette-search > span { color: var(--amber); display: flex; }
@@ -323,6 +329,9 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
    stylesheet's `display: none` while closed, and an unconditional `display`
    here would defeat that. */
 .drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(460px, 94vw); height: 100vh; max-height: 100vh; border-radius: 0; border-width: 0 0 0 1px; }
+@media (max-width: 760px) {
+  .drawer { width: 100vw; border-width: 0; }
+}
 .drawer[open] { display: flex; flex-direction: column; }
 .drawer-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .drawer-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: var(--s-5); border-bottom: 1px solid var(--bezel); }
@@ -335,6 +344,15 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 .file-overlay-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
 .file-overlay-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--bezel); }
 .file-overlay-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
+
+/* ---------- Shared JS tooltip (ui/tooltip.ts) ----------
+   Fixed to the viewport, not any scrolling ancestor, so it is never clipped —
+   the collapsed sidebar's own `overflow-y: auto` clipped the old CSS
+   `::after` version. Shown on hover and keyboard focus alike. */
+.ui-tooltip { position: fixed; z-index: 50; max-width: 240px; padding: 6px 9px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); color: var(--fg); box-shadow: var(--e-2); font: 11px/1.4 var(--font-body); pointer-events: none; }
+.ui-tooltip[hidden] { display: none; }
+.ui-tooltip.ui-tooltip-right { transform: translateY(-50%); }
+.ui-tooltip.ui-tooltip-below { transform: none; }
 
 /* ---------- Toast ---------- */
 #toast { visibility: hidden; position: fixed; right: 24px; bottom: 24px; z-index: 40; border: 1px solid var(--bezel); background: var(--surface-2); border-radius: var(--r-md); padding: 11px 15px; font-size: 11px; box-shadow: var(--e-2); max-width: 420px; }

@@ -7,6 +7,7 @@ import { describeCandidate, profileFor, tierFor } from '../../../shared/model-pr
 import { advisorCalibration, type CalibrationBucket } from '../../../shared/calibration'
 import { byId, element, emptyState, field, textArea, textInput } from '../ui/dom'
 import { chip, gaugeSeg, lamp, probabilityBar, type Tone } from '../ui/components'
+import { initRadioGroup, syncRadioGroupTabIndex } from '../ui/segmented'
 import { confirmAction, errorMessage, reportError, showToast } from '../ui/feedback'
 import { formatDuration, timeAgo } from '../ui/format'
 import { highlightBlock } from '../syntax'
@@ -61,11 +62,11 @@ function buildAdvisorCard(): HTMLElement {
 
   const segmented = element('div', 'segmented', undefined) as HTMLElement
   segmented.id = 'routing-mode-segmented'
-  segmented.setAttribute('role', 'tablist')
+  segmented.setAttribute('role', 'radiogroup')
   segmented.setAttribute('aria-label', 'Advisor mode')
   for (const key of ['off', 'shadow', 'active'] as AdvisorMode[]) {
     const button = element('button', undefined, MODE_COPY[key].title) as HTMLButtonElement
-    button.type = 'button'; button.dataset.advisorMode = key; button.setAttribute('role', 'tab')
+    button.type = 'button'; button.dataset.advisorMode = key; button.setAttribute('role', 'radio'); button.setAttribute('aria-checked', 'false')
     segmented.append(button)
   }
   card.append(segmented, modeExplainRows())
@@ -94,6 +95,7 @@ function buildAdvisorCard(): HTMLElement {
   const shareRow = document.createElement('label'); shareRow.className = 'checkbox-row wide'
   const shareInput = document.createElement('input'); shareInput.type = 'checkbox'; shareInput.id = 'routing-share-facts'
   shareRow.append(shareInput, ' Share repo facts (languages, file count, manifests, top-level folders — never file contents)')
+  const shareSplitNote = element('p', 'field-help', "Split & delegate runs also send the planner's subtask titles and prompts, which can quote code the planner read.")
 
   const typingRow = document.createElement('label'); typingRow.className = 'checkbox-row wide'
   const typingInput = document.createElement('input'); typingInput.type = 'checkbox'; typingInput.id = 'routing-preview-typing'
@@ -105,7 +107,7 @@ function buildAdvisorCard(): HTMLElement {
   const discard = element('button', 'text-button', 'Discard') as HTMLButtonElement; discard.id = 'routing-advisor-discard'; discard.type = 'button'; discard.hidden = true
   const hint = element('span', 'dirty-hint', 'Unsaved changes'); hint.id = 'routing-advisor-dirty-hint'; hint.hidden = true
   saveRow.append(save, discard, hint)
-  card.append(shareRow, typingRow, typingCaution, saveRow)
+  card.append(shareRow, shareSplitNote, typingRow, typingCaution, saveRow)
   return card
 }
 
@@ -113,6 +115,7 @@ function buildSentCard(): HTMLElement {
   const card = element('section', 'panel routing-card routing-card-wide')
   card.append(element('p', 'eyebrow', 'WHAT IS SENT'), element('h2', undefined, 'Payload preview'))
   card.append(element('p', 'field-help', 'Preview the exact request Jev would receive for a prompt and project, without creating a task.'))
+  card.append(element('p', 'field-help', "Split & delegate runs also send the planner's subtask titles and prompts, which can quote code the planner read."))
 
   const form = element('div', 'routing-sent-form')
   const prompt = textArea(EXAMPLE_PROMPT, 3); prompt.id = 'routing-sent-prompt'
@@ -223,20 +226,22 @@ export function initRoutingView(): void {
   grid.append(buildAdvisorCard(), buildSentCard(), buildCatalogCard(), buildPolicyCard(), buildInsightsCard())
   view.replaceChildren(grid)
 
+  const selectAdvisorMode = async (button: HTMLElement): Promise<void> => {
+    const mode = (button.dataset.advisorMode as AdvisorMode) ?? 'off'
+    renderModeSegmented(mode); renderModeExplain(mode)
+    // Save the mode together with whatever is currently in the other
+    // fields, dirty or not — otherwise a mode switch mid-edit would discard
+    // an unsaved model/confidence/switch change by saving the old snapshot.
+    try {
+      await window.frontier.updateSettings({ advisor: { ...currentAdvisorForm(), mode } })
+      clearAdvisorDirty()
+      showToast(`Advisor set to ${MODE_COPY[mode].title}`)
+    } catch (error) { reportError('Could not change advisor mode', error); renderRouting() }
+  }
   byId('routing-mode-segmented').querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const mode = (button.dataset.advisorMode as AdvisorMode) ?? 'off'
-      renderModeSegmented(mode); renderModeExplain(mode)
-      // Save the mode together with whatever is currently in the other
-      // fields, dirty or not — otherwise a mode switch mid-edit would discard
-      // an unsaved model/confidence/switch change by saving the old snapshot.
-      try {
-        await window.frontier.updateSettings({ advisor: { ...currentAdvisorForm(), mode } })
-        clearAdvisorDirty()
-        showToast(`Advisor set to ${MODE_COPY[mode].title}`)
-      } catch (error) { reportError('Could not change advisor mode', error); renderRouting() }
-    })
+    button.addEventListener('click', () => void selectAdvisorMode(button))
   })
+  initRadioGroup(byId('routing-mode-segmented'), (option) => void selectAdvisorMode(option))
 
   byId('routing-key-save').addEventListener('click', async () => {
     const input = byId<HTMLInputElement>('routing-key-input')
@@ -340,8 +345,9 @@ function renderModeSegmented(mode: AdvisorMode): void {
   byId('routing-mode-segmented').querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
     const active = button.dataset.advisorMode === mode
     button.classList.toggle('active', active)
-    button.setAttribute('aria-selected', String(active))
+    button.setAttribute('aria-checked', String(active))
   })
+  syncRadioGroupTabIndex(byId('routing-mode-segmented'))
 }
 
 function renderStatus(): void {

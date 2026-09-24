@@ -311,6 +311,7 @@ function renderProvidersTable(): void {
       { label: 'Enabled', render: (provider: SnapshotProvider) => {
         const toggleLabel = document.createElement('label'); toggleLabel.className = 'switch small'
         const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = provider.enabled
+        toggle.setAttribute('aria-label', `Enable ${provider.name}`)
         toggleLabel.append(toggle, element('span', 'slider'))
         toggleLabel.addEventListener('click', (event) => event.stopPropagation())
         toggle.addEventListener('change', async () => {

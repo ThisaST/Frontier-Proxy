@@ -1,12 +1,18 @@
 // Toasts, error surfacing, and the generic confirm dialog.
 import { byId } from './dom'
+import { restoreFocusOnClose } from './components'
 
 const confirmDialog = byId<HTMLDialogElement>('confirm-dialog')
+restoreFocusOnClose(confirmDialog)
 
 let toastTimer: number | undefined
 
-export function showToast(message: string): void {
+// Errors get `role="alert"` (assertive — interrupts) rather than `status`
+// (polite), so a screen reader announces a failure immediately instead of
+// waiting for a pause, matching the visual urgency.
+export function showToast(message: string, kind: 'status' | 'alert' = 'status'): void {
   const toast = byId('toast')
+  toast.setAttribute('role', kind)
   toast.textContent = message
   toast.classList.remove('show')
   window.clearTimeout(toastTimer)
@@ -22,7 +28,7 @@ export function errorMessage(error: unknown): string {
 export function reportError(action: string, error: unknown): void {
   const message = `${action}: ${errorMessage(error)}`
   console.error(message, error)
-  showToast(message)
+  showToast(message, 'alert')
 }
 
 // A real confirmation step for anything that rewrites the user's repository.

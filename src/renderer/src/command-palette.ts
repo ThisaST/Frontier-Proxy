@@ -1,6 +1,7 @@
 // The ⌘K command palette: quick navigation, quick actions, and task search.
 import { byId, element } from './ui/dom'
 import { icon, type IconName } from './ui/icons'
+import { restoreFocusOnClose } from './ui/components'
 import { providerName } from './providers-view-model'
 import { taskKindLabel } from './task-helpers'
 import { openProjectSwitcher } from './project'
@@ -10,6 +11,7 @@ import { openTask, toggleInspector, toggleTaskList } from './views/tasks'
 import { openTaskDialog, taskDialog } from './dialogs/new-task'
 
 const commandPalette = byId<HTMLDialogElement>('command-palette')
+restoreFocusOnClose(commandPalette)
 let commandPaletteIndex = 0
 
 interface CommandPaletteEntry {

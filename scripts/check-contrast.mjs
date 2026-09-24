@@ -10,10 +10,14 @@ const THEMES = {
   console: {
     bg: '#0B0D0C',
     'surface-1': '#101312',
+    // The sidebar/rail is `--surface-1` (see base.css `.sidebar`); listed again
+    // here under its own label so it always shows up as an explicitly-checked
+    // surface rather than relying on that being obvious.
+    sidebar: '#101312',
     'surface-2': '#161B19',
     fg: '#E6E3D8',
     'fg-muted': '#8E978F',
-    'fg-faint': '#616B64',
+    'fg-faint': '#7C857F',
     amber: '#FFB000',
     'amber-fill': '#FFB000',
     'on-amber': '#1A1300',
@@ -25,10 +29,11 @@ const THEMES = {
   daylight: {
     bg: '#E9E4D8',
     'surface-1': '#F3EFE5',
+    sidebar: '#F3EFE5',
     'surface-2': '#FBF8F1',
     fg: '#1C1F1D',
-    'fg-muted': '#5E625B',
-    'fg-faint': '#72756C',
+    'fg-muted': '#4C5049',
+    'fg-faint': '#62665F',
     amber: '#8F5A00',
     'amber-fill': '#C98A00',
     'on-amber': '#1A1300',
@@ -39,12 +44,13 @@ const THEMES = {
   }
 }
 
-// The pairs the spec calls out: fg, fg-muted, amber, cyan, phosphor, caution,
-// alarm on surface-1/surface-2/bg, plus on-amber on amber-fill. fg-faint is
-// labels/placeholders only, so it gets the lower 3:1 bar; everything else
-// needs 4.5:1.
+// The pairs the spec calls out: fg, fg-muted, fg-faint, amber, cyan,
+// phosphor, caution, alarm on surface-1/surface-2/bg/sidebar, plus on-amber
+// on amber-fill. axe-core's real-world verdict is 4.5:1 for small text
+// regardless of how "faint" the label reads visually, so every text token
+// here — fg-faint included — is held to the same 4.5:1 floor.
 const TEXT_TOKENS = ['fg', 'fg-muted', 'fg-faint', 'amber', 'cyan', 'phosphor', 'caution', 'alarm']
-const BACKGROUNDS = ['bg', 'surface-1', 'surface-2']
+const BACKGROUNDS = ['bg', 'surface-1', 'sidebar', 'surface-2']
 
 function srgbToLinear(channel) {
   const c = channel / 255
@@ -68,8 +74,8 @@ function contrastRatio(hexA, hexB) {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-function requiredRatio(token) {
-  return token === 'fg-faint' ? 3 : 4.5
+function requiredRatio() {
+  return 4.5
 }
 
 let failed = false

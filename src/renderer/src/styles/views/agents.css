@@ -1,5 +1,5 @@
 /* ---------- Agents ---------- */
-.section-intro { flex: 0 0 auto; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.section-intro { flex: 0 0 auto; margin-bottom: 18px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
 .section-intro p { color: var(--fg-muted); font-size: 12px; line-height: 1.55; margin: 0; max-width: 74ch; }
 
 /* Getting-started callout — the old three-card setup guide, collapsed into a
@@ -58,4 +58,18 @@
 
 @media (max-width: 1120px) {
   .setup-guide { grid-template-columns: 1fr; }
+}
+
+/* Lower-priority columns drop first as the table narrows, in this order:
+   Version, Today's tokens, then Kind — `.table-wrap`'s own `overflow-x: auto`
+   (components.css) is the fallback that keeps the page itself from ever
+   scrolling sideways; this is purely for readability before that kicks in. */
+@media (max-width: 1000px) {
+  #agents-table .data-table th:nth-child(4), #agents-table .data-table td:nth-child(4) { display: none; }
+}
+@media (max-width: 900px) {
+  #agents-table .data-table th:nth-child(6), #agents-table .data-table td:nth-child(6) { display: none; }
+}
+@media (max-width: 800px) {
+  #agents-table .data-table th:nth-child(2), #agents-table .data-table td:nth-child(2) { display: none; }
 }

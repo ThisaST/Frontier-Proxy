@@ -16,7 +16,7 @@
 .review-detail-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .review-detail-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 18px; border-bottom: 1px solid var(--bezel); }
 .review-detail-heading { min-width: 0; }
-.review-detail-heading h3 { margin: 0; font: 600 17px var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-detail-heading h2 { margin: 0; font: 600 17px var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-detail-subtitle { margin: 4px 0 0; color: var(--fg-muted); font: 9px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-branch-actions { flex: 0 0 auto; }
 .review-detail-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
@@ -37,3 +37,11 @@
 .review-check summary code { font: 9px/1.4 var(--font-mono); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-check-meta { margin-left: auto; color: var(--fg-muted); font-size: 9px; white-space: nowrap; }
 .review-check-output { margin: 4px 0 8px; padding: 9px 11px; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--bezel); border-radius: var(--r-sm); font: 10px/1.5 var(--font-mono); color: var(--fg-muted); white-space: pre-wrap; }
+
+/* Branch list and diff stack vertically once the two-column floor (280 +
+   420 + gap) no longer fits. */
+@media (max-width: 900px) {
+  .review-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 34vh) minmax(0, 1fr); }
+  .review-detail-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 180px) minmax(0, 1fr); }
+  .review-files { border-right: 0; border-bottom: 1px solid var(--bezel); }
+}

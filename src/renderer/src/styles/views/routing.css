@@ -65,3 +65,8 @@
   .routing-config-row, .routing-sent-form { grid-template-columns: 1fr; }
   #routing-sent-preview { grid-column: 1; justify-self: start; }
 }
+
+@media (max-width: 640px) {
+  .routing-key-row { grid-template-columns: 1fr; align-items: stretch; }
+  .routing-key-row label { grid-column: 1; }
+}

@@ -6,14 +6,16 @@ import { reportError, showToast } from '../ui/feedback'
 import { textLines } from '../ui/format'
 import { snapshot } from '../state'
 import { effectsPreference, setEffectsPreference, setThemePreference, themePreference } from '../theme'
+import { initRadioGroup, syncRadioGroupTabIndex } from '../ui/segmented'
 
 function renderAppearance(): void {
   const theme = themePreference()
   document.querySelectorAll<HTMLButtonElement>('#appearance-theme button').forEach((button) => {
     const active = button.dataset.themeChoice === theme
     button.classList.toggle('active', active)
-    button.setAttribute('aria-selected', String(active))
+    button.setAttribute('aria-checked', String(active))
   })
+  syncRadioGroupTabIndex(byId('appearance-theme'))
   byId<HTMLInputElement>('appearance-effects').checked = effectsPreference() === 'off'
 }
 
@@ -37,6 +39,10 @@ export function initSettingsView(): void {
     setThemePreference((button.dataset.themeChoice as 'system' | 'console' | 'daylight') ?? 'system')
     renderAppearance()
   }))
+  initRadioGroup(byId('appearance-theme'), (option) => {
+    setThemePreference((option.dataset.themeChoice as 'system' | 'console' | 'daylight') ?? 'system')
+    renderAppearance()
+  })
   byId<HTMLInputElement>('appearance-effects').addEventListener('change', (event) => {
     setEffectsPreference((event.target as HTMLInputElement).checked ? 'off' : 'on')
   })

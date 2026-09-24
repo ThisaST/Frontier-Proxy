@@ -1,7 +1,7 @@
 /* ---------- Control plane ---------- */
 .control-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 .control-card { padding: 18px; display: grid; gap: 12px; }
-.control-card h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.control-card h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .control-card-wide { grid-column: 1 / -1; }
 .control-card-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
 .checkbox-row { display: flex; flex-direction: row; align-items: center; gap: 9px; color: var(--fg-muted); font-size: 11px; }
@@ -20,10 +20,19 @@
 .cp-auth-status.error strong { color: var(--alarm); }
 .cp-auth-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .cp-auth-actions button { white-space: nowrap; }
-.cp-preview { margin: 0; padding: 14px; border-radius: var(--r-md); background: var(--bg); border: 1px solid var(--bezel); color: var(--fg); font-family: var(--font-mono); font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
+/* `white-space: pre` + its own `overflow-x: auto` (rather than wrapping) so a
+   long flag/JSON line scrolls sideways *inside this well* — it never forces
+   the page itself wider, which wrapping would otherwise have hidden the need
+   for at every width down to 720px. */
+.cp-preview { margin: 0; padding: 14px; border-radius: var(--r-md); background: var(--bg); border: 1px solid var(--bezel); color: var(--fg); font-family: var(--font-mono); font-size: 11px; line-height: 1.6; white-space: pre; max-height: 220px; max-width: 100%; overflow: auto; }
 
 @media (max-width: 1120px) {
   .control-grid { grid-template-columns: 1fr; }
   .cp-server-detail { grid-template-columns: 1fr; }
   .cp-server-auth { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 640px) {
+  .cp-server-top { grid-template-columns: auto 1fr; }
+  .cp-server-top > select, .cp-server-top > button { grid-column: 1 / -1; }
 }

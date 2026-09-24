@@ -8,6 +8,7 @@
     <script src="/theme-init.js"></script>
   </head>
   <body>
+    <a href="#main" class="skip-link">Skip to content</a>
     <div class="shell">
       <aside class="sidebar" aria-label="Application navigation">
         <div class="brand" title="Frontier Proxy · v0.7.1">
@@ -62,7 +63,7 @@
         </div>
       </aside>
 
-      <main>
+      <main id="main" tabindex="-1" aria-label="Main content">
         <header class="topbar">
           <div><p class="eyebrow" id="view-eyebrow">ORCHESTRATION CONSOLE</p><h1 id="view-title">Home</h1></div>
           <div class="header-actions">
@@ -150,7 +151,7 @@
                 <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search…" aria-label="Search tasks" /><button id="clear-finished" class="text-button">Clear finished</button></div>
               </div>
               <div id="tasks-project-chip" class="project-chip-row"></div>
-              <div id="task-list" class="task-list" role="listbox" aria-label="Tasks" tabindex="0"></div>
+              <div id="task-list" class="task-list" role="group" aria-label="Tasks" tabindex="0"></div>
             </section>
             <div class="grid-gutter" id="grid-gutter" title="Drag to resize"></div>
 
@@ -162,6 +163,7 @@
                 </div>
                 <div class="surface-header-right">
                   <span id="surface-status" class="status-pill muted">Idle</span>
+                  <button id="list-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse queue" aria-label="Collapse queue"><span data-icon="collapse" aria-hidden="true"></span></button>
                   <button id="inspector-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse inspector" aria-label="Collapse inspector"><span data-icon="panel-right-close" aria-hidden="true"></span></button>
                   <button id="surface-focus" class="icon-button" type="button" aria-pressed="false" title="Focus this task" aria-label="Focus this task"><span data-icon="expand" aria-hidden="true"></span></button>
                 </div>
@@ -187,7 +189,7 @@
 
             <div class="grid-gutter" id="inspector-gutter" title="Drag to resize"></div>
 
-            <aside class="panel inspector" id="task-inspector">
+            <aside class="panel inspector" id="task-inspector" aria-label="Task inspector">
               <div class="inspector-head">
                 <p class="eyebrow">INSPECTOR</p>
               </div>
@@ -270,10 +272,10 @@
             </section>
           </div>
 
-          <dialog id="participants-dialog">
+          <dialog id="participants-dialog" aria-labelledby="participants-dialog-title">
             <div id="participants-dialog-body">
               <div class="dialog-header">
-                <div><p class="eyebrow">PARTICIPANTS</p><h2>Participants</h2></div>
+                <div><p class="eyebrow">PARTICIPANTS</p><h2 id="participants-dialog-title">Participants</h2></div>
                 <div class="header-actions">
                   <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant"><span data-icon="user-plus" aria-hidden="true"></span></button>
                   <button type="button" class="icon-button" id="participants-dialog-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
@@ -283,7 +285,7 @@
             </div>
           </dialog>
 
-          <dialog id="participant-dialog">
+          <dialog id="participant-dialog" aria-labelledby="participant-dialog-title">
             <form id="participant-form">
               <div class="dialog-header"><div><p class="eyebrow" id="participant-dialog-eyebrow">PARTICIPANT</p><h2 id="participant-dialog-title">Add participant</h2></div><button type="button" class="icon-button" id="participant-dialog-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
 
@@ -322,7 +324,7 @@
             </form>
           </dialog>
 
-          <dialog id="workspace-form-dialog">
+          <dialog id="workspace-form-dialog" aria-labelledby="workspace-form-title">
             <form id="workspace-form">
               <div class="dialog-header"><div><p class="eyebrow">WORKSPACE</p><h2 id="workspace-form-title">New workspace</h2></div><button type="button" class="icon-button" id="workspace-form-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
               <label>Name<input id="ws-workspace-name" required placeholder="frontier-proxy" /></label>
@@ -347,7 +349,7 @@
             <section class="panel review-detail-panel">
               <header class="review-detail-head">
                 <div class="review-detail-heading">
-                  <h3 id="review-branch-title">Select a branch</h3>
+                  <h2 id="review-branch-title">Select a branch</h2>
                   <p id="review-branch-subtitle" class="review-detail-subtitle"></p>
                 </div>
                 <div id="review-branch-actions" class="review-branch-actions"></div>
@@ -399,19 +401,19 @@
           </div>
           <div class="control-grid">
             <section class="panel control-card">
-              <p class="eyebrow">CONTEXT</p><h3>System prompt &amp; directories</h3>
+              <p class="eyebrow">CONTEXT</p><h2>System prompt &amp; directories</h2>
               <label>Shared system prompt (appended for every agent)<textarea id="cp-system-prompt" rows="5" placeholder="You are working inside the Frontier monorepo. Prefer pnpm. Never touch generated files…"></textarea></label>
               <label>Extra context directories (one per line)<textarea id="cp-add-dirs" rows="3" placeholder="/path/to/shared-docs"></textarea></label>
             </section>
             <section class="panel control-card">
-              <p class="eyebrow">TOOL PERMISSIONS</p><h3>Allow &amp; deny</h3>
+              <p class="eyebrow">TOOL PERMISSIONS</p><h2>Allow &amp; deny</h2>
               <label>Allowed tools (one per line)<textarea id="cp-allowed" rows="4" placeholder="Bash(git *)&#10;Edit&#10;Read"></textarea></label>
               <label>Disallowed tools (one per line)<textarea id="cp-disallowed" rows="3" placeholder="Bash(rm *)&#10;WebFetch"></textarea></label>
               <label class="checkbox-row"><input type="checkbox" id="cp-strict-mcp" /> Strict MCP — use only these servers (Claude)</label>
             </section>
             <section class="panel control-card control-card-wide">
               <div class="control-card-head">
-                <div><p class="eyebrow">MCP SERVERS</p><h3>Shared servers</h3></div>
+                <div><p class="eyebrow">MCP SERVERS</p><h2>Shared servers</h2></div>
                 <div class="header-actions">
                   <button id="cp-import-mcp" class="secondary-button">Import .mcp.json</button>
                   <button id="cp-add-server" class="secondary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add server</button>
@@ -421,7 +423,7 @@
               <div id="cp-server-list" class="cp-server-list"></div>
             </section>
             <section class="panel control-card control-card-wide">
-              <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h3>Launch flags per agent</h3></div>
+              <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h2>Launch flags per agent</h2></div>
                 <select id="cp-preview-provider" aria-label="Preview provider"></select></div>
               <pre id="cp-preview" class="cp-preview screen">Select an agent to preview the exact flags Frontier will inject.</pre>
             </section>
@@ -447,10 +449,10 @@
             <section class="panel settings-card">
               <p class="eyebrow">APPEARANCE</p><h2>Theme &amp; effects</h2>
               <div class="field-label">Theme</div>
-              <div class="segmented" id="appearance-theme" role="tablist" aria-label="Theme">
-                <button type="button" data-theme-choice="system" role="tab">System</button>
-                <button type="button" data-theme-choice="console" role="tab">Console</button>
-                <button type="button" data-theme-choice="daylight" role="tab">Daylight</button>
+              <div class="segmented" id="appearance-theme" role="radiogroup" aria-label="Theme">
+                <button type="button" data-theme-choice="system" role="radio" aria-checked="false">System</button>
+                <button type="button" data-theme-choice="console" role="radio" aria-checked="false">Console</button>
+                <button type="button" data-theme-choice="daylight" role="radio" aria-checked="false">Daylight</button>
               </div>
               <div class="checkbox-row"><label class="switch small"><input type="checkbox" id="appearance-effects" /><span class="slider"></span></label><label for="appearance-effects">Reduce effects (glow, scanlines, radar sweep, blinking)</label></div>
               <p class="field-help">Renderer-only preferences — never sent to the agents or stored outside this device. Always off under your system's reduced-motion setting.</p>
@@ -487,9 +489,9 @@
       </main>
     </div>
 
-    <dialog id="task-dialog">
+    <dialog id="task-dialog" aria-labelledby="task-dialog-title">
       <form id="task-form" method="dialog">
-        <div class="dialog-header"><div><p class="eyebrow">NEW WORK</p><h2>New task</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
+        <div class="dialog-header"><div><p class="eyebrow">NEW WORK</p><h2 id="task-dialog-title">New task</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
 
         <div class="task-prompt-field"><span class="field-label">What should the agent do?</span>
           <div class="composer-draft dialog-composer">
@@ -549,7 +551,7 @@
       </div>
     </dialog>
 
-    <dialog id="confirm-dialog" class="confirm-dialog">
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <div class="confirm-shell">
         <h2 id="confirm-title">Are you sure?</h2>
         <p id="confirm-body"></p>
@@ -561,6 +563,7 @@
     </dialog>
 
     <div id="toast" role="status"></div>
+    <div id="live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

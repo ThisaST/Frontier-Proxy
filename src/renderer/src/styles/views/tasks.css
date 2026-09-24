@@ -13,6 +13,16 @@
    otherwise the empty track would still reserve its width. */
 .content-grid.list-collapsed { grid-template-columns: minmax(420px, 1fr) 7px var(--insp-col, 320px); }
 .content-grid.list-collapsed .task-panel, .content-grid.list-collapsed > #grid-gutter { display: none; }
+/* Too narrow to fit the queue alongside a 420px centre (views/tasks.ts
+   computes this from measured widths, exactly like the inspector below): it
+   auto-collapses, but its own toggle can raise it as a floating overlay over
+   the conversation instead of squeezing the grid past the centre's floor. */
+.content-grid.list-overlay-open .task-panel {
+  display: flex; position: fixed; top: 104px; left: 0; bottom: 0;
+  width: min(320px, 92vw); z-index: 15; border-right: 1px solid var(--bezel-strong);
+  border-radius: 0; box-shadow: var(--e-2);
+}
+.content-grid.list-overlay-open > #grid-gutter { display: none; }
 .content-grid.inspector-collapsed { grid-template-columns: var(--wq-col, 280px) 7px minmax(420px, 1fr); }
 .content-grid.inspector-collapsed .inspector, .content-grid.inspector-collapsed > #inspector-gutter { display: none; }
 .content-grid.list-collapsed.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }

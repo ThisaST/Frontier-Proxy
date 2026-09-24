@@ -9,6 +9,10 @@
 .policy { display: grid; grid-template-columns: 110px 1fr; gap: 16px; border-top: 1px solid var(--bezel); padding: 14px 0; font-size: 11px; line-height: 1.5; }
 .policy strong { color: var(--fg); }
 .policy span { color: var(--fg-muted); }
+/* A checkbox-row's describing text is a real `<label for>`, not a `<span>`, so
+   assistive tech gets an accessible name and a click toggles the control —
+   override the generic block/grid `label` rule so it still sits inline. */
+.checkbox-row label { display: inline; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 .memory-card { grid-column: 1 / -1; }
 .memory-card label { margin-top: 8px; }
 .field-help { color: var(--fg-faint); font-size: 9px; line-height: 1.45; margin: 8px 0 0; }

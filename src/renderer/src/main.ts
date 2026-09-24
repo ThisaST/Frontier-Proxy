@@ -12,6 +12,7 @@ import { renderReview, loadReview, setReviewSelection, setReviewFilePath, initRe
 import { agentsTab, renderAgentsTab, renderUsage, initAgentsView } from './views/agents'
 import { renderControlPlane, initControlView } from './views/control'
 import { renderSkills, initSkillsView } from './views/skills'
+import { renderRouting, initRoutingView } from './views/routing'
 import { renderSettings, initSettingsView } from './views/settings'
 import { renderTaskProviderOptions, initNewTaskDialog } from './dialogs/new-task'
 import { initCommandPalette } from './command-palette'
@@ -52,6 +53,7 @@ function render(): void {
   if (currentView === 'agents') renderAgentsTab()
   if (currentView === 'review') renderReview()
   if (currentView === 'workspace') renderWorkspaceView(snapshot)
+  if (currentView === 'routing') renderRouting()
 }
 
 const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
@@ -60,9 +62,9 @@ const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   workspace: { title: 'Workspaces', eyebrow: 'COLLABORATIVE WORKSPACES' },
   review: { title: 'Review', eyebrow: 'BRANCH INBOX' },
   agents: { title: 'Agents', eyebrow: 'LOCAL EXECUTABLES' },
-  routing: { title: 'Routing', eyebrow: 'ROUTING & ADVISOR' },
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
   skills: { title: 'Skills', eyebrow: 'AGENT CAPABILITIES' },
+  routing: { title: 'Routing', eyebrow: 'ADVISOR & POLICY' },
   settings: { title: 'Settings', eyebrow: 'PREFERENCES' }
 }
 
@@ -87,7 +89,7 @@ export function switchView(view: string): void {
   const meta = VIEW_META[view] ?? { title: view, eyebrow: '' }
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
-  byId('new-task-button').style.display = view === 'home' || view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' ? 'none' : ''
+  byId('new-task-button').style.display = view === 'home' || view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' || view === 'routing' ? 'none' : ''
   // The first snapshot may still be in flight — clicking a nav item before it
   // lands used to throw here and leave the view empty. render() repaints the
   // active view as soon as the snapshot arrives.
@@ -101,6 +103,7 @@ export function switchView(view: string): void {
   if (view === 'tasks') { renderTasks(); applyQueueWidth() }
   if (view === 'review') { renderReview(); void loadReview(true) }
   if (view === 'workspace') renderWorkspaceView(snapshot)
+  if (view === 'routing') renderRouting()
 }
 
 const SIDEBAR_STATE_KEY = 'fp-sidebar-collapsed'
@@ -135,6 +138,7 @@ initSkillsView()
 initCommandPalette()
 initComposerInputs()
 initControlView()
+initRoutingView()
 initSettingsView()
 
 window.addEventListener('unhandledrejection', (event) => reportError('Unexpected application error', event.reason))

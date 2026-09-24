@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeCandidate, profileFor, tierFor } from '../src/shared/model-profiles'
+import { describeCandidate, desiredTier, profileFor, tierFor } from '../src/shared/model-profiles'
 
 describe('model tiers', () => {
   it('classifies known Claude ids by name', () => {
@@ -36,6 +36,37 @@ describe('model tiers', () => {
     for (const id of ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-5', 'gpt-5-codex', 'gpt-5', 'claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5-mini', 'o3']) {
       expect(profileFor(id), id).toBeDefined()
     }
+  })
+})
+
+describe('desiredTier', () => {
+  it('maps complexity to fast/standard/frontier under balanced mode', () => {
+    expect(desiredTier(0, 'balanced')).toEqual({ tier: 'fast', frontierAlsoFits: false })
+    expect(desiredTier(0.74, 'balanced')).toEqual({ tier: 'fast', frontierAlsoFits: false })
+    expect(desiredTier(0.75, 'balanced')).toEqual({ tier: 'standard', frontierAlsoFits: false })
+    expect(desiredTier(2.49, 'balanced').tier).toBe('standard')
+    expect(desiredTier(2.5, 'balanced')).toEqual({ tier: 'frontier', frontierAlsoFits: false })
+    expect(desiredTier(3, 'balanced')).toEqual({ tier: 'frontier', frontierAlsoFits: false })
+  })
+
+  it('marks the 1.75-2.5 band as also accepting frontier at full credit', () => {
+    expect(desiredTier(1.0, 'balanced')).toEqual({ tier: 'standard', frontierAlsoFits: false })
+    expect(desiredTier(1.75, 'balanced')).toEqual({ tier: 'standard', frontierAlsoFits: true })
+    expect(desiredTier(2.4, 'balanced')).toEqual({ tier: 'standard', frontierAlsoFits: true })
+  })
+
+  it('shifts the desired tier down one step for saver and up one for quality', () => {
+    // Balanced desires "standard" at complexity 1.0.
+    expect(desiredTier(1.0, 'saver')).toEqual({ tier: 'fast', frontierAlsoFits: false })
+    expect(desiredTier(1.0, 'quality')).toEqual({ tier: 'frontier', frontierAlsoFits: false })
+    // A shift always drops the frontier-also-fits band, even from within it.
+    expect(desiredTier(1.75, 'quality')).toEqual({ tier: 'frontier', frontierAlsoFits: false })
+  })
+
+  it('clamps the shift at the edges of the tier order', () => {
+    expect(desiredTier(0, 'saver')).toEqual({ tier: 'local', frontierAlsoFits: false })
+    expect(desiredTier(0, 'saver').tier).toBe('local') // already the lowest tier; saver cannot go lower
+    expect(desiredTier(3, 'quality')).toEqual({ tier: 'frontier', frontierAlsoFits: false }) // already the highest; quality cannot go higher
   })
 })
 

@@ -116,6 +116,19 @@
 .detail-route-row strong, .detail-activity-row strong { color: var(--fg); display: block; font-size: 11px; font-weight: 600; }
 .detail-route-row small, .detail-activity-row small { display: block; color: var(--fg-muted); font-size: 9px; line-height: 1.45; margin-top: 3px; word-break: break-word; }
 .detail-activity-row > .icon { color: var(--cyan); margin-top: 2px; }
+.probability-bar-label .chip { margin-right: 5px; vertical-align: middle; }
+
+/* ---------- Advisor panel (Jev) ---------- */
+.advice-card { grid-column: 1 / -1; display: grid; gap: 12px; }
+.advice-badge-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.advice-badge-meta { color: var(--fg-muted); font-size: 10px; }
+.advice-badge-meta.caution { color: var(--caution); }
+.advice-section { display: grid; gap: 6px; }
+.advice-label { margin: 0; color: var(--fg-muted); font: 600 9px var(--font-display); text-transform: uppercase; letter-spacing: .06em; }
+.advice-value { margin: 0; color: var(--fg); font-size: 12px; }
+.advice-note { margin: 3px 0 0; color: var(--fg-muted); font-size: 11px; line-height: 1.5; }
+.advice-signals { display: flex; flex-wrap: wrap; gap: 14px; }
+.advice-signal { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--fg-muted); }
 
 /* ---------- Files & diff viewer ---------- */
 .task-file-sidebar { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--bezel); }

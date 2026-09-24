@@ -6,10 +6,10 @@ import { element } from './dom'
 
 export type Tone = 'amber' | 'cyan' | 'phosphor' | 'caution' | 'alarm' | 'muted'
 
-// A small pill in one tone — the Route preview's tier chip, and anywhere else
-// a single labelled fact needs a splash of colour without a full status pill.
+// Small pill label (design spec §6) — tier badges, the advisor source badge,
+// and anywhere else a one-word status needs a colour without a full lamp.
 export function chip(tone: Tone, label: string): HTMLElement {
-  return element('span', `chip chip-${tone}`, label)
+  return element('span', `chip tone-${tone}`, label)
 }
 
 // Round LED. `blink` is for "needs you" only, and is neutralised in CSS under
@@ -64,4 +64,22 @@ export function probabilityBar(label: string, points: number, maxAbs = 20): HTML
   track.append(fill)
   row.append(track, element('span', 'probability-bar-value readout', `${points > 0 ? '+' : ''}${Math.round(points)}`))
   return row
+}
+
+// A probability distribution (0..1 shares) as a stack of bars with a percent
+// readout — Jev's task-type probabilities and its `target` (provider · model)
+// choice on the Route tab's advisor panel.
+export function probabilityBars(entries: Array<{ label: string; value: number }>, tone: Tone = 'cyan'): HTMLElement {
+  const wrap = element('div', 'probability-bars')
+  for (const { label, value } of entries) {
+    const row = element('div', `probability-bar tone-${tone}`)
+    row.append(element('span', 'probability-bar-label', label))
+    const track = element('div', 'probability-bar-track')
+    const fill = element('div', 'probability-bar-fill')
+    fill.style.width = `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`
+    track.append(fill)
+    row.append(track, element('span', 'probability-bar-value readout', `${Math.round(value * 100)}%`))
+    wrap.append(row)
+  }
+  return wrap
 }

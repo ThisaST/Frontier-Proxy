@@ -1,4 +1,4 @@
-import type { ModelTier, ProviderKind } from './types'
+import type { ModelTier, ProviderKind, RoutingMode } from './types'
 
 export interface ModelProfile {
   tier: ModelTier
@@ -63,6 +63,31 @@ const REGEX_TIERS: Array<[RegExp, ModelTier]> = [
 ]
 
 const LOCAL_KINDS: ProviderKind[] = ['ollama', 'codex-oss']
+
+// Tier order, low to high — shared by `desiredTier`'s own shift/band logic
+// below and by `src/main/router.ts`'s tier-distance scoring, so the two can
+// never disagree about which tier is "one up" or "one down".
+export const TIER_ORDER: ModelTier[] = ['local', 'fast', 'standard', 'frontier']
+
+export interface DesiredTier {
+  tier: ModelTier
+  // Between 1.75 and 2.5 complexity a "standard" desire also accepts
+  // "frontier" at full credit — see `desiredTier` below.
+  frontierAlsoFits: boolean
+}
+
+// The tier a task calls for, from Jev's complexity score (0-3), shifted by
+// the routing mode. Pure and shared: `src/main/router.ts` scores providers
+// against it, and the Routing screen / Route tab display the same tier a
+// route would actually use, so the two can never drift apart.
+export function desiredTier(complexity: number, mode: RoutingMode): DesiredTier {
+  const base: ModelTier = complexity < 0.75 ? 'fast' : complexity < 2.5 ? 'standard' : 'frontier'
+  const frontierAlsoFits = base === 'standard' && complexity >= 1.75
+  const shift = mode === 'saver' ? -1 : mode === 'quality' ? 1 : 0
+  if (!shift) return { tier: base, frontierAlsoFits }
+  const shifted = TIER_ORDER[Math.max(0, Math.min(TIER_ORDER.length - 1, TIER_ORDER.indexOf(base) + shift))]
+  return { tier: shifted, frontierAlsoFits: false }
+}
 
 export function profileFor(modelId: string): ModelProfile | undefined {
   return PROFILES[modelId.trim()]

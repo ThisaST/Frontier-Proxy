@@ -141,10 +141,6 @@
           </div>
         </section>
 
-        <!-- Routing: advisor, policy, and insights (owned by the parallel P3a screen) -->
-        <section id="routing-view" class="view">
-          <div class="section-intro"><div><p>Routing policy, the Jev advisor, and routing insights live here.</p></div></div>
-        </section>
 
         <!-- Tasks: queue + one unified task surface -->
         <section id="tasks-view" class="view">
@@ -445,6 +441,8 @@
           <div id="skills-list" class="skill-list"></div>
         </section>
 
+        <section id="routing-view" class="view"></section>
+
         <section id="settings-view" class="view">
           <div class="settings-grid">
             <section class="panel settings-card">
@@ -455,7 +453,7 @@
                 <button type="button" data-theme-choice="console" role="tab">Console</button>
                 <button type="button" data-theme-choice="daylight" role="tab">Daylight</button>
               </div>
-              <div class="checkbox-row"><label class="switch small"><input type="checkbox" id="appearance-effects" /><span class="slider"></span></label><span>Reduce effects (glow, scanlines, radar sweep, blinking)</span></div>
+              <div class="checkbox-row"><label class="switch small"><input type="checkbox" id="appearance-effects" /><span class="slider"></span></label><label for="appearance-effects">Reduce effects (glow, scanlines, radar sweep, blinking)</label></div>
               <p class="field-help">Renderer-only preferences — never sent to the agents or stored outside this device. Always off under your system's reduced-motion setting.</p>
             </section>
             <section class="panel settings-card">
@@ -463,13 +461,6 @@
               <label>Maximum parallel tasks<input id="max-parallel" type="number" min="1" max="8" /></label>
               <label>Usage-limit cooldown (minutes)<input id="cooldown-minutes" type="number" min="1" max="1440" /></label>
               <button id="save-settings" class="primary-button">Save settings</button>
-            </section>
-            <section class="panel explainer-card">
-              <p class="eyebrow">ROUTING POLICIES</p><h2>How selection works</h2>
-              <div class="policy"><strong>Balanced</strong><span>Matches task type, spreads subscription usage, then considers local models.</span></div>
-              <div class="policy"><strong>Quality first</strong><span>Prefers Codex or Claude Code and only falls back when unavailable.</span></div>
-              <div class="policy"><strong>Token saver</strong><span>Strongly favors Ollama-backed agents to preserve hosted usage.</span></div>
-              <p class="field-help">Every task records the exact scores behind its decision — open its Route tab to see them.</p>
             </section>
             <section class="panel settings-card">
               <p class="eyebrow">VERIFICATION</p><h2>Check isolated branches</h2>
@@ -481,11 +472,9 @@
               <button id="save-verification" class="primary-button">Save verification</button>
             </section>
             <section class="panel settings-card">
-              <p class="eyebrow">FEEDBACK</p><h2>Notifications &amp; learning</h2>
+              <p class="eyebrow">FEEDBACK</p><h2>Notifications</h2>
               <label class="checkbox-row"><input id="notify-enabled" type="checkbox" /><span>Notify me when a task finishes</span></label>
               <label class="checkbox-row"><input id="notify-unfocused" type="checkbox" /><span>Only when Frontier is not focused</span></label>
-              <label class="checkbox-row"><input id="learn-outcomes" type="checkbox" /><span>Let recent outcomes influence routing</span></label>
-              <p class="field-help">Outcome learning nudges the router with how each agent's recent runs of the same kind of work turned out — finished, passed the repo's checks, and above all whether you merged or discarded its branch. It is capped at ±14 points and always shown as a labelled factor on the task's Route tab.</p>
               <button id="save-feedback" class="primary-button">Save preferences</button>
             </section>
             <section class="panel settings-card memory-card">

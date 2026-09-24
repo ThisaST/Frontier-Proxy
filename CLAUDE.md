@@ -18,6 +18,16 @@ Do **not** add `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / token entry fields to pr
 That contradicts the whole design. If a provider can't authenticate, the fix is to log in
 with that provider's own CLI (e.g. `copilot login`), not to inject a key from the app.
 
+**Narrow exception — auxiliary services** ([ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)).
+A service that never runs a coding agent may hold an opt-in credential. Today that means the
+Jev routing advisor; forge APIs will follow. Such a credential is:
+- encrypted with `safeStorage` and kept in the main process only;
+- exposed to the renderer only as `hasKey`, and never logged or persisted in state;
+- redacted from errors.
+
+The service is off by default, and losing it must leave routing exactly as it was without it.
+The sidebar privacy note must never say "local only" while an advisor is active.
+
 ## How a task flows
 
 1. Renderer (`src/renderer`) collects prompt + working dir + routing mode → IPC.

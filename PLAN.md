@@ -50,9 +50,19 @@ A full pass on the desktop UI and the routing stack, landed as five phases on on
 and adds routing-advisor documentation and the narrowed API-key copy; see `site/` and the
 docs pages under `site/src/pages/docs/`. Still deferred (unchanged in Remaining work
 below): **forges** (opening pull requests through GitHub/GitLab/Bitbucket — credentials
-for these already fall under ADR 0002, implementation not started) and a **responsive/
-accessibility pass** (tracked as P7b — desktop-only layout and contrast/keyboard audit
-remain).
+for these already fall under ADR 0002, implementation not started).
+
+**P7b — responsive & accessibility** is done as well. The layout works from 1440 px down
+to 720 px wide (Electron `minWidth: 720`), with no horizontal page scroll in any view at
+720/900/1024/1280/1440. The sidebar falls back to an icon rail below 1024 px, and the task
+list and inspector both collapse to overlays. The axe-core audit that drove it now reports
+zero violations in both themes. The work covers:
+- meter roles and labelled switches;
+- task-list semantics and heading order;
+- `--fg-faint` raised to 4.5:1;
+- focus-visible tooltips, a skip link, and live regions;
+- one radio-group pattern for all segmented controls;
+- focus returned from every dialog.
 
 ## Done
 
@@ -179,11 +189,10 @@ because it travels on its own channel.
 9. **Provider stream compatibility fixtures** — validate Codex and Copilot parsing against
    captured events from current CLI releases; consume exact Codex context occupancy if its
    JSON stream adds it.
-10. **Responsive & accessibility pass (P7b, in progress)** — Phosphor Console theming
-    itself landed in P1b/P7a, including a standalone contrast checker
-    (`scripts/check-contrast.mjs`) for the token pairs used as text; it is not yet wired
-    into `pnpm` scripts or CI. Still open: responsive behavior below the current desktop
-    minimum width, and a full keyboard/screen-reader pass.
+10. **Wire the UI checks into CI.** `scripts/check-contrast.mjs` exists but isn't a `pnpm`
+    script or a CI step, and the axe audit was run by hand against the built renderer with a
+    stubbed bridge. Both should run on every pull request. A real screen-reader session
+    (VoiceOver/NVDA) has also not been done yet.
 
 ## GitHub Copilot CLI — extensible surfaces worth mirroring
 From `copilot --help` (v1.0.73):

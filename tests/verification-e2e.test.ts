@@ -154,4 +154,27 @@ describe('learning from the review verdict', () => {
     const outcomes = engine.snapshot().providers.find((provider) => provider.id === 'alpha')?.runtime.outcomes?.[alpha.type]
     expect(outcomes).toMatchObject({ merged: 1, discarded: 0 })
   })
+
+  // Same signals as above, but keyed by the model that actually ran alongside
+  // the provider-level figure — so a merged/discarded branch teaches the
+  // router about that specific model, not only about the CLI as a whole.
+  it('records the run and merge verdict against the model that ran, alongside the provider-level figure', async () => {
+    const { engine, cwd } = await makeEngine([
+      { ...fakeProvider('alpha', 100, writesAFile('alpha.txt', 'alpha answer')), model: 'alpha-model' },
+      fakeProvider('beta', 90, writesAFile('beta.txt', 'beta answer'))
+    ], passing)
+    const task = await waitForTask(engine, (await engine.createTask({ prompt: 'compare', cwd, mode: 'balanced', benchProviderIds: ['alpha', 'beta'] })).id)
+    const lanes = task.subtasks ?? []
+    const alpha = lanes.find((lane) => lane.providerId === 'alpha')!
+    const modelOutcomesFor = (id: string) => engine.snapshot().providers.find((provider) => provider.id === id)?.runtime.modelOutcomes
+
+    expect(alpha.model).toBe('alpha-model')
+    expect(modelOutcomesFor('alpha')?.['alpha-model']?.[alpha.type]).toMatchObject({ runs: 1, completed: 1, verified: 1 })
+    // Beta's fake CLI never reports a model, so no per-model figure exists —
+    // only the provider level does, which the test above already covers.
+    expect(modelOutcomesFor('beta')).toBeUndefined()
+
+    await engine.mergeBranch(cwd, alpha.branch!)
+    expect(modelOutcomesFor('alpha')?.['alpha-model']?.[alpha.type]).toMatchObject({ merged: 1 })
+  })
 })

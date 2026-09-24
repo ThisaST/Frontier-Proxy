@@ -467,4 +467,100 @@ describe('pickModel', () => {
     expect(saverPick).toBe('claude-haiku-4-5')
     expect(qualityPick).toBe('claude-opus-5')
   })
+
+  // --- Per-model outcome tie-break ---
+  // 'model-a'/'model-b' are unrecognized ids: tierFor falls back to 'standard'
+  // for both, so at complexity 1.0 (desired tier 'standard') they land at the
+  // identical tier distance — a genuine tie for the loop above to break.
+  describe('tie-break on model-level outcomes', () => {
+    const tiedAdvice = jevAdvice({ complexity: 1.0, complexityConfidence: 0.9 })
+    const tiedProvider = { id: 'claude', kind: 'claude' as const, model: 'model-a' }
+    const tiedModels = ['model-a', 'model-b']
+
+    it('prefers the tied model with the better recorded outcomes, given enough runs', () => {
+      const modelOutcomes = {
+        'model-a': { coding: { runs: 5, completed: 5, merged: 4, discarded: 0, verified: 4, verifyFailed: 0 } },
+        'model-b': { coding: { runs: 5, completed: 2, merged: 0, discarded: 4, verified: 0, verifyFailed: 4 } }
+      }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: true })
+      expect(picked).toBe('model-a')
+    })
+
+    it('ignores a tied model\'s outcomes below the sample-size gate, keeping the first tied model', () => {
+      const modelOutcomes = { 'model-b': { coding: { runs: 2, completed: 2, merged: 2, discarded: 0, verified: 2, verifyFailed: 0 } } }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: true })
+      expect(picked).toBe('model-a')
+    })
+
+    it('never breaks a tie on outcomes when learnFromOutcomes is off', () => {
+      const modelOutcomes = { 'model-b': { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } } }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: false })
+      expect(picked).toBe('model-a')
+    })
+
+    it('leaves 4-arg calls (no outcome options) working exactly as before', () => {
+      expect(pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced')).toBe('model-a')
+    })
+  })
+})
+
+// --- Per-model outcomes as a routing factor ---
+// Same learned signal as provider-level outcomes, but keyed on the model
+// pickModel would actually run — replacing the provider-wide figure rather
+// than stacking with it.
+describe('per-model outcome routing factor', () => {
+  it('replaces the provider-level outcome factor with a model-specific one for the model advice would pick', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } }
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 5, completed: 1, merged: 0, discarded: 5, verified: 0, verifyFailed: 5 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const outcomeFactors = (decision.candidates[0].factors ?? []).filter((f) => f.label.includes('outcomes'))
+    expect(outcomeFactors).toHaveLength(1)
+    expect(outcomeFactors[0].label).toContain('claude-opus-5')
+    // The model-specific record is bad even though the provider-wide one is
+    // great — the replacement must reflect the specific record, not blend it.
+    expect(outcomeFactors[0].points).toBeLessThan(0)
+  })
+
+  it('falls back to the provider-level factor when the picked model has no outcomes of its own', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const outcomeFactors = (decision.candidates[0].factors ?? []).filter((f) => f.label.includes('outcomes'))
+    expect(outcomeFactors).toHaveLength(1)
+    expect(outcomeFactors[0].label).not.toContain('claude-opus-5')
+  })
+
+  it('bounds the model-level factor within the same ±14 band as the provider-level one', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 100, completed: 100, merged: 100, discarded: 0, verified: 100, verifyFailed: 0 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const factor = (decision.candidates[0].factors ?? []).find((f) => f.label.includes('outcomes'))
+    expect(factor?.points).toBeLessThanOrEqual(14)
+  })
+
+  it('stays silent below the sample size, same gate as the provider-level factor', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 2, completed: 2, merged: 2, discarded: 0, verified: 2, verifyFailed: 0 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    expect((decision.candidates[0].factors ?? []).some((f) => f.label.includes('outcomes'))).toBe(false)
+  })
+
+  it('disables both the model-level factor and its tie-break together when learnFromOutcomes is off', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } } }
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 0, merged: 0, discarded: 10, verified: 0, verifyFailed: 10 } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active', learnFromOutcomes: false })
+    expect((decision.candidates[0].factors ?? []).some((f) => f.label.includes('outcomes'))).toBe(false)
+  })
 })

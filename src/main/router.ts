@@ -55,8 +55,10 @@ function skipReason(task: ProxyTask, provider: RoutableProvider, now: number): s
 const MIN_OUTCOME_RUNS = 3
 const MAX_OUTCOME_POINTS = 14
 
-export function outcomeFactor(stats: OutcomeStats | undefined, taskType: TaskType): RoutingFactor | undefined {
-  if (!stats || stats.runs < MIN_OUTCOME_RUNS) return undefined
+// Shared by the provider-level factor below, the per-model factor, and
+// pickModel's own tie-break — one formula for "how well did this actually
+// go", whatever it's keyed by.
+function outcomePoints(stats: OutcomeStats): number {
   const completion = stats.completed / stats.runs
   const reviewed = stats.merged + stats.discarded
   const checked = stats.verified + stats.verifyFailed
@@ -66,9 +68,33 @@ export function outcomeFactor(stats: OutcomeStats | undefined, taskType: TaskTyp
   if (reviewed) parts.push({ weight: 2.5, ratio: stats.merged / reviewed })
   const weight = parts.reduce((total, part) => total + part.weight, 0)
   const score = parts.reduce((total, part) => total + part.weight * (part.ratio - 0.5), 0) / weight
-  const points = Math.round(score * 2 * MAX_OUTCOME_POINTS)
+  return Math.round(score * 2 * MAX_OUTCOME_POINTS)
+}
+
+export function outcomeFactor(stats: OutcomeStats | undefined, taskType: TaskType): RoutingFactor | undefined {
+  if (!stats || stats.runs < MIN_OUTCOME_RUNS) return undefined
+  const points = outcomePoints(stats)
   if (!points) return undefined
   return { label: `Recent ${taskType} outcomes (${stats.runs} runs)`, points }
+}
+
+// The same factor, but keyed by the specific model this provider would
+// actually run (`pickModel`'s own pick) instead of the provider as a whole —
+// replaces the provider-level factor above rather than stacking with it, so
+// "learn from outcomes" never double-counts one set of runs.
+function modelOutcomeFactor(stats: OutcomeStats | undefined, taskType: TaskType, model: string): RoutingFactor | undefined {
+  if (!stats || stats.runs < MIN_OUTCOME_RUNS) return undefined
+  const points = outcomePoints(stats)
+  if (!points) return undefined
+  return { label: `Recent ${taskType} outcomes on ${model} (${stats.runs} runs)`, points }
+}
+
+// Inputs pickModel needs to break a tie between equally tier-fit models with
+// what has actually happened when each one ran this kind of task before.
+export interface ModelOutcomeOptions {
+  taskType: TaskType
+  modelOutcomes?: Record<string, Partial<Record<TaskType, OutcomeStats>>>
+  learnFromOutcomes?: boolean
 }
 
 // ---- Jev advisor factors ----
@@ -169,16 +195,39 @@ function advisorFactors(task: ProxyTask, provider: RoutableProvider, advice: Rou
 // provider's own discovered/known models. Pure and provider-scoped: it can
 // never suggest a model belonging to a different agent. Returns undefined
 // (keep the provider default) whenever there is no usable signal.
-export function pickModel(provider: Pick<ProviderConfig, 'id' | 'kind' | 'model'>, models: string[], advice: RoutingAdvice | undefined, mode: RoutingMode): string | undefined {
+//
+// When two or more of those models land equally close to the desired tier,
+// the tie is broken by which one has actually gone better for this kind of
+// task — same bounded, sample-gated signal as the routing factor, silent
+// (falls back to the first tied model, same as before this existed) below
+// the sample size or when outcome learning is off.
+export function pickModel(
+  provider: Pick<ProviderConfig, 'id' | 'kind' | 'model'>,
+  models: string[],
+  advice: RoutingAdvice | undefined,
+  mode: RoutingMode,
+  outcomes?: ModelOutcomeOptions
+): string | undefined {
   if (!advice || advice.source !== 'jev' || advice.complexity === undefined) return undefined
   const desired = desiredTier(advice.complexity, mode)
   const candidates = [...new Set([...(models ?? []), provider.model].filter((value): value is string => Boolean(value)))]
   if (!candidates.length) return undefined
-  let best: string | undefined
   let bestDistance = Number.POSITIVE_INFINITY
+  let tied: string[] = []
   for (const model of candidates) {
     const distance = tierDistance(tierFor(model, provider.kind), desired)
-    if (distance < bestDistance) { bestDistance = distance; best = model }
+    if (distance < bestDistance) { bestDistance = distance; tied = [model] }
+    else if (distance === bestDistance) tied.push(model)
+  }
+  if (tied.length < 2 || !outcomes?.learnFromOutcomes) return tied[0]
+  let best = tied[0]
+  let bestScore = Number.NEGATIVE_INFINITY
+  let found = false
+  for (const model of tied) {
+    const stats = outcomes.modelOutcomes?.[model]?.[outcomes.taskType]
+    if (!stats || stats.runs < MIN_OUTCOME_RUNS) continue
+    const score = outcomePoints(stats)
+    if (!found || score > bestScore) { best = model; bestScore = score; found = true }
   }
   return best
 }
@@ -204,7 +253,13 @@ function scoreFactors(task: ProxyTask, provider: RoutableProvider, learnFromOutc
   if (usagePenalty) factors.push({ label: 'Spreading usage across subscriptions', points: -usagePenalty })
   if (provider.runtime.running) factors.push({ label: 'Currently busy', points: -provider.runtime.running * 30 })
   if (learnFromOutcomes) {
-    const outcome = outcomeFactor(provider.runtime.outcomes?.[task.type], task.type)
+    // When advice picks a specific model for this provider, its own outcomes
+    // (if any) replace the provider-wide figure rather than stacking with it
+    // — one learned signal per provider, just a more specific one when there
+    // is enough to go on.
+    const pickedModel = advisor ? pickModel(provider, provider.runtime.models ?? [], advisor.advice, task.mode, { taskType: task.type, modelOutcomes: provider.runtime.modelOutcomes, learnFromOutcomes }) : undefined
+    const outcome = (pickedModel && modelOutcomeFactor(provider.runtime.modelOutcomes?.[pickedModel]?.[task.type], task.type, pickedModel))
+      ?? outcomeFactor(provider.runtime.outcomes?.[task.type], task.type)
     if (outcome) factors.push(outcome)
     factors.push(...efficiencyFactors(provider.runtime, baselines))
   }
@@ -275,7 +330,7 @@ export function routeTask(task: ProxyTask, providers: RoutableProvider[], option
       const winner = shadowRanked[0]
       if (winner) {
         advisor.wouldChooseProviderId = winner.provider.id
-        advisor.wouldChooseModel = pickModel(winner.provider, winner.provider.runtime.models ?? [], shadowAdvice, task.mode)
+        advisor.wouldChooseModel = pickModel(winner.provider, winner.provider.runtime.models ?? [], shadowAdvice, task.mode, { taskType: task.type, modelOutcomes: winner.provider.runtime.modelOutcomes, learnFromOutcomes })
         advisor.note = winner.provider.id === ranked[0]?.provider.id ? 'Agrees with the current route.' : 'Would route differently.'
       } else {
         advisor.note = 'No eligible provider even with advice applied.'

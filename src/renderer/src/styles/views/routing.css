@@ -57,6 +57,9 @@
 .routing-shadow-row { border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); padding: 10px 12px; display: grid; gap: 6px; }
 .routing-shadow-prompt { margin: 0; font-size: 12px; color: var(--fg); }
 .routing-shadow-meta { display: flex; flex-wrap: wrap; gap: 10px; font-size: 10px; color: var(--fg-muted); align-items: center; }
+.routing-calibration-eyebrow { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--bezel); }
+.routing-calibration-share { display: flex; align-items: center; gap: 8px; }
+.routing-calibration-share .gauge-seg { width: 48px; flex: 0 0 auto; }
 
 @media (max-width: 1120px) {
   .routing-grid { grid-template-columns: 1fr; }

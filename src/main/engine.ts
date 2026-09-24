@@ -27,7 +27,10 @@ import { hydrateExecutablePath } from './env'
 import { discoverSkills, resolveSkills } from './skills'
 import { pickModel, rankProviders, routeTask, type RoutingOptions } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
-import { advise, buildJevRequest, heuristicAdvice, adviceFromResponse, repoFacts, JevClient, type AdvisorKeyManager, type AdviceCandidate } from './advisor'
+import {
+  advise, buildJevRequest, buildSubtaskAdviceRequest, heuristicAdvice, adviceFromResponse, subtaskAdviceFromResponse,
+  repoFacts, JevClient, type AdvisorKeyManager, type AdviceCandidate
+} from './advisor'
 import { tierFor } from '../shared/model-profiles'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
 import { branchChangeStats, branchFileDiff, deleteTaskBranch, listBranchInbox, mergeTaskBranch } from './branches'
@@ -139,6 +142,7 @@ export class OrchestrationEngine extends EventEmitter {
       else if (persisted?.usage?.tasks) runtime.history = [...(persisted.history ?? []), persisted.usage].slice(-USAGE_HISTORY_DAYS)
       runtime.history ??= persisted?.history
       runtime.outcomes = persisted?.outcomes
+      runtime.modelOutcomes = persisted?.modelOutcomes
       // A window persisted from an earlier run may have reset while the app was
       // closed; only windows still in force survive the reload.
       runtime.sessions = activeSessions({ ...blankRuntime(), sessions: persisted?.sessions, session: persisted?.session })
@@ -277,6 +281,60 @@ export class OrchestrationEngine extends EventEmitter {
     })
   }
 
+  // One extra Jev call per orchestrated task, made once the planner's subtasks
+  // are known: instead of the parent's single plan-level rating, each subtask
+  // gets its own complexity/target answer so a small subtask and an
+  // architectural one in the same plan can route — and pick a model — apart.
+  // Off/no key/a single subtask: skipped outright, no call at all. Bounded by
+  // the same overall deadline requestAdvice uses; a late answer is dropped by
+  // simply never being awaited past the race below.
+  private async requestSubtaskAdvice(task: ProxyTask, controller: AbortController): Promise<void> {
+    const settings = this.settings.advisor
+    const plan = task.subtasks ?? []
+    if (!settings || settings.mode === 'off' || !this.advisorKeys?.hasKey() || plan.length < 2) return
+    const key = this.advisorKeys.getKey()
+    if (!key) return
+
+    const deadline = new Promise<Map<number, RoutingAdvice> | undefined>((resolve) => {
+      const timer = setTimeout(() => resolve(undefined), this.advisorDeadlineMs)
+      timer.unref?.()
+    })
+    const compute = (async (): Promise<Map<number, RoutingAdvice> | undefined> => {
+      try {
+        const facts = settings.shareRepoFacts ? await repoFacts(task.cwd).catch(() => undefined) : undefined
+        if (controller.signal.aborted) return undefined
+        const candidates = this.adviceCandidates(task)
+        const { request, advised } = buildSubtaskAdviceRequest(
+          task.prompt,
+          plan.map((subtask) => ({ title: subtask.title, type: subtask.type, prompt: subtask.prompt })),
+          candidates, settings, facts
+        )
+        const { json, latencyMs } = await this.jevClient.request(key, request)
+        return subtaskAdviceFromResponse(json, advised.map((n) => ({ n, type: plan[n - 1].type })), { latencyMs })
+      } catch {
+        // Any failure (network, timeout, malformed response) leaves every
+        // subtask with no advice — they run on provider defaults, same as a
+        // failed parent-level advisor call.
+        return undefined
+      }
+    })()
+
+    const answers = await Promise.race([compute, deadline])
+    if (!answers || controller.signal.aborted) return
+    for (const [n, advice] of answers) {
+      const subtask = plan[n - 1]
+      if (!subtask) continue
+      // Active mode routes and picks the model on this advice (see withModel/
+      // awaitSubtaskProvider). Shadow mode never sets subtask.advice — it only
+      // ever recorded below, on subtask.routing, so nothing about the real run
+      // changes.
+      if (settings.mode === 'active') subtask.advice = advice
+      const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false, advice }
+      subtask.routing = routeTask(routing, this.snapshot().providers, this.routingOptions()).decision
+    }
+    this.emitSnapshot()
+  }
+
   async cancelTask(taskId: string): Promise<void> {
     const task = this.findTask(taskId)
     if (task.status === 'queued') {
@@ -397,7 +455,7 @@ export class OrchestrationEngine extends EventEmitter {
   private async recordBranchVerdict(cwd: string, branch: string, verdict: 'merged' | 'discarded'): Promise<void> {
     const record = this.branchRecords().get(branchKey(cwd, branch))
     if (!record?.providerId || !record.type) return
-    this.recordOutcome(record.providerId, record.type, { [verdict]: 1 })
+    this.recordOutcome(record.providerId, record.type, { [verdict]: 1 }, record.model)
     await this.persistAndEmit()
   }
 
@@ -701,6 +759,11 @@ export class OrchestrationEngine extends EventEmitter {
     this.startAssistantTurn(task)
     await this.persistAndEmit()
 
+    // The model this attempt actually ran on, for outcome recording — tracked
+    // separately from task.model (which only ever fills in once) so a
+    // failover to a second provider records against that provider's own
+    // model, not the first provider's leftover value.
+    let ranModel: string | undefined
     for (const providerId of providerIds) {
       const provider = this.settings.providers.find((item) => item.id === providerId)
       const runtime = this.runtimes.get(providerId)
@@ -741,6 +804,7 @@ export class OrchestrationEngine extends EventEmitter {
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
       if (!task.model) task.model = result.model ?? provider.model
+      ranModel = result.model ?? runConfig.model
 
       runtime.running = Math.max(0, runtime.running - 1)
       runtime.usage.tasks += 1
@@ -788,7 +852,7 @@ export class OrchestrationEngine extends EventEmitter {
       task.error = controller.signal.aborted ? 'Task cancelled.' : 'No eligible provider could complete this task.'
       task.finishedAt = new Date().toISOString()
     }
-    this.recordRunOutcome(task.selectedProviderId, task.type, task.status)
+    this.recordRunOutcome(task.selectedProviderId, task.type, task.status, undefined, ranModel)
     this.finalizeAssistantTurn(task)
     this.controllers.delete(task.id)
     await this.persistAndEmit()
@@ -864,6 +928,7 @@ export class OrchestrationEngine extends EventEmitter {
 
     let completed = false
     let finalError: string | undefined
+    let ranModel: string | undefined
     for (const providerId of candidateIds) {
       const provider = this.settings.providers.find((item) => item.id === providerId)
       const runtime = this.runtimes.get(providerId)
@@ -893,6 +958,7 @@ export class OrchestrationEngine extends EventEmitter {
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
+      ranModel = result.model ?? runConfig.model
       runtime.running = Math.max(0, runtime.running - 1)
       runtime.usage.tasks += 1
       runtime.usage.elapsedMs += Date.now() - started
@@ -920,7 +986,7 @@ export class OrchestrationEngine extends EventEmitter {
       break
     }
     this.finishTask(task, controller.signal.aborted ? 'cancelled' : completed ? 'completed' : 'failed', completed ? undefined : controller.signal.aborted ? 'Task cancelled.' : finalError ?? 'No eligible provider could complete this turn.')
-    this.recordRunOutcome(task.selectedProviderId, task.type, task.status)
+    this.recordRunOutcome(task.selectedProviderId, task.type, task.status, undefined, ranModel)
     this.finalizeAssistantTurn(task)
     this.controllers.delete(task.id)
     await this.persistAndEmit()
@@ -967,6 +1033,10 @@ export class OrchestrationEngine extends EventEmitter {
       task.orchestrationStage = 'delegating'
       await this.persistAndEmit()
 
+      // Bounded exactly like the parent task's own advice (advisorDeadlineMs):
+      // delegation never waits longer than this for the extra per-subtask
+      // Jev call, win or lose.
+      await this.requestSubtaskAdvice(task, controller)
       await this.runSubtasks(task, controller)
       if (controller.signal.aborted) { this.finishTask(task, 'cancelled', 'Task cancelled.'); return }
 
@@ -1077,7 +1147,7 @@ export class OrchestrationEngine extends EventEmitter {
         runtime.usage.elapsedMs += Date.now() - started
         runtime.usage.estimatedInputTokens += estimateTokens(prompt)
         runtime.usage.estimatedOutputTokens += estimateTokens(lane.output)
-        this.recordRunOutcome(provider.id, lane.type, lane.status, lane.verification)
+        this.recordRunOutcome(provider.id, lane.type, lane.status, lane.verification, lane.model)
         if (workdir !== task.cwd) await removeWorktree(task.cwd, workdir)
         this.emitSnapshot()
       }
@@ -1154,7 +1224,7 @@ export class OrchestrationEngine extends EventEmitter {
       subtask.status = 'running'; subtask.providerId = provider.id; subtask.startedAt = new Date().toISOString(); this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
-        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths, false)
+        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths, false, subtask)
         if (!subtask.output.trim()) subtask.output = result.output
         subtask.providerId = result.providerId
         subtask.model = result.model
@@ -1175,7 +1245,7 @@ export class OrchestrationEngine extends EventEmitter {
         subtask.status = 'failed'; subtask.error = error instanceof Error ? error.message : String(error)
       }
       subtask.finishedAt = new Date().toISOString()
-      this.recordRunOutcome(subtask.providerId, subtask.type, subtask.status, subtask.verification)
+      this.recordRunOutcome(subtask.providerId, subtask.type, subtask.status, subtask.verification, subtask.model)
       this.emitSnapshot()
       return runNext()
     }
@@ -1194,9 +1264,10 @@ export class OrchestrationEngine extends EventEmitter {
   // provider could take even when idle (no capability, cooldown, usage limit,
   // offline) is a genuine failure.
   private async awaitSubtaskProvider(task: ProxyTask, subtask: SubTask, controller: AbortController): Promise<ProviderConfig | undefined> {
-    // Never the parent's advice (see runOne's useAdvice=false): a subtask
-    // routes on the same factors as no-advisor routing.
-    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false, advice: undefined }
+    // Never the parent's advice (see runOne's useAdvice=false) — only this
+    // subtask's own advice, when requestSubtaskAdvice set one (active mode).
+    // Without it, a subtask routes on the same factors as no-advisor routing.
+    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false, advice: subtask.advice }
     for (;;) {
       if (controller.signal.aborted) return undefined
       const providers = this.snapshot().providers
@@ -1222,9 +1293,16 @@ export class OrchestrationEngine extends EventEmitter {
     // small subtask, or the read-only synthesis pass, onto a frontier model.
     // Only the planner stage (the parent route) and a single task's own
     // failover keep the advice — both call this with the default.
-    useAdvice: boolean = true
+    useAdvice: boolean = true,
+    // Set for a subtask lane only. When it carries its own Jev advice (active
+    // mode's per-subtask advisor call — see requestSubtaskAdvice) that advice
+    // is used for THIS run's routing and model choice instead of useAdvice's
+    // task-level default, which stays undefined either way (see useAdvice's
+    // own comment above) — a subtask never inherits the parent's rating.
+    subtask?: SubTask
   ): Promise<{ output: string; model?: string; ok: boolean; error?: string; providerId: string }> {
-    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false, advice: useAdvice ? task.advice : undefined }
+    const advice = subtask?.advice ?? (useAdvice ? task.advice : undefined)
+    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false, advice }
     const ranked = rankProviders(routingTask, this.snapshot().providers, this.routingOptions())
     const candidateIds = [...new Set([initialProvider.id, ...ranked.map((item) => item.id)])]
     let final: { output: string; model?: string; ok: boolean; error?: string; providerId: string } = {
@@ -1241,7 +1319,8 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       let output = ''
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task, useAdvice), {
+      const runConfig = this.withModel(provider, task, useAdvice, subtask)
+      const result = await runProvider(runConfig, {
         prompt, cwd: cwd ?? task.cwd, signal: controller.signal, ...(await this.activeRunProfile(task)), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
@@ -1257,7 +1336,11 @@ export class OrchestrationEngine extends EventEmitter {
       runtime.usage.estimatedInputTokens += estimateTokens(prompt)
       runtime.usage.estimatedOutputTokens += estimateTokens(result.output)
       this.applyConfiguredContext(provider, estimateTokens(prompt), task, contextReported)
-      final = { output: result.output || output, model: result.model, ok: result.ok, error: result.error, providerId: provider.id }
+      // Falls back to the model actually handed to the CLI (which itself
+      // already resolved down to the provider's configured default) when the
+      // CLI never reports its own model — the caller uses this to attribute
+      // per-model outcomes correctly even for a silent CLI.
+      final = { output: result.output || output, model: result.model ?? runConfig.model, ok: result.ok, error: result.error, providerId: provider.id }
       if (result.ok || controller.signal.aborted || result.failureKind === 'cancelled') return final
 
       const notice: ActivityEvent = { kind: 'notice', label: 'Automatic fallback', at: new Date().toISOString() }
@@ -1308,13 +1391,19 @@ export class OrchestrationEngine extends EventEmitter {
   // whole run on `claude-opus-5` rather than ignoring it.
   //
   // `useAdvice: false` (subtask lanes and orchestration synthesis, via runOne)
-  // skips the advisor branch entirely — no read of task.advice, no write of
-  // task.routedModel — so a plan-level "architectural" complexity rating can
-  // never push every small subtask onto a frontier model. Per-subtask
-  // advising is a later phase; until then those runs use the provider default.
-  private withModel(provider: ProviderConfig, task: ProxyTask, useAdvice: boolean = true): ProviderConfig {
+  // skips the parent's advisor branch entirely — no read of task.advice, no
+  // write of task.routedModel — so a plan-level "architectural" complexity
+  // rating can never push every small subtask onto a frontier model. A
+  // subtask with its OWN advice (see requestSubtaskAdvice) is the one
+  // exception: `subtask` here routes model choice through that instead,
+  // regardless of useAdvice, and never touches task.routedModel.
+  private withModel(provider: ProviderConfig, task: ProxyTask, useAdvice: boolean = true, subtask?: SubTask): ProviderConfig {
     const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.modelOwners())
     if (model !== provider.model) return { ...provider, model }
+    if (subtask?.advice) {
+      const routed = this.routedModelForSubtask(provider, subtask, task)
+      return routed ? { ...provider, model: routed } : provider
+    }
     if (!useAdvice) return provider
     const routed = this.routedModelFor(provider, task)
     return routed ? { ...provider, model: routed } : provider
@@ -1328,10 +1417,25 @@ export class OrchestrationEngine extends EventEmitter {
   // always attributed to the provider that is actually about to run.
   private routedModelFor(provider: ProviderConfig, task: ProxyTask): string | undefined {
     if (this.settings.advisor?.mode !== 'active' || task.advice?.source !== 'jev') return undefined
-    const candidate = pickModel(provider, this.runtimes.get(provider.id)?.models ?? [], task.advice, task.mode)
+    const runtime = this.runtimes.get(provider.id)
+    const candidate = pickModel(provider, runtime?.models ?? [], task.advice, task.mode, this.modelOutcomeOptions(provider, task.type))
     if (!candidate || candidate === provider.model) return undefined
     task.routedModel = { providerId: provider.id, model: candidate, reason: `Jev: complexity ${task.advice.complexity?.toFixed(1) ?? '—'} suggests the ${tierFor(candidate, provider.kind)} tier` }
     return candidate
+  }
+
+  // Same precedence as routedModelFor, but sourced from the subtask's own
+  // advice (active mode's per-subtask Jev call) rather than the parent
+  // task's — the "later phase" routedModelFor's own comment used to point to.
+  private routedModelForSubtask(provider: ProviderConfig, subtask: SubTask, task: ProxyTask): string | undefined {
+    if (this.settings.advisor?.mode !== 'active' || subtask.advice?.source !== 'jev') return undefined
+    const runtime = this.runtimes.get(provider.id)
+    const candidate = pickModel(provider, runtime?.models ?? [], subtask.advice, task.mode, this.modelOutcomeOptions(provider, subtask.type))
+    return candidate && candidate !== provider.model ? candidate : undefined
+  }
+
+  private modelOutcomeOptions(provider: ProviderConfig, taskType: TaskType): { taskType: TaskType; modelOutcomes?: Record<string, Partial<Record<TaskType, OutcomeStats>>>; learnFromOutcomes: boolean } {
+    return { taskType, modelOutcomes: this.runtimes.get(provider.id)?.modelOutcomes, learnFromOutcomes: this.settings.learnFromOutcomes !== false }
   }
 
   // Say so in the transcript when the picked model could not travel with the task.
@@ -1462,39 +1566,49 @@ export class OrchestrationEngine extends EventEmitter {
   // Which agent produced a branch, and how its checks went. Task subtasks and
   // bench lanes carry the routing type; workspace turns contribute verification
   // only, since a turn is addressed to a participant rather than routed.
-  private branchRecords(): Map<string, { providerId?: string; type?: TaskType; verification?: VerificationReport }> {
-    const records = new Map<string, { providerId?: string; type?: TaskType; verification?: VerificationReport }>()
+  private branchRecords(): Map<string, { providerId?: string; type?: TaskType; model?: string; verification?: VerificationReport }> {
+    const records = new Map<string, { providerId?: string; type?: TaskType; model?: string; verification?: VerificationReport }>()
     for (const task of this.tasks) {
       for (const subtask of task.subtasks ?? []) {
-        if (subtask.branch) records.set(branchKey(task.cwd, subtask.branch), { providerId: subtask.providerId, type: subtask.type, verification: subtask.verification })
+        if (subtask.branch) records.set(branchKey(task.cwd, subtask.branch), { providerId: subtask.providerId, type: subtask.type, model: subtask.model, verification: subtask.verification })
       }
     }
     for (const workspace of this.workspaces) {
       for (const turn of workspace.turns) {
-        if (turn.branch) records.set(branchKey(workspace.cwd, turn.branch), { providerId: turn.providerId, verification: turn.verification })
+        if (turn.branch) records.set(branchKey(workspace.cwd, turn.branch), { providerId: turn.providerId, verification: turn.verification, model: turn.model })
       }
     }
     return records
   }
 
-  private recordOutcome(providerId: string | undefined, type: TaskType, patch: Partial<OutcomeStats>): void {
+  // Keyed by the model that actually ran (task.model / the subtask's own
+  // model, as reported by the CLI, already resolved by the caller down to the
+  // model handed to it and then the provider's configured default) when
+  // known, in addition to the provider-wide figure every outcome always
+  // updates. `model` undefined records the provider level only.
+  private recordOutcome(providerId: string | undefined, type: TaskType, patch: Partial<OutcomeStats>, model?: string): void {
     const runtime = providerId ? this.runtimes.get(providerId) : undefined
     if (!runtime) return
     const outcomes = runtime.outcomes ?? (runtime.outcomes = {})
     const stats = outcomes[type] ?? (outcomes[type] = blankOutcome())
     for (const [key, value] of Object.entries(patch)) stats[key as keyof OutcomeStats] += value ?? 0
+    if (!model) return
+    const modelOutcomes = runtime.modelOutcomes ?? (runtime.modelOutcomes = {})
+    const byType = modelOutcomes[model] ?? (modelOutcomes[model] = {})
+    const modelStats = byType[type] ?? (byType[type] = blankOutcome())
+    for (const [key, value] of Object.entries(patch)) modelStats[key as keyof OutcomeStats] += value ?? 0
   }
 
   // A run that finished on its own is a data point; one the user cancelled is not
   // a verdict on the agent, so it is never counted.
-  private recordRunOutcome(providerId: string | undefined, type: TaskType, status: ProxyTask['status'], verification?: VerificationReport): void {
+  private recordRunOutcome(providerId: string | undefined, type: TaskType, status: ProxyTask['status'], verification?: VerificationReport, model?: string): void {
     if (status === 'cancelled') return
     this.recordOutcome(providerId, type, {
       runs: 1,
       completed: status === 'completed' ? 1 : 0,
       verified: verification?.ran && verification.ok ? 1 : 0,
       verifyFailed: verification?.ran && !verification.ok ? 1 : 0
-    })
+    }, model)
   }
 
   // Run the repo's own checks against a finished lane's worktree and measure what
@@ -1516,6 +1630,7 @@ export class OrchestrationEngine extends EventEmitter {
       usage: runtime.usage,
       history: runtime.history,
       outcomes: runtime.outcomes,
+      modelOutcomes: runtime.modelOutcomes,
       sessions: runtime.sessions ?? (runtime.session ? [runtime.session] : undefined)
     }]))
     await this.store.save({ settings: this.settings, tasks: this.tasks.slice(0, 200), providerRuntime, workspaces: this.workspaces })

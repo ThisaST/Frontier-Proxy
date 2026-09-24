@@ -4,8 +4,9 @@
 // `#routing-view` section (P3a/P3b split — see CLAUDE.md).
 import type { AdvisorMode, AdvisorPreviewResult, ModelTier, ProxyTask, RoutingAdvisorSettings } from '../../../shared/types'
 import { describeCandidate, profileFor, tierFor } from '../../../shared/model-profiles'
+import { advisorCalibration, type CalibrationBucket } from '../../../shared/calibration'
 import { byId, element, emptyState, field, textArea, textInput } from '../ui/dom'
-import { chip, lamp, probabilityBar, type Tone } from '../ui/components'
+import { chip, gaugeSeg, lamp, probabilityBar, type Tone } from '../ui/components'
 import { confirmAction, errorMessage, reportError, showToast } from '../ui/feedback'
 import { formatDuration, timeAgo } from '../ui/format'
 import { highlightBlock } from '../syntax'
@@ -163,12 +164,57 @@ function buildPolicyCard(): HTMLElement {
 }
 
 function buildInsightsCard(): HTMLElement {
-  const card = element('section', 'panel routing-card')
+  const card = element('section', 'panel routing-card routing-card-wide')
   card.append(element('p', 'eyebrow', 'SHADOW INSIGHTS'), element('h2', undefined, 'Would Jev have agreed?'))
   const summary = element('p', 'routing-shadow-summary'); summary.id = 'routing-shadow-summary'
   const list = element('div', 'routing-shadow-list'); list.id = 'routing-shadow-list'
   card.append(summary, list)
+
+  card.append(element('p', 'eyebrow routing-calibration-eyebrow', 'CALIBRATION'))
+  const wrap = element('div', 'routing-table-wrap')
+  const table = document.createElement('table'); table.className = 'data-table'
+  const thead = document.createElement('thead')
+  thead.innerHTML = '<tr><th>Confidence</th><th>Tasks</th><th>Completed</th><th>Checks passed</th><th>Agreed with route</th></tr>'
+  const tbody = document.createElement('tbody'); tbody.id = 'routing-calibration-body'
+  table.append(thead, tbody)
+  wrap.append(table)
+  card.append(wrap)
   return card
+}
+
+// A share of a whole, formatted as a gauge + percent readout, honest about
+// having nothing to show yet rather than reading as 0%.
+function calibrationShare(count: number, of: number): HTMLElement {
+  const cell = element('td')
+  if (!of) { cell.append(element('span', 'detail-empty', '—')); return cell }
+  const percent = Math.round((count / of) * 100)
+  const row = element('div', 'routing-calibration-share')
+  row.append(gaugeSeg(percent, 'phosphor', `${percent}%`, 5), element('span', 'readout', `${percent}%`))
+  cell.append(row)
+  return cell
+}
+
+function renderCalibrationRow(bucket: CalibrationBucket): HTMLElement {
+  const row = document.createElement('tr')
+  const labelCell = document.createElement('td'); labelCell.textContent = bucket.label
+  const tasksCell = document.createElement('td'); tasksCell.textContent = String(bucket.tasks)
+  const checked = bucket.verified + bucket.verifyFailed
+  row.append(labelCell, tasksCell, calibrationShare(bucket.completed, bucket.tasks), calibrationShare(bucket.verified, checked), calibrationShare(bucket.agreedWithRoute, bucket.tasks))
+  return row
+}
+
+function renderCalibration(): void {
+  const body = byId('routing-calibration-body')
+  const { buckets } = advisorCalibration(snapshot.tasks)
+  if (!buckets.some((bucket) => bucket.tasks)) {
+    const empty = document.createElement('tr')
+    const cell = document.createElement('td'); cell.colSpan = 5
+    cell.append(emptyState('No calibration data yet', 'Once Jev-advised tasks finish, this breaks down how often it was right by how confident it was.'))
+    empty.append(cell)
+    body.replaceChildren(empty)
+    return
+  }
+  body.replaceChildren(...buckets.map(renderCalibrationRow))
 }
 
 export function initRoutingView(): void {
@@ -463,5 +509,6 @@ export function renderRouting(): void {
 
   renderCatalog()
   renderInsights()
+  renderCalibration()
   if (previewResult) renderSentResult()
 }

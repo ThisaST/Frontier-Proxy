@@ -5,8 +5,9 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  AdvisorKeyManager, adviceFromResponse, advise, buildJevRequest, clearRepoFactsCache,
-  heuristicAdvice, JevClient, repoFacts, trimForJev, type AdviceCandidate, type JevResponseBody
+  AdvisorKeyManager, adviceFromResponse, advise, buildJevRequest, buildSubtaskAdviceRequest, clearRepoFactsCache,
+  heuristicAdvice, JevClient, MAX_ADVISED_SUBTASKS, repoFacts, subtaskAdviceFromResponse, trimForJev,
+  type AdviceCandidate, type JevResponseBody
 } from '../src/main/advisor'
 import type { RoutingAdvisorSettings } from '../src/shared/types'
 
@@ -123,6 +124,85 @@ describe('adviceFromResponse', () => {
     expect(() => adviceFromResponse(null, 'general', 0.5)).toThrow()
     expect(() => adviceFromResponse(response({ task_type: { type: 'choice', choice: 'not-a-real-type', probabilities: {}, confidence: 0.9 } }), 'general', 0.5)).toThrow()
     expect(() => adviceFromResponse(response({ complexity: { type: 'score' } }), 'general', 0.5)).toThrow()
+  })
+})
+
+describe('buildSubtaskAdviceRequest', () => {
+  function plan(n: number) {
+    return Array.from({ length: n }, (_, index) => ({ title: `Subtask ${index + 1}`, type: 'coding' as const, prompt: `Do part ${index + 1}` }))
+  }
+
+  it('asks one complexity_<n> and target_<n> pair per subtask, referencing it by plan number', () => {
+    const { request, advised } = buildSubtaskAdviceRequest('Parent goal', plan(3), candidates(), settings())
+    expect(advised).toEqual([1, 2, 3])
+    expect(request.questions.complexity_1.type).toBe('score')
+    expect(request.questions.complexity_1.instructions).toEqual({ question: expect.stringContaining('subtask 1'), subtask: '1' })
+    expect(request.questions.target_2).toBeDefined()
+    expect(request.questions.target_2?.instructions).toEqual({ question: expect.stringContaining('subtask 2'), subtask: '2' })
+    expect(request.state.task).toBe('Parent goal')
+    expect(request.state.plan).toEqual([
+      { n: 1, title: 'Subtask 1', type: 'coding', prompt: 'Do part 1' },
+      { n: 2, title: 'Subtask 2', type: 'coding', prompt: 'Do part 2' },
+      { n: 3, title: 'Subtask 3', type: 'coding', prompt: 'Do part 3' }
+    ])
+  })
+
+  it('never asks a target question below two candidates', () => {
+    const { request } = buildSubtaskAdviceRequest('Parent goal', plan(2), candidates().slice(0, 1), settings())
+    expect(request.questions.target_1).toBeUndefined()
+    expect(request.questions.target_2).toBeUndefined()
+    expect(request.questions.complexity_1).toBeDefined()
+  })
+
+  it('advises only the first 8 subtasks and notes the truncation', () => {
+    const { request, advised } = buildSubtaskAdviceRequest('Parent goal', plan(12), candidates(), settings())
+    expect(advised).toHaveLength(MAX_ADVISED_SUBTASKS)
+    expect(advised).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(request.questions.complexity_9).toBeUndefined()
+    expect(request.state.note).toContain('first 8 of 12')
+  })
+
+  it('keeps the whole request comfortably under the combined budget even at the maximum subtask count', () => {
+    const huge = Array.from({ length: MAX_ADVISED_SUBTASKS }, (_, index) => ({ title: `Subtask ${index + 1}`, type: 'coding' as const, prompt: 'x'.repeat(50_000) }))
+    const { request } = buildSubtaskAdviceRequest('Parent goal', huge, candidates(), settings())
+    expect(JSON.stringify(request).length).toBeLessThan(70_000)
+  })
+})
+
+describe('subtaskAdviceFromResponse', () => {
+  function subtaskResponse(overrides: Record<string, unknown> = {}): unknown {
+    return {
+      model: 'jev-1.13.0',
+      answers: {
+        complexity_1: { type: 'score', score: 0.2, probabilities: {}, confidence: 0.8 },
+        target_1: { type: 'choice', choice: 'claude::claude-haiku-4-5', probabilities: { 'claude::claude-haiku-4-5': 0.9 }, confidence: 0.9 },
+        complexity_2: { type: 'score', score: 2.9, probabilities: {}, confidence: 0.85 },
+        target_2: { type: 'choice', choice: 'claude::claude-opus-5', probabilities: { 'claude::claude-opus-5': 0.8 }, confidence: 0.8 },
+        ...overrides
+      }
+    }
+  }
+
+  it('parses one RoutingAdvice per advised subtask, keyed by plan number', () => {
+    const advice = subtaskAdviceFromResponse(subtaskResponse(), [{ n: 1, type: 'coding' }, { n: 2, type: 'review' }])
+    expect(advice.size).toBe(2)
+    expect(advice.get(1)).toMatchObject({ source: 'jev', taskType: 'coding', heuristicTaskType: 'coding', complexity: 0.2, complexityConfidence: 0.8 })
+    expect(advice.get(2)).toMatchObject({ source: 'jev', taskType: 'review', heuristicTaskType: 'review', complexity: 2.9 })
+    expect(advice.get(2)?.target?.choice).toBe('claude::claude-opus-5')
+  })
+
+  it('omits target when that subtask asked no target question', () => {
+    const advice = subtaskAdviceFromResponse(subtaskResponse({ target_1: undefined }), [{ n: 1, type: 'coding' }])
+    expect(advice.get(1)?.target).toBeUndefined()
+  })
+
+  it('throws when a required complexity answer for an advised subtask is missing', () => {
+    expect(() => subtaskAdviceFromResponse(subtaskResponse({ complexity_2: undefined }), [{ n: 1, type: 'coding' }, { n: 2, type: 'coding' }])).toThrow()
+  })
+
+  it('throws on a completely invalid response, same defensive contract as adviceFromResponse', () => {
+    expect(() => subtaskAdviceFromResponse(null, [{ n: 1, type: 'coding' }])).toThrow()
+    expect(() => subtaskAdviceFromResponse({ answers: {} }, [{ n: 1, type: 'coding' }])).toThrow()
   })
 })
 

@@ -51,6 +51,15 @@ export interface RepoFacts {
 // Jev's `choice` type accepts at most 255 options.
 const MAX_TARGET_OPTIONS = 255
 
+// Same 4 levels asked of the parent task's own `complexity` question — shared
+// so a subtask's rating and the plan's rating are never worded differently.
+const COMPLEXITY_CRITERIA = [
+  'Trivial: a one-line edit, config change, or typo fix.',
+  'Single-file change: a small, self-contained change to one file.',
+  'Multi-file feature or bugfix: touches several files or components.',
+  'Architectural / cross-cutting: affects the system design or many subsystems.'
+]
+
 // The exact request body Frontier would send — pure, so the UI's "what is
 // sent" disclosure can never drift from what actually goes out.
 export function buildJevRequest(
@@ -72,12 +81,7 @@ export function buildJevRequest(
     complexity: {
       type: 'score',
       instructions: 'How complex is this task to implement correctly, from trivial to architectural?',
-      criteria: [
-        'Trivial: a one-line edit, config change, or typo fix.',
-        'Single-file change: a small, self-contained change to one file.',
-        'Multi-file feature or bugfix: touches several files or components.',
-        'Architectural / cross-cutting: affects the system design or many subsystems.'
-      ]
+      criteria: COMPLEXITY_CRITERIA
     },
     edits_files: {
       type: 'noul',
@@ -108,6 +112,108 @@ export function buildJevRequest(
   }
 
   return { state, model: settings.model?.trim() || 'jev-latest', questions }
+}
+
+// ---- Per-subtask advice ----
+// One extra call, made once the planner's subtasks are known, so a plan
+// mixing a trivial rename with an architectural rewrite can route — and pick
+// a model — apart instead of every subtask inheriting the parent's single
+// plan-level rating.
+
+// Above this many subtasks, only the first are advised — the rest keep
+// today's behaviour (no advice, provider default) rather than growing the
+// request without bound.
+export const MAX_ADVISED_SUBTASKS = 8
+
+// The state/questions payload scales with subtask count; keep the whole
+// request comfortably under Jev's 64k combined budget even at the maximum of
+// 8 advised subtasks (the parent prompt itself still gets its own head/tail
+// trim via trimForJev).
+const MAX_SUBTASK_STATE_CHARS = 64_000
+
+export interface SubtaskAdvicePlanItem {
+  title: string
+  type: TaskType
+  prompt: string
+}
+
+interface SubtaskPlanEntry { n: number; title: string; type: TaskType; prompt: string }
+
+export function buildSubtaskAdviceRequest(
+  parentPrompt: string,
+  subtasks: SubtaskAdvicePlanItem[],
+  candidates: AdviceCandidate[],
+  settings: Pick<RoutingAdvisorSettings, 'model'>,
+  repoFacts?: RepoFacts
+): { request: JevRequestBody; advised: number[] } {
+  const truncated = subtasks.length > MAX_ADVISED_SUBTASKS
+  const limited = subtasks.slice(0, MAX_ADVISED_SUBTASKS)
+  const perSubtaskBudget = Math.max(200, Math.floor((MAX_SUBTASK_STATE_CHARS - 4_000) / Math.max(1, limited.length)))
+  const plan: SubtaskPlanEntry[] = limited.map((item, index) => ({
+    n: index + 1,
+    title: item.title,
+    type: item.type,
+    prompt: item.prompt.length > perSubtaskBudget ? `${item.prompt.slice(0, perSubtaskBudget)}…[trimmed for length]` : item.prompt
+  }))
+
+  const state: Record<string, unknown> = { task: trimForJev(parentPrompt), plan }
+  if (truncated) state.note = `Only the first ${MAX_ADVISED_SUBTASKS} of ${subtasks.length} subtasks were advised; the rest run on their provider's default.`
+  if (repoFacts) state.repo = repoFacts
+
+  const capped = candidates.slice(0, MAX_TARGET_OPTIONS)
+  const questions: Record<string, JevQuestion> = {}
+  for (const item of plan) {
+    questions[`complexity_${item.n}`] = {
+      type: 'score',
+      instructions: { question: `How complex is subtask ${item.n} ("${item.title}") to implement correctly, from trivial to architectural?`, subtask: String(item.n) },
+      criteria: COMPLEXITY_CRITERIA
+    }
+    if (capped.length >= 2) {
+      questions[`target_${item.n}`] = {
+        type: 'choice',
+        instructions: { question: `Which installed coding agent and model combination is the best fit for subtask ${item.n} ("${item.title}")?`, subtask: String(item.n) },
+        criteria: Object.fromEntries(capped.map((candidate) => [`${candidate.providerId}::${candidate.model}`, candidate.description]))
+      }
+    }
+  }
+
+  return { request: { state, model: settings.model?.trim() || 'jev-latest', questions }, advised: plan.map((item) => item.n) }
+}
+
+// Parses the complexity_<n>/target_<n> answers back into one RoutingAdvice
+// per advised subtask — task_type is never re-asked per subtask, so both
+// taskType fields are just the type the planner already gave it. Throws on a
+// malformed response (same defensive contract as adviceFromResponse); the
+// caller falls back to leaving every subtask without advice.
+export function subtaskAdviceFromResponse(
+  json: unknown,
+  subtasks: Array<{ n: number; type: TaskType }>,
+  extra: { latencyMs?: number; at?: string } = {}
+): Map<number, RoutingAdvice> {
+  if (!json || typeof json !== 'object') throw new Error('Jev returned an invalid response.')
+  const body = json as Record<string, unknown>
+  const answers = record(body.answers, 'answers')
+  const at = extra.at ?? new Date().toISOString()
+  const model = typeof body.model === 'string' ? body.model : undefined
+
+  const result = new Map<number, RoutingAdvice>()
+  for (const { n, type } of subtasks) {
+    const complexityAnswer = asScore(answers[`complexity_${n}`], `complexity_${n}`)
+    const targetKey = `target_${n}`
+    const targetAnswer = answers[targetKey] !== undefined ? asChoice(answers[targetKey], targetKey) : undefined
+    result.set(n, {
+      source: 'jev',
+      model,
+      at,
+      latencyMs: extra.latencyMs,
+      taskType: type,
+      heuristicTaskType: type,
+      complexity: complexityAnswer.score,
+      complexityConfidence: complexityAnswer.confidence,
+      target: targetAnswer ? { choice: targetAnswer.choice, probabilities: targetAnswer.probabilities, confidence: targetAnswer.confidence } : undefined
+    })
+  }
+  return result
 }
 
 // ---- Response parsing ----

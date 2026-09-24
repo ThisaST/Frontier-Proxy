@@ -7,7 +7,7 @@ import type { AppSettings, ProviderRuntime, ProxyTask, Workspace } from '../shar
 export interface PersistedState {
   settings: AppSettings
   tasks: ProxyTask[]
-  providerRuntime?: Record<string, Pick<ProviderRuntime, 'usage' | 'history' | 'outcomes' | 'sessions' | 'session'>>
+  providerRuntime?: Record<string, Pick<ProviderRuntime, 'usage' | 'history' | 'outcomes' | 'modelOutcomes' | 'sessions' | 'session'>>
   // Optional so existing save() call sites (and pre-workspace state files) need no
   // change; load() always fills this in, so an existing frontier-state.json needs no
   // migration.

@@ -281,6 +281,10 @@ export interface ProviderRuntime {
   history?: UsageDay[]
   // Per task type, how this provider's runs have actually turned out.
   outcomes?: Partial<Record<TaskType, OutcomeStats>>
+  // The same breakdown, but keyed by the model that actually ran first — so a
+  // merged/discarded branch teaches the router about "opus on coding", not
+  // only "Claude on coding". Absent for runs where no model was ever known.
+  modelOutcomes?: Record<string, Partial<Record<TaskType, OutcomeStats>>>
 }
 
 export interface TaskAttempt {
@@ -451,6 +455,15 @@ export interface SubTask {
   filesTouched?: number
   // The repo's own checks, run in this lane's worktree before it was torn down.
   verification?: VerificationReport
+  // This subtask's own Jev advice from the one extra per-subtask advisor call
+  // (active mode only) — a plan of mixed-complexity subtasks can route, and
+  // pick a model, apart instead of all inheriting the parent's single rating.
+  advice?: RoutingAdvice
+  // What routing this subtask's own advice would produce, recorded whenever
+  // the advisor is not off (same shape/mechanism as task.routing) — in active
+  // mode this mirrors the real dispatch; in shadow mode `routing.advisor`
+  // records what it WOULD have picked without changing anything.
+  routing?: RoutingDecision
 }
 
 export interface ProxyTask {

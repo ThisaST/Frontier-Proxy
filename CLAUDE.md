@@ -358,6 +358,25 @@ and with it off the router scores exactly as it did before. Cancelling a task re
 nothing — that is the user's decision, not a verdict on the agent. Deleting a branch that
 was already merged is housekeeping, not a rejection.
 
+**Per-model outcomes** — `ProviderRuntime.modelOutcomes[modelId][taskType]` is the same
+`OutcomeStats` shape, keyed one level deeper by the model that actually ran (`task.model`/a
+subtask's own model as the CLI reported it, else the model handed to the CLI, else the
+provider's configured default — never left unattributed unless no model was known at all).
+Recorded at every point the provider-level figure is: `execute`/`continueTask` completion,
+bench/subtask verification, and a Review-inbox merge/discard (`engine.ts`'s `recordOutcome`
+updates both in one call). Persisted the same way `outcomes` is (`store.ts`); an older state
+file with no `modelOutcomes` loads unchanged. Two places read it, both gated behind
+`learnFromOutcomes`:
+- `pickModel` — when two or more of a provider's models land on the identical tier distance
+  from the desired tier, the tie is broken toward whichever tied model has the better
+  recorded score, gated at ≥3 runs like every other outcome signal; below that, or with
+  outcome learning off, it keeps today's tie-break (the first tied model).
+- `scoreFactors` — once a provider's picked model (via that same `pickModel` call) has its
+  own recorded outcomes, a labelled `Recent <type> outcomes on <model> (<n> runs)` factor
+  **replaces** the provider-wide one for that provider rather than stacking with it; bounded
+  to the same ±14. Both only ever apply in active mode with jev-sourced advice — with no
+  advice, `pickModel` (and the tie-break) returns `undefined`/the provider default as before.
+
 ## Routing advisor (Jev)
 
 Jev (TypeSafe's System One model, ADR 0002) is an **auxiliary service**, not a coding
@@ -405,9 +424,28 @@ a user-picked model.
 - **Model precedence** (`OrchestrationEngine.withModel`): user override (owner only, via
   `resolveTaskModel`) → the advisor's pick *for this specific provider* (active mode only;
   recorded as `task.routedModel` with a plain-language reason) → the provider's own
-  default. Orchestrated tasks advise the planner's route only; per-subtask advising is a
-  later phase. Continuations, bench lanes, and workspace turns never get advice — bench and
+  default. Continuations, bench lanes, and workspace turns never get advice — bench and
   workspaces aren't routed at all, and a continuation stays pinned to the transcript.
+- **Per-subtask advice** — once the planner returns ≥2 subtasks, and only when the advisor
+  mode is not `off` and a key is stored, `OrchestrationEngine.requestSubtaskAdvice` makes
+  **one extra Jev call** covering every subtask at once: `state = { task: <parent prompt>,
+  plan: [{ n, title, type, prompt }] }` (only the first 8 subtasks — `MAX_ADVISED_SUBTASKS`
+  — the rest run on defaults, noted in `state.note`), asking `complexity_<n>`/`target_<n>`
+  per subtask with `{ question, subtask: '<n>' }` instructions referencing the subtask by
+  its plan number. `buildSubtaskAdviceRequest`/`subtaskAdviceFromResponse`
+  (`src/main/advisor.ts`, pure, unit-tested) build and parse it; `task_type` is never
+  re-asked per subtask, since the planner already typed it. Same overall deadline pattern as
+  the parent's own advice (`advisorDeadlineMs`, hard 3s cap, a late answer ignored) —
+  delegation starts once the race settles, never later. On any failure every subtask simply
+  keeps no advice and runs on provider defaults, same as today. In **active** mode, a
+  subtask that got advice stores it on `SubTask.advice` and routes on it — through the same
+  `advisorFactors`/`pickModel` the parent uses, via `runOne`'s `subtask` parameter — lifting
+  the earlier restriction that every subtask inherited only the provider default regardless
+  of the plan's own per-subtask complexity. A subtask with no advice keeps that original
+  behaviour unchanged. In **shadow** mode `SubTask.advice` is never set (nothing about the
+  real run changes) but `SubTask.routing` still records what `routeTask` would have chosen
+  (`routing.advisor.wouldChooseProviderId`/`wouldChooseModel`), the same shadow mechanism
+  the parent task uses. Synthesis stays advice-free either way.
 - **Credentials** — the API key is encrypted with the same Electron `safeStorage`
   codec/pattern as MCP OAuth tokens (`AdvisorKeyManager`, its own small file under
   userData), lives only in the main process, and is redacted from every `JevClient` error
@@ -417,13 +455,27 @@ a user-picked model.
   returns the exact request body that would be sent, heuristic advice, and the resulting
   `RoutingDecision` — it calls Jev for real only when `previewWhileTyping` is on and a key
   exists, otherwise it stays on the heuristic so typing never leaks a draft prompt).
+- **Calibration** — `src/shared/calibration.ts`'s `advisorCalibration(tasks)` (pure,
+  unit-tested in `tests/calibration.test.ts`) buckets every terminal, jev-sourced task by the
+  confidence of its `target` answer (falling back to `taskTypeConfidence` when no target was
+  asked) into `< 0.5` / `0.5 – 0.8` / `≥ 0.8`, and reports each bucket's `tasks`,
+  `completed`/`failed`, `verified`/`verifyFailed` (rolled up from a task's own subtasks —
+  a plain task carries no verification of its own), and `agreedWithRoute` (the `target`
+  choice's provider matched whoever actually ran it). It also returns the overall
+  `shadowAgreement`, reusing `routing.advisor.wouldChooseProviderId` the same way the Routing
+  screen's agreement summary already did. The Routing screen's "Would Jev have agreed?" card
+  (`src/renderer/src/views/routing.ts`) renders it as a small `.data-table`, honest about an
+  empty state, next to the existing agreement/disagreement list.
 - Tests: `tests/advisor.test.ts` (request shape/trimming, response parsing incl.
   malformed shapes, confidence gating, 401/422/429-then-success/timeout via a fake `fetch`,
-  key redaction, `repoFacts` against a temp git repo), `tests/model-profiles.test.ts`, and
-  additions to `tests/router.test.ts`/`tests/engine.test.ts` (off/shadow score identically
-  to no-advice, factor bounds, explicit picks and ineligibility still win, `pickModel` never
-  crosses providers, saver/quality tier shifts, and a task still completes on the heuristic
-  fallback when the advisor call hangs).
+  key redaction, `repoFacts` against a temp git repo, subtask-advice request/response
+  building and the 8-subtask cap), `tests/model-profiles.test.ts`, `tests/calibration.test.ts`,
+  and additions to `tests/router.test.ts`/`tests/engine.test.ts` (off/shadow score
+  identically to no-advice, factor bounds, explicit picks and ineligibility still win,
+  `pickModel` never crosses providers, saver/quality tier shifts, a task still completes on
+  the heuristic fallback when the advisor call hangs, subtasks of different complexity
+  routed to different-tier models of the same fake provider, a subtask-advice timeout
+  leaving every subtask on defaults within the deadline, and off/shadow changing nothing).
 
 ## Provider login state
 

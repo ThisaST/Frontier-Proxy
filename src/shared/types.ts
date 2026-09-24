@@ -84,6 +84,9 @@ export interface AdvisorPreviewInput {
   cwd: string
   attachments?: string[]
   mode?: AdvisorMode
+  // The routing policy the preview's pseudo task runs under; defaults to
+  // 'balanced' (mirrors the New Task dialog's own default) when omitted.
+  policy?: RoutingMode
   preferredProviderId?: string
   model?: string
   modelProviderId?: string

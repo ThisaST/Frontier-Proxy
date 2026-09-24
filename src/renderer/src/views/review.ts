@@ -6,6 +6,7 @@ import { lamp } from '../ui/components'
 import { confirmAction, errorMessage, reportError, showToast } from '../ui/feedback'
 import { baseName, formatDuration, timeAgo } from '../ui/format'
 import { verificationChip } from '../task-helpers'
+import { onProjectChange, projectMatches, renderProjectChipInto } from '../project'
 import { renderHome } from './home'
 
 export let reviewRepos: BranchRepo[] = []
@@ -107,13 +108,15 @@ function renderReviewChecks(branch: TaskBranch): void {
 
 export function renderReview(): void {
   const list = byId('review-list')
+  renderProjectChipInto('review-project-chip')
+  const scopedRepos = reviewRepos.filter((repo) => projectMatches(repo.cwd))
   if (!reviewLoaded) {
     list.replaceChildren(element('div', 'detail-empty', 'Looking for task branches…'))
-  } else if (!reviewRepos.length) {
+  } else if (!scopedRepos.length) {
     list.replaceChildren(emptyState('No branches to review', 'Split & delegate and Compare runs commit their work to isolated branches. They will appear here.'))
   } else {
     const nodes: HTMLElement[] = []
-    for (const repo of reviewRepos) {
+    for (const repo of scopedRepos) {
       const head = element('div', 'review-repo')
       head.append(element('strong', undefined, repo.name), element('small', undefined, `on ${repo.currentBranch}${repo.dirty ? ' · uncommitted changes' : ''}`))
       head.title = repo.cwd
@@ -209,5 +212,6 @@ export function renderReview(): void {
 }
 
 export function initReviewView(): void {
+  onProjectChange(renderReview)
   byId('review-refresh').addEventListener('click', () => void loadReview(true))
 }

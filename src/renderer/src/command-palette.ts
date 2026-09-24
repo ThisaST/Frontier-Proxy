@@ -3,6 +3,7 @@ import { byId, element } from './ui/dom'
 import { icon, type IconName } from './ui/icons'
 import { providerName } from './providers-view-model'
 import { taskKindLabel } from './task-helpers'
+import { openProjectSwitcher } from './project'
 import { snapshot } from './state'
 import { switchView } from './main'
 import { openTask } from './views/tasks'
@@ -24,13 +25,16 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
   const commands: CommandPaletteEntry[] = [
     { icon: 'plus', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run', run: () => openTaskDialog() },
     { icon: 'compare', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => openTaskDialog('bench') },
-    { icon: 'home', label: 'Go to Home', detail: 'Agent capacity and what is running', keywords: 'navigate mission control', run: () => switchView('home') },
+    { icon: 'home', label: 'Go to Home', detail: 'Start work and see what is running', keywords: 'navigate mission control composer', run: () => switchView('home') },
     { icon: 'tasks', label: 'Go to Tasks', detail: 'The work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
+    { icon: 'workspace', label: 'Go to Workspaces', detail: 'Long-lived, per-repo conversations', keywords: 'navigate collaborate participants', run: () => switchView('workspace') },
     { icon: 'review', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
     { icon: 'agents', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
+    { icon: 'routing', label: 'Go to Routing', detail: 'Routing policy, the Jev advisor, and insights', keywords: 'navigate advisor jev policy', run: () => switchView('routing') },
     { icon: 'control', label: 'Go to Context & Tools', detail: 'MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
     { icon: 'skills', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
     { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
+    { icon: 'folder-open', label: 'Switch project…', detail: 'Scope Tasks, Review, and Workspaces to one repo', keywords: 'project repo switcher filter scope', run: () => openProjectSwitcher() },
     { icon: 'refresh', label: 'Check agents', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
     { icon: 'trash', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
   ]

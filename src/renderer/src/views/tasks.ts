@@ -12,6 +12,7 @@ import { taskElapsed, taskIsBusy, taskKindLabel, taskStatusIndicator, taskTokens
 import { snapshot, selectedTaskId, setSelectedTaskId, currentView, surfaceTab, setSurfaceTab } from '../state'
 import { attachmentPreviewCache, composerDraft, messageContext, clearComposerDraft, renderDraftImages } from '../composer'
 import { persistControlPlaneDraft } from '../views/control'
+import { currentProject, onProjectChange, projectMatches, renderProjectChipInto } from '../project'
 import { openBranchInReview, switchView } from '../main'
 
 let taskQuery = ''
@@ -54,13 +55,17 @@ function taskMatchesQuery(task: ProxyTask): boolean {
 
 export function renderTasks(): void {
   const container = byId('task-list')
-  if (!snapshot.tasks.length) {
-    container.replaceChildren(emptyState('The queue is clear', 'Create a task and Frontier will pick the best available agent.'))
+  renderProjectChipInto('tasks-project-chip')
+  const scoped = snapshot.tasks.filter((task) => projectMatches(task.cwd))
+  if (!scoped.length) {
+    container.replaceChildren(currentProject
+      ? emptyState('No tasks in this project', 'Start one from Home, or clear the project filter above.')
+      : emptyState('The queue is clear', 'Create a task and Frontier will pick the best available agent.'))
     renderSurface()
     return
   }
-  const visible = snapshot.tasks.filter(taskMatchesQuery)
-  if (!selectedTaskId || !snapshot.tasks.some((task) => task.id === selectedTaskId)) setSelectedTaskId(visible[0]?.id ?? snapshot.tasks[0].id)
+  const visible = scoped.filter(taskMatchesQuery)
+  if (!selectedTaskId || !scoped.some((task) => task.id === selectedTaskId)) setSelectedTaskId(visible[0]?.id ?? scoped[0].id)
   if (!visible.length) {
     container.replaceChildren(emptyState('No matching tasks', `Nothing matches “${taskQuery}”.`))
     renderSurface()
@@ -643,6 +648,7 @@ async function handleComposerAction(): Promise<void> {
 }
 
 export function initTasksView(): void {
+  onProjectChange(() => { if (typeof snapshot !== 'undefined') renderTasks() })
   document.querySelectorAll<HTMLElement>('.surface-tab').forEach((tab) => tab.addEventListener('click', () => {
     setSurfaceTab((tab.dataset.surfaceTab as typeof surfaceTab) ?? 'conversation')
     renderSurface()

@@ -359,3 +359,40 @@ describe('Jev routing advisor', () => {
     expect(finished.output.trim()).toBe('claude-haiku-4-5')
   })
 })
+
+describe('previewAdvisor policy', () => {
+  it('threads the preview policy into the pseudo task, flipping local vs hosted ranking between saver and quality', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-preview-policy-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    const capabilities: ProxyTask['type'][] = ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      { id: 'local', name: 'Local Model', kind: 'ollama' as const, enabled: true, executable: process.execPath, model: 'llama3', priority: 0, maxConcurrent: 1, capabilities },
+      { id: 'hosted', name: 'Hosted Agent', kind: 'claude' as const, enabled: true, executable: process.execPath, model: 'claude-opus-5', priority: 0, maxConcurrent: 1, capabilities }
+    ]
+    await store.save({ settings, tasks: [] })
+    const engine = new OrchestrationEngine(store)
+    await engine.initialize()
+    // The real `checkProvider` probe (`<exe> list`/`--version`) has nothing to
+    // do with the policy this test is about; force both candidates available
+    // through the live runtime reference `previewAdvisor` itself reads.
+    for (const id of ['local', 'hosted']) {
+      const runtime = engine.providerRuntime(id)
+      if (runtime) runtime.available = true
+    }
+
+    const saver = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory, policy: 'saver' })
+    expect(saver.decision.mode).toBe('saver')
+    expect(saver.decision.chosenProviderId).toBe('local')
+
+    const quality = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory, policy: 'quality' })
+    expect(quality.decision.mode).toBe('quality')
+    expect(quality.decision.chosenProviderId).toBe('hosted')
+
+    // Omitting the policy still defaults to 'balanced', matching the New Task
+    // dialog's own default, rather than inheriting whatever was last passed.
+    const balanced = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory })
+    expect(balanced.decision.mode).toBe('balanced')
+  })
+})

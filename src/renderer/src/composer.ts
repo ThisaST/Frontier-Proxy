@@ -5,6 +5,7 @@ import { byId } from './ui/dom'
 import { icon } from './ui/icons'
 import { reportError, showToast } from './ui/feedback'
 import { selectedTaskId, snapshot } from './state'
+import { currentProject } from './project'
 
 export interface ComposerDraft {
   items: ChatContextItem[]
@@ -29,6 +30,8 @@ export function composerDraft(inputId: string): ComposerDraft {
 
 export function composerCwd(inputId: string): string | undefined {
   if (inputId === 'prompt') return byId<HTMLInputElement>('cwd').value.trim() || undefined
+  // Home's composer has no free-text folder field — it is always the current project.
+  if (inputId === 'home-prompt') return currentProject
   return snapshot?.tasks.find((task) => task.id === selectedTaskId)?.cwd
 }
 
@@ -168,7 +171,7 @@ export function clearComposerDraft(inputId: string): void {
 // Wires the attach button, @mention autocomplete, and image paste/drop for both
 // composer surfaces. Must run exactly once, after the module has evaluated.
 export function initComposerInputs(): void {
-  for (const inputId of ['composer-input', 'prompt']) {
+  for (const inputId of ['composer-input', 'prompt', 'home-prompt']) {
     const input = byId<HTMLTextAreaElement>(inputId)
     const attach = document.querySelector<HTMLButtonElement>(`.composer-attach[data-composer-input="${inputId}"]`)
     attach?.addEventListener('click', async () => {

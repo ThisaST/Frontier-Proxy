@@ -6,6 +6,12 @@ import { element } from './dom'
 
 export type Tone = 'amber' | 'cyan' | 'phosphor' | 'caution' | 'alarm' | 'muted'
 
+// A small pill in one tone — the Route preview's tier chip, and anywhere else
+// a single labelled fact needs a splash of colour without a full status pill.
+export function chip(tone: Tone, label: string): HTMLElement {
+  return element('span', `chip chip-${tone}`, label)
+}
+
 // Round LED. `blink` is for "needs you" only, and is neutralised in CSS under
 // `data-effects="off"` / `prefers-reduced-motion`.
 export function lamp(tone: Tone, label: string, blink = false): HTMLElement {

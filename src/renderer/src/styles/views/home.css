@@ -1,6 +1,31 @@
-/* ---------- Mission Control ---------- */
-.home-grid { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(360px, 1.1fr); gap: var(--s-5); flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.home-column { display: flex; flex-direction: column; min-height: 0; gap: var(--s-2); overflow-y: auto; padding-right: 4px; }
+/* ---------- Home: composer-first ---------- */
+.home-shell { display: flex; flex-direction: column; gap: var(--s-5); flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+.composer-panel { flex: 0 0 auto; padding: var(--s-5); display: grid; gap: var(--s-4); }
+.composer-panel-head { display: flex; align-items: start; justify-content: space-between; gap: var(--s-3); }
+.home-composer-draft textarea { min-height: 96px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.home-composer-draft .composer-mentions { bottom: auto; top: calc(100% + 7px); }
+
+.composer-advanced { border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); padding: 0; display: block; }
+.composer-advanced summary { cursor: pointer; padding: 10px 13px; font: 500 11px var(--font-display); letter-spacing: .04em; text-transform: uppercase; color: var(--fg-muted); list-style: none; }
+.composer-advanced summary::-webkit-details-marker { display: none; }
+.composer-advanced summary::before { content: '▸'; display: inline-block; width: 12px; color: var(--fg-faint); }
+.composer-advanced[open] summary::before { content: '▾'; }
+.composer-advanced[open] summary { border-bottom: 1px solid var(--bezel); }
+.composer-advanced > .form-row, .composer-advanced > label#home-model-field { margin: var(--s-3) 13px; }
+.composer-advanced > .task-skills-field { margin: 0 13px var(--s-3); border-color: var(--bezel-strong); }
+
+.route-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; min-height: 20px; padding: 11px 13px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--bg); font-size: 12px; color: var(--fg); }
+.route-preview.idle { color: var(--fg-muted); }
+.route-preview.loading { color: var(--fg-muted); }
+.route-preview-arrow { color: var(--fg-faint); }
+.route-preview-factor { color: var(--fg-muted); padding-left: 9px; border-left: 1px solid var(--bezel); font-size: 10px; }
+.route-preview-hint { flex-basis: 100%; color: var(--fg-faint); font-size: 10px; }
+
+.composer-panel-actions { display: flex; justify-content: flex-end; }
+
+.home-columns { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: var(--s-5); flex: 0 0 auto; }
+.home-column { display: flex; flex-direction: column; min-height: 0; gap: var(--s-2); }
 .section-head { display: flex; align-items: end; justify-content: space-between; gap: var(--s-3); }
 .section-head .eyebrow { margin-bottom: 4px; }
 .section-head + .section-head { margin-top: var(--s-4); }
@@ -28,5 +53,5 @@
 .branch-glyph { color: var(--cyan); display: flex; align-items: center; justify-content: center; }
 
 @media (max-width: 1240px) {
-  .home-grid { grid-template-columns: 1fr; overflow-y: auto; }
+  .home-columns { grid-template-columns: 1fr; }
 }

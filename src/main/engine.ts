@@ -540,7 +540,7 @@ export class OrchestrationEngine extends EventEmitter {
     const settings = this.settings.advisor
     const mode = input.mode ?? settings.mode
     const pseudoTask: ProxyTask = {
-      id: 'preview', prompt: input.prompt, cwd: input.cwd, mode: 'balanced', type: classifyTask(input.prompt),
+      id: 'preview', prompt: input.prompt, cwd: input.cwd, mode: input.policy ?? 'balanced', type: classifyTask(input.prompt),
       preferredProviderId: input.preferredProviderId, modelOverride: input.model, modelOverrideProviderId: input.modelProviderId,
       status: 'queued', createdAt: new Date().toISOString(), output: '', attempts: [],
       estimatedInputTokens: estimateTokens(input.prompt), estimatedOutputTokens: 0

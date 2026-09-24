@@ -16,14 +16,38 @@ import { renderSettings, initSettingsView } from './views/settings'
 import { renderTaskProviderOptions, initNewTaskDialog } from './dialogs/new-task'
 import { initCommandPalette } from './command-palette'
 import { initComposerInputs } from './composer'
+import { initProjectSwitcher } from './project'
 
 // --- Shell ---
+
+// Truthful even while advisor state is in flux (ADR 0002's sidebar exception):
+// it must never say "local only" while an advisor is active. Off, or on
+// without a stored key, is still exactly local process mode.
+function renderAdvisorStatus(): void {
+  const advisor = snapshot.settings.advisor
+  const active = advisor.mode !== 'off' && snapshot.advisor.hasKey
+  const note = byId('advisor-status')
+  note.classList.toggle('active', active)
+  byId('advisor-status-lamp').className = `lamp ${active ? 'lamp-cyan' : 'lamp-phosphor'}`
+  const title = byId('advisor-status-title')
+  const detail = byId('advisor-status-detail')
+  if (active) {
+    const label = advisor.mode === 'shadow' ? 'Shadow' : 'Active'
+    const scope = advisor.shareRepoFacts ? 'Prompt text and repo facts are' : 'Prompt text is'
+    title.textContent = `Routing advisor: Jev (${label})`
+    detail.textContent = `${scope} sent to TypeSafe.`
+  } else {
+    title.textContent = 'Local process mode'
+    detail.textContent = 'Prompts stay between this app and your CLIs.'
+  }
+  note.setAttribute('aria-label', `${title.textContent}. ${detail.textContent}`)
+}
 
 function render(): void {
   // Every renderer below reads the snapshot. It arrives asynchronously, and the
   // user can click a nav item before it does.
   if (typeof snapshot === 'undefined') return
-  renderMiniProviders(); renderTasks(); renderTaskProviderOptions(); renderSettings()
+  renderMiniProviders(); renderTasks(); renderTaskProviderOptions(); renderSettings(); renderAdvisorStatus()
   if (currentView === 'home') renderHome()
   if (currentView === 'agents') renderAgentsTab()
   if (currentView === 'review') renderReview()
@@ -36,6 +60,7 @@ const VIEW_META: Record<string, { title: string; eyebrow: string }> = {
   workspace: { title: 'Workspaces', eyebrow: 'COLLABORATIVE WORKSPACES' },
   review: { title: 'Review', eyebrow: 'BRANCH INBOX' },
   agents: { title: 'Agents', eyebrow: 'LOCAL EXECUTABLES' },
+  routing: { title: 'Routing', eyebrow: 'ROUTING & ADVISOR' },
   control: { title: 'Context & Tools', eyebrow: 'CONTROL PLANE' },
   skills: { title: 'Skills', eyebrow: 'AGENT CAPABILITIES' },
   settings: { title: 'Settings', eyebrow: 'PREFERENCES' }
@@ -62,7 +87,7 @@ export function switchView(view: string): void {
   const meta = VIEW_META[view] ?? { title: view, eyebrow: '' }
   byId('view-title').textContent = meta.title
   byId('view-eyebrow').textContent = meta.eyebrow
-  byId('new-task-button').style.display = view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' ? 'none' : ''
+  byId('new-task-button').style.display = view === 'home' || view === 'review' || view === 'control' || view === 'skills' || view === 'workspace' ? 'none' : ''
   // The first snapshot may still be in flight — clicking a nav item before it
   // lands used to throw here and leave the view empty. render() repaints the
   // active view as soon as the snapshot arrives.
@@ -98,6 +123,8 @@ byId('sidebar-toggle').addEventListener('click', () => {
   setSidebarCollapsed(!document.querySelector('.shell')?.classList.contains('sidebar-collapsed'))
 })
 document.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => item.addEventListener('click', () => switchView(item.dataset.view ?? 'home')))
+byId('advisor-status').addEventListener('click', () => switchView('routing'))
+initProjectSwitcher()
 
 initHomeView()
 initReviewView()

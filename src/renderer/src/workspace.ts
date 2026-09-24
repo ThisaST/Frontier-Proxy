@@ -8,6 +8,7 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview } from './main'
+import { onProjectChange, projectMatches, renderProjectChipInto } from './project'
 import { lamp } from './ui/components'
 import { icon, type IconName } from './ui/icons'
 import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
@@ -591,6 +592,8 @@ function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: st
 
 setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-list'), '--ws-list-col', 'fp-ws-list-width', 220, 460, 'left')
 
+onProjectChange(() => { if (latestSnapshot) renderWorkspaceView(latestSnapshot) })
+
 // ---- Workspace create / rename dialog ----
 
 const workspaceFormDialog = byId<HTMLDialogElement>('workspace-form-dialog')
@@ -811,7 +814,8 @@ wsComposerInput.addEventListener('blur', () => window.setTimeout(closeWsMentions
 // path — safe to call repeatedly; it no-ops wherever nothing changed.
 export function renderWorkspaceView(snapshot: AppSnapshot): void {
   latestSnapshot = snapshot
-  const workspaces = snapshot.workspaces
+  renderProjectChipInto('workspace-project-chip')
+  const workspaces = snapshot.workspaces.filter((workspace) => projectMatches(workspace.cwd))
   const empty = byId('workspace-empty')
   const grid = byId('workspace-grid')
   if (!workspaces.length) {

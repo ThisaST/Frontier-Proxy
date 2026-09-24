@@ -3,9 +3,9 @@
 // Only the icons actually used are imported by name so the bundle only carries
 // those.
 import {
-  AlertTriangle as TriangleAlert, Check, ChevronDown, ChevronLeft, ChevronRight, Circle, Clock,
-  Command, Cpu, Eye, FileText, Folder, GitBranch, House, ListChecks, LoaderCircle, Maximize2,
-  Merge, Minimize2, MessagesSquare, MoreHorizontal, Paperclip, Plug, Plus, RefreshCw, Scale,
+  AlertTriangle as TriangleAlert, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Clock,
+  Command, Cpu, Eye, FileText, Folder, FolderOpen, GitBranch, House, ListChecks, LoaderCircle, Maximize2,
+  Merge, Minimize2, MessagesSquare, MoreHorizontal, Paperclip, Plug, Plus, Radar, RefreshCw, Scale,
   Settings, Sparkle, Terminal, Trash2, Users, UserPlus, Wrench, X
 } from 'lucide'
 
@@ -17,10 +17,13 @@ const ICONS = {
   agents: Cpu,
   control: Plug,
   skills: Sparkle,
+  routing: Radar,
   settings: Settings,
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
   'chevron-down': ChevronDown,
+  'chevron-up': ChevronUp,
+  'folder-open': FolderOpen,
   refresh: RefreshCw,
   plus: Plus,
   close: X,

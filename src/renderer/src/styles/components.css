@@ -45,6 +45,24 @@
 .readout { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(--glow-amber); }
 
+/* ---------- Chip (spec §6) — a single labelled fact in one tone ---------- */
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 20px; border: 1px solid var(--bezel); color: var(--fg-muted); font: 700 9px var(--font-mono); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.chip-amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); }
+.chip-cyan { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 35%, transparent); }
+.chip-phosphor { color: var(--phosphor); border-color: color-mix(in srgb, var(--phosphor) 35%, transparent); }
+.chip-caution { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 35%, transparent); }
+.chip-alarm { color: var(--alarm); border-color: color-mix(in srgb, var(--alarm) 35%, transparent); }
+.chip-muted { color: var(--fg-muted); }
+
+/* ---------- Project chip (spec §7) — scoping filter shown atop Tasks/Review/Workspaces ---------- */
+.project-chip-row:empty { display: none; }
+.project-chip-row { padding: 11px 14px 0; }
+.project-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--bezel)); border-radius: 20px; background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--amber); font: 600 10px var(--font-body); }
+.project-chip:hover { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.project-field-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid var(--bezel); border-radius: 20px; background: var(--surface-2); color: var(--fg); font: 600 11px var(--font-body); }
+.project-field-chip:hover { border-color: var(--bezel-strong); background: var(--surface-3); }
+.project-field-chip.unset { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 35%, transparent); }
+
 /* ---------- Status lamps (spec §4.4) ---------- */
 .lamp { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
 .lamp-phosphor { background: var(--phosphor); box-shadow: var(--glow-phosphor); }

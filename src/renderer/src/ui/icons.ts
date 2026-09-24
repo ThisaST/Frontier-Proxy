@@ -5,7 +5,7 @@
 import {
   AlertTriangle as TriangleAlert, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Clock,
   Command, Cpu, Eye, FileText, Folder, FolderOpen, GitBranch, House, ListChecks, LoaderCircle, Maximize2,
-  Merge, Minimize2, MessagesSquare, MoreHorizontal, Paperclip, Plug, Plus, Radar, RefreshCw, Scale,
+  Merge, Minimize2, MessagesSquare, MoreHorizontal, PanelRight, PanelRightClose, Paperclip, Plug, Plus, Radar, RefreshCw, Scale,
   Settings, Sparkle, Terminal, Trash2, Users, UserPlus, Wrench, X
 } from 'lucide'
 
@@ -49,7 +49,9 @@ const ICONS = {
   more: MoreHorizontal,
   command: Command,
   'user-plus': UserPlus,
-  users: Users
+  users: Users,
+  'panel-right': PanelRight,
+  'panel-right-close': PanelRightClose
 } as const
 
 export type IconName = keyof typeof ICONS

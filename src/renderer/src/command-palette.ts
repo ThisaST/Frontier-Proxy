@@ -6,7 +6,7 @@ import { taskKindLabel } from './task-helpers'
 import { openProjectSwitcher } from './project'
 import { snapshot } from './state'
 import { switchView } from './main'
-import { openTask } from './views/tasks'
+import { openTask, toggleInspector, toggleTaskList } from './views/tasks'
 import { openTaskDialog, taskDialog } from './dialogs/new-task'
 
 const commandPalette = byId<HTMLDialogElement>('command-palette')
@@ -35,6 +35,8 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
     { icon: 'skills', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
     { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
     { icon: 'folder-open', label: 'Switch project…', detail: 'Scope Tasks, Review, and Workspaces to one repo', keywords: 'project repo switcher filter scope', run: () => openProjectSwitcher() },
+    { icon: 'panel-right', label: 'Toggle task list', detail: 'Collapse or expand the Tasks work queue (also [)', keywords: 'tasks list collapse expand pane', run: () => { switchView('tasks'); toggleTaskList() } },
+    { icon: 'panel-right', label: 'Toggle inspector', detail: 'Collapse or expand the Tasks route inspector (also ])', keywords: 'tasks inspector route files activity collapse expand pane', run: () => { switchView('tasks'); toggleInspector() } },
     { icon: 'refresh', label: 'Check agents', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
     { icon: 'trash', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
   ]

@@ -142,13 +142,20 @@ strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(-
 
 /* ---------- Composer (shared by the task surface, workspace, and the new-task dialog) ---------- */
 .output-composer { flex: 0 0 auto; display: flex; gap: var(--s-2); align-items: flex-end; padding: 11px 14px; border-top: 1px solid var(--bezel); background: var(--surface-1); }
-.output-composer textarea { flex: 1; min-height: 40px; max-height: 160px; resize: vertical; border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 10px 10px 10px 4px; }
+.output-composer textarea { flex: 1; min-height: 64px; max-height: 160px; resize: vertical; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .output-composer button { flex: 0 0 auto; }
 .composer-draft { flex: 1 1 auto; min-width: 0; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
 .composer-draft:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 10%, transparent); }
 .composer-draft.dragging { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 5%, transparent); }
-.composer-input-row { position: relative; display: flex; align-items: flex-end; min-width: 0; }
-.composer-attach { width: 34px; height: 34px; margin: 3px 0 3px 4px; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg-muted); }
+/* The attach button used to sit inline before the textarea as a flex item,
+   which reserved ~40px on the left of every line of typed text — not just
+   where the button visually sits. It is positioned over the box's own
+   bottom-left corner instead, so it stays clear of the text without taking
+   space from it; the textarea gets bottom padding instead of left padding to
+   clear the button under a few lines of text. */
+.composer-input-row { position: relative; min-width: 0; }
+.composer-input-row textarea { padding-left: 11px; padding-bottom: 40px; }
+.composer-attach { position: absolute; left: 5px; bottom: 5px; z-index: 2; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg-muted); }
 .composer-attach:hover { color: var(--amber); background: var(--surface-3); }
 .composer-attach:disabled { cursor: default; opacity: .4; }
 .composer-attachments { display: flex; gap: 7px; overflow-x: auto; padding: 7px 8px 0; }
@@ -291,6 +298,43 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 @media (max-width: 1120px) {
   .run-modes { grid-template-columns: 1fr; }
 }
+
+/* ---------- Inspector section (spec §6) — Tasks' right-hand panel ---------- */
+.inspector-section { border-bottom: 1px solid var(--bezel); }
+.inspector-section:last-child { border-bottom: 0; }
+.inspector-section-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border: 0; border-radius: 0; background: transparent; color: var(--fg); text-align: left; font: 600 11px var(--font-display); letter-spacing: .04em; text-transform: uppercase; }
+.inspector-section-head:hover { background: var(--surface-2); }
+.inspector-section-caret { flex: 0 0 auto; color: var(--fg-muted); display: flex; transition: transform var(--t-fast) var(--ease); }
+.inspector-section.open .inspector-section-caret { transform: rotate(90deg); }
+.inspector-section-title { flex: 1 1 auto; }
+.inspector-section-body { display: none; padding: 0 16px 16px; }
+.inspector-section.open .inspector-section-body { display: block; }
+
+/* ---------- Data table (spec §6) ---------- */
+.table-wrap { overflow-x: auto; }
+.data-table tr.clickable { cursor: pointer; }
+.data-table tr.clickable:hover, .data-table tr.clickable:focus-visible { background: var(--surface-2); }
+.data-table tr.clickable:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+
+/* ---------- Drawer / overlay dialogs (spec §6) ----------
+   Thin variants of the base `dialog` bezel: a drawer is pinned to the right
+   edge at full height, an overlay is a large centred workspace. Both only set
+   `display` inside `[open]` — the base `dialog` rule already relies on the UA
+   stylesheet's `display: none` while closed, and an unconditional `display`
+   here would defeat that. */
+.drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(460px, 94vw); height: 100vh; max-height: 100vh; border-radius: 0; border-width: 0 0 0 1px; }
+.drawer[open] { display: flex; flex-direction: column; }
+.drawer-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.drawer-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: var(--s-5); border-bottom: 1px solid var(--bezel); }
+.drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s-5); display: grid; gap: var(--s-5); }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } }
+[data-effects='on'] .drawer[open] { animation: drawer-in var(--t-med) var(--ease); }
+
+.file-overlay { position: fixed; inset: 4vh auto auto 50%; transform: translateX(-50%); margin: 0; width: min(1180px, 94vw); height: 92vh; max-height: 92vh; padding: 0; }
+.file-overlay[open] { display: flex; flex-direction: column; }
+.file-overlay-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.file-overlay-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--bezel); }
+.file-overlay-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
 
 /* ---------- Toast ---------- */
 #toast { visibility: hidden; position: fixed; right: 24px; bottom: 24px; z-index: 40; border: 1px solid var(--bezel); background: var(--surface-2); border-radius: var(--r-md); padding: 11px 15px; font-size: 11px; box-shadow: var(--e-2); max-width: 420px; }

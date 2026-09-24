@@ -6,7 +6,7 @@ import { byId } from '../ui/dom'
 import { errorMessage, reportError } from '../ui/feedback'
 import { createTaskForm, type RunMode } from '../task-form'
 import { currentProject } from '../project'
-import { setSelectedTaskId, setSurfaceTab } from '../state'
+import { setSelectedTaskId } from '../state'
 import { switchView } from '../main'
 
 export const taskDialog = byId<HTMLDialogElement>('task-dialog')
@@ -67,7 +67,6 @@ export function initNewTaskDialog(): void {
     try {
       const task = await form.submit(byId<HTMLInputElement>('cwd').value)
       setSelectedTaskId(task.id)
-      setSurfaceTab('conversation')
       taskDialog.close()
       switchView('tasks')
     } catch (error) { errorNode.textContent = errorMessage(error) }

@@ -20,7 +20,12 @@ button { color: inherit; }
 .sidebar-toggle, .nav-item { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .sidebar-toggle:hover { border-color: var(--bezel-strong); background: var(--surface-3); color: var(--amber); }
 
-nav { display: grid; gap: 4px; }
+nav { display: grid; gap: 4px; align-content: start; }
+/* On a short window the nav list plus the rail below it can exceed the
+   sidebar's height; without its own scroll region the whole sidebar content
+   just overflowed, crowding CAPACITY against the last nav item instead of
+   sitting below a clear divider. */
+#primary-navigation { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .nav-group-label { margin: 14px 10px 4px; color: var(--fg-faint); font: 750 10px var(--font-display); letter-spacing: .12em; text-transform: uppercase; }
 .nav-group-label:first-child { margin-top: 0; }
 .nav-item { position: relative; display: flex; align-items: center; min-width: 0; border: 0; background: transparent; color: var(--fg-muted); text-align: left; padding: 10px var(--s-3); border-radius: var(--r-md); cursor: pointer; font: 13px var(--font-body); white-space: nowrap; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
@@ -67,7 +72,7 @@ nav { display: grid; gap: 4px; }
 .project-switcher-item-copy strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-switcher-item-copy small { color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.sidebar-rail-bottom { margin-top: auto; display: flex; flex-direction: column; gap: var(--s-2); }
+.sidebar-rail-bottom { flex: 0 0 auto; margin-top: auto; padding-top: var(--s-3); border-top: 1px solid var(--bezel); display: flex; flex-direction: column; gap: var(--s-2); }
 .provider-rail { padding: 0 10px; }
 .sidebar-collapsed .provider-rail { padding-inline: 0; }
 .eyebrow { color: var(--fg-faint); font: 750 10px/1.2 var(--font-display); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 7px; }
@@ -126,6 +131,19 @@ label { color: var(--fg-muted); font: 500 10px var(--font-body); letter-spacing:
 input, textarea, select { width: 100%; border: 1px solid var(--bezel); color: var(--fg); background: var(--surface-2); border-radius: var(--r-md); padding: 9px 11px; outline: none; font: 12px var(--font-body); }
 input:focus, textarea:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 12%, transparent); }
 textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
+
+/* Range slider — track + thumb for both engines. `appearance: none` alone (as
+   used to ship) suppresses the native track/thumb with nothing to replace it,
+   leaving only a bare thumb floating with no visible track. */
+input[type='range'] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; padding: 0; background: transparent; border: 0; }
+input[type='range']:focus { box-shadow: none; }
+input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
+input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; margin-top: -6px; width: 14px; height: 14px; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber), 0 0 0 2px var(--surface-1); cursor: pointer; }
+input[type='range']:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--cyan); outline-offset: 2px; }
+input[type='range']::-moz-range-track { height: 4px; border-radius: 2px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
+input[type='range']::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--amber); }
+input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber), 0 0 0 2px var(--surface-1); cursor: pointer; }
+input[type='range']:focus-visible::-moz-range-thumb { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
 /* Switch — a bezelled track, amber fill when on. */
 .switch { position: relative; width: 34px; height: 19px; display: inline-block; }

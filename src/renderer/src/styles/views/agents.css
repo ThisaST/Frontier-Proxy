@@ -1,38 +1,38 @@
 /* ---------- Agents ---------- */
 .section-intro { flex: 0 0 auto; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .section-intro p { color: var(--fg-muted); font-size: 12px; line-height: 1.55; margin: 0; max-width: 74ch; }
-.agents-panel { display: none; }
-.agents-panel.active { display: block; }
-.provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; }
-.setup-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; margin-bottom: 16px; background: var(--bezel); }
+
+/* Getting-started callout — the old three-card setup guide, collapsed into a
+   dismissible panel (localStorage `fp-agents-setup-dismissed`). */
+.setup-guide-callout { position: relative; margin-bottom: 18px; }
+.setup-guide-callout[hidden] { display: none; }
+.setup-guide-callout #agents-setup-dismiss { position: absolute; top: 10px; right: 10px; }
+.setup-guide-callout > .eyebrow { margin: 0 0 9px; }
+.setup-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; background: var(--bezel); }
 .setup-guide > div { position: relative; padding: 16px 18px 15px 44px; background: var(--surface-1); min-height: 100px; }
 .setup-guide span { position: absolute; left: 17px; top: 17px; color: var(--amber); font: 9px var(--font-mono); }
 .setup-guide strong { display: block; font: 600 15px var(--font-display); margin-bottom: 6px; }
 .setup-guide p { color: var(--fg-muted); font-size: 9px; line-height: 1.55; margin: 0; }
-.provider-card { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1); padding: 18px; }
-.provider-card-header { display: flex; align-items: start; justify-content: space-between; margin-bottom: 18px; }
-.provider-name { display: flex; align-items: center; gap: 10px; }
-.provider-name h3 { margin: 0; font: 600 18px var(--font-display); }
-.provider-name small { display: block; color: var(--fg-muted); font-size: 9px; margin-top: 3px; }
+
+/* ---------- Agents table ---------- */
+#agents-table .data-table th, #agents-table .data-table td { vertical-align: middle; }
+.agents-name-cell { display: flex; align-items: center; gap: 9px; font: 600 12px var(--font-body); color: var(--fg); }
+.agents-models-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.agents-models-count { color: var(--fg-muted); font-size: 10px; }
+.agents-tier-chips { display: flex; gap: 4px; }
+.agents-plan-cell { display: grid; gap: 4px; min-width: 130px; }
+.agents-plan-cell small { color: var(--fg-muted); font-size: 9px; }
+
+/* ---------- Drawer: provider edit form + usage ---------- */
+.drawer-section + .drawer-section { padding-top: var(--s-5); border-top: 1px solid var(--bezel); }
 .provider-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
 .provider-form .wide { grid-column: 1 / -1; }
 .provider-form textarea { min-height: 62px; }
 .provider-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .health-label { font-size: 10px; color: var(--fg-muted); display: flex; align-items: center; gap: 7px; }
 
-/* Usage cards */
-.usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.usage-card { padding: 18px; display: grid; gap: 14px; }
-.usage-card.limited { border-color: color-mix(in srgb, var(--alarm) 35%, var(--bezel)); }
-.usage-card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.usage-card-identity { display: flex; align-items: center; gap: 9px; }
-.usage-card-header h3 { margin: 0; font-size: 14px; font-weight: 600; }
-.capacity-badge { border: 1px solid var(--bezel); border-radius: 20px; padding: 4px 8px; color: var(--fg-muted); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
-.capacity-badge.ready { color: var(--phosphor); border-color: color-mix(in srgb, var(--phosphor) 30%, transparent); }
-.capacity-badge.busy { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 30%, transparent); }
-.capacity-badge.limited, .capacity-badge.offline { color: var(--alarm); border-color: color-mix(in srgb, var(--alarm) 30%, transparent); }
 .usage-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.usage-gauges { display: grid; gap: 9px; }
+.usage-gauges { display: grid; gap: 9px; margin-bottom: 14px; }
 .usage-stat { display: flex; flex-direction: column; gap: 3px; }
 .usage-stat-label { font-size: 8px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
 .usage-stat strong { font-size: 17px; font-weight: 600; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -41,15 +41,12 @@
 .usage-gauge-head span { color: var(--fg); font-size: 12px; }
 .usage-gauge-head strong { font-size: 15px; }
 .usage-budget-label { font-size: 10px; color: var(--fg-muted); }
-.usage-card-footer { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--bezel); padding-top: 12px; }
+.usage-card-footer { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--bezel); padding-top: 12px; margin-top: 14px; }
 .usage-session { font-size: 11px; color: var(--fg); }
 
-/* Login state, distinct from "the binary was found". */
-.auth-chip { display: inline-block; margin-top: 4px; border-radius: 20px; padding: 1px 6px; font-size: 8px; letter-spacing: .05em; text-transform: uppercase; border: 1px solid var(--bezel); color: var(--fg-muted); }
-.auth-chip.logged-in { border-color: color-mix(in srgb, var(--phosphor) 30%, transparent); color: var(--phosphor); }
-.auth-chip.logged-out { border-color: color-mix(in srgb, var(--alarm) 34%, transparent); color: var(--alarm); }
-
 /* Usage history + per-model breakdown. */
+.usage-history { margin-top: 14px; }
+.usage-models { margin-top: 14px; }
 .usage-section-label { font-size: 8px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 7px; }
 .usage-history-chart { display: flex; align-items: flex-end; gap: 3px; height: 46px; }
 .usage-history-bar { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; }

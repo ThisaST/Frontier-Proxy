@@ -12,8 +12,3 @@ export function setCurrentView(view: string): void { currentView = view }
 
 export let selectedTaskId: string | undefined
 export function setSelectedTaskId(id: string | undefined): void { selectedTaskId = id }
-
-// One task surface, three tabs — the task list and the workspace are the same
-// screen, so there is no second place a task can be inspected.
-export let surfaceTab: 'conversation' | 'files' | 'route' = 'conversation'
-export function setSurfaceTab(tab: 'conversation' | 'files' | 'route'): void { surfaceTab = tab }

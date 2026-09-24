@@ -4,12 +4,12 @@ import { byId } from './ui/dom'
 import { hydrateIcons, icon } from './ui/icons'
 import { initTheme } from './theme'
 import { reportError } from './ui/feedback'
-import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId, surfaceTab } from './state'
+import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId } from './state'
 import { taskIsBusy } from './task-helpers'
 import { renderMiniProviders, renderHome, initHomeView } from './views/home'
-import { renderTasks, renderSurface, applyQueueWidth, initTasksView } from './views/tasks'
+import { renderTasks, renderSurface, applyQueueWidth, applyInspectorWidth, initTasksView } from './views/tasks'
 import { renderReview, loadReview, setReviewSelection, setReviewFilePath, initReviewView } from './views/review'
-import { agentsTab, renderAgentsTab, renderUsage, initAgentsView } from './views/agents'
+import { renderAgentsView, refreshAgentDrawer, initAgentsView } from './views/agents'
 import { renderControlPlane, initControlView } from './views/control'
 import { renderSkills, initSkillsView } from './views/skills'
 import { renderRouting, initRoutingView } from './views/routing'
@@ -50,7 +50,7 @@ function render(): void {
   if (typeof snapshot === 'undefined') return
   renderMiniProviders(); renderTasks(); renderTaskProviderOptions(); renderSettings(); renderAdvisorStatus()
   if (currentView === 'home') renderHome()
-  if (currentView === 'agents') renderAgentsTab()
+  if (currentView === 'agents') renderAgentsView()
   if (currentView === 'review') renderReview()
   if (currentView === 'workspace') renderWorkspaceView(snapshot)
   if (currentView === 'routing') renderRouting()
@@ -98,9 +98,9 @@ export function switchView(view: string): void {
   // never clobber in-progress edits.
   if (view === 'control') renderControlPlane()
   if (view === 'skills') void renderSkills()
-  if (view === 'agents') renderAgentsTab()
+  if (view === 'agents') renderAgentsView()
   if (view === 'home') renderHome()
-  if (view === 'tasks') { renderTasks(); applyQueueWidth() }
+  if (view === 'tasks') { renderTasks(); applyQueueWidth(); applyInspectorWidth() }
   if (view === 'review') { renderReview(); void loadReview(true) }
   if (view === 'workspace') renderWorkspaceView(snapshot)
   if (view === 'routing') renderRouting()
@@ -151,7 +151,8 @@ window.frontier.onSnapshot((next) => {
   if ([...finishedBefore].some((id) => { const task = next.tasks.find((item) => item.id === id); return task && !taskIsBusy(task) })) void loadReview()
 })
 window.frontier.onStream((event) => {
-  if (event.taskId === selectedTaskId && surfaceTab === 'conversation') {
+  // The conversation is always the centre pane now — no tab can hide it.
+  if (event.taskId === selectedTaskId) {
     const thread = byId('surface-thread')
     thread.scrollTop = thread.scrollHeight
   }
@@ -168,5 +169,5 @@ window.setInterval(() => {
   if (typeof snapshot === 'undefined') return
   renderMiniProviders()
   if (currentView === 'home') renderHome()
-  if (currentView === 'agents' && agentsTab === 'usage') renderUsage()
+  if (currentView === 'agents') refreshAgentDrawer()
 }, 30_000)

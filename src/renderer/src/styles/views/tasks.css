@@ -1,9 +1,20 @@
-/* ---------- Tasks: queue + unified surface ---------- */
-.content-grid { display: grid; grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(430px, 1.2fr); gap: 0; flex: 1 1 auto; min-height: 0; }
-/* The queue and the gutter are hidden, so the surface is the only grid item left
-   and auto-places into the first column — it must be the full-width one. */
-.content-grid.focus-mode { grid-template-columns: minmax(0, 1fr); }
-.content-grid.focus-mode .task-panel, .content-grid.focus-mode .grid-gutter { display: none; }
+/* ---------- Tasks: queue + conversation + inspector ---------- */
+.content-grid {
+  display: grid;
+  grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(380px, 1fr) 7px var(--insp-col, minmax(260px, 320px));
+  gap: 0; flex: 1 1 auto; min-height: 0;
+}
+/* Collapsing the list or the inspector removes its column (and the gutter
+   next to it) from the track list entirely, rather than hiding it in place —
+   otherwise the empty track would still reserve its width. */
+.content-grid.list-collapsed { grid-template-columns: minmax(380px, 1fr) 7px var(--insp-col, minmax(260px, 320px)); }
+.content-grid.list-collapsed .task-panel, .content-grid.list-collapsed > #grid-gutter { display: none; }
+.content-grid.inspector-collapsed { grid-template-columns: var(--wq-col, minmax(320px, .8fr)) 7px minmax(380px, 1fr); }
+.content-grid.inspector-collapsed .inspector, .content-grid.inspector-collapsed > #inspector-gutter { display: none; }
+.content-grid.list-collapsed.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }
+/* Focus mode hides both side panels so the conversation gets the full width. */
+.content-grid.focus-mode { grid-template-columns: minmax(0, 1fr) !important; }
+.content-grid.focus-mode .task-panel, .content-grid.focus-mode .grid-gutter, .content-grid.focus-mode .inspector { display: none; }
 .grid-gutter { cursor: col-resize; margin: 0 4px; border-radius: var(--r-sm); background: transparent; transition: background var(--t-fast) var(--ease); }
 .grid-gutter:hover, .grid-gutter.dragging { background: var(--bezel); }
 .task-panel { display: flex; flex-direction: column; min-height: 0; }
@@ -12,6 +23,17 @@
 .task-search { width: 140px; padding: 6px 10px; font-size: 11px; border-radius: var(--r-md); transition: width var(--t-fast) var(--ease); }
 .task-search:focus { width: 178px; }
 .task-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.task-list:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--cyan); }
+
+/* ---------- Status groups ---------- */
+.task-group { border-bottom: 1px solid var(--bezel); }
+.task-group-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border: 0; border-radius: 0; background: var(--surface-2); color: var(--fg-muted); text-align: left; font: 700 10px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.task-group-head:hover { color: var(--fg); }
+.task-group-caret { flex: 0 0 auto; display: flex; color: var(--fg-faint); }
+.task-group-label { flex: 1 1 auto; }
+.task-group-count { flex: 0 0 auto; min-width: 18px; padding: 1px 6px; border-radius: 20px; background: var(--surface-3); color: var(--fg-muted); font: 700 9px var(--font-mono); text-align: center; }
+.task-group.collapsed { border-bottom-color: var(--bezel); }
+.task-group-rows { display: block; }
 
 .task-row { padding: 13px 16px; border-bottom: 1px solid var(--bezel); cursor: pointer; display: grid; grid-template-columns: 16px 1fr auto; gap: 11px; align-items: start; }
 .task-row:hover, .task-row.selected { background: var(--surface-2); }
@@ -42,19 +64,14 @@
 .context-row { display: grid; grid-template-columns: minmax(60px, 1fr) auto; align-items: center; gap: 8px; }
 .context-row strong { font-size: 11px; }
 
-.surface-tabs { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--bezel); }
-.surface-tab { border: 0; border-radius: 0; background: transparent; color: var(--fg-muted); padding: 10px 12px; border-bottom: 2px solid transparent; font: 500 12px var(--font-display); letter-spacing: .02em; }
-.surface-tab:hover { color: var(--fg); }
-.surface-tab.active { color: var(--fg); border-bottom-color: var(--amber); }
-.surface-tab span { display: inline-flex; min-width: 18px; justify-content: center; margin-left: 5px; border-radius: 10px; padding: 1px 5px; background: var(--surface-3); font: 9px var(--font-mono); }
-.surface-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+/* The conversation is the only surface now — no tab bar to switch away from
+   it — so its actions (agent-for-next-message, Run again) sit directly under
+   the meta chips. */
+.surface-actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 18px; border-bottom: 1px solid var(--bezel); }
+.surface-actions:empty { display: none; }
 .output-actions-inner { display: flex; align-items: center; gap: 8px; }
 .detail-provider-select { width: 148px; padding: 6px 9px; font-size: 10px; }
 
-.surface-panel { display: none; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.surface-panel.active { display: flex; flex-direction: column; }
-#surface-files.active { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 0; }
-#surface-route.active { display: block; overflow-y: auto; }
 .surface-stages { flex: 0 0 auto; }
 .surface-stages:empty { display: none; }
 .stage-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 18px; border-bottom: 1px solid var(--bezel); }
@@ -119,7 +136,7 @@
 .probability-bar-label .chip { margin-right: 5px; vertical-align: middle; }
 
 /* ---------- Advisor panel (Jev) ---------- */
-.advice-card { grid-column: 1 / -1; display: grid; gap: 12px; }
+.advice-card { display: grid; gap: 12px; }
 .advice-badge-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .advice-badge-meta { color: var(--fg-muted); font-size: 10px; }
 .advice-badge-meta.caution { color: var(--caution); }
@@ -169,6 +186,37 @@
 .lane-score { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 8px 12px 0; }
 .lane-measure { border: 1px solid var(--bezel); border-radius: 20px; padding: 2px 7px; color: var(--fg-muted); font-size: 8px; white-space: nowrap; }
 
-@media (max-width: 1240px) {
-  .route-grid { grid-template-columns: 1fr; }
-}
+/* ---------- Inspector (right pane) ---------- */
+.inspector { display: flex; flex-direction: column; min-height: 0; }
+.inspector-head { flex: 0 0 auto; padding: 15px 16px 11px; border-bottom: 1px solid var(--bezel); }
+.inspector-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.inspector-route { display: grid; gap: 10px; }
+.inspector-route-sentence { margin: 0; color: var(--fg); font-size: 12px; line-height: 1.55; }
+.inspector-route-badge-row { display: flex; }
+.inspector-route-details-toggle { justify-self: start; padding-inline: 0; }
+.inspector-route-details { display: grid; gap: 12px; margin-top: 2px; }
+.inspector-route-details .route-card:first-child { margin-top: 0; }
+.inspector-route-details .route-card-second, .inspector-route-details .eyebrow:first-child { margin-top: 0; }
+
+.inspector-file-list { display: grid; gap: 4px; }
+.inspector-file-row { width: 100%; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid var(--bezel); border-radius: var(--r-sm); background: var(--surface-2); text-align: left; }
+.inspector-file-row:hover { border-color: var(--bezel-strong); background: var(--surface-3); }
+.inspector-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--font-mono); color: var(--fg); }
+
+.inspector-activity-list { display: grid; }
+.inspector-activity-list .detail-activity-row:last-child { border-bottom: 0; }
+
+.inspector-context { display: grid; gap: 8px; }
+.inspector-context-head { display: flex; align-items: center; justify-content: space-between; }
+.inspector-context-head span { color: var(--fg-muted); font-size: 11px; }
+.inspector-context-detail { margin: 0; color: var(--fg-muted); font-size: 10px; }
+
+.inspector-attempts .detail-route-row:last-child { border-bottom: 0; }
+.inspector-branch-list { display: grid; gap: 6px; margin-top: 8px; }
+.inspector-branch-item { display: flex; align-items: center; gap: 8px; }
+.inspector-branch-item .lane-branch { margin: 0; width: auto; flex: 1 1 auto; }
+
+/* The inspector's auto-collapse below 1240px is driven from JS
+   (`applyInspectorState` in views/tasks.ts, mirroring the same breakpoint)
+   rather than a media query here, so there is one source of truth for
+   whether the `.inspector-collapsed` class is applied. */

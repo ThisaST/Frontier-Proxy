@@ -23,7 +23,6 @@
 .routing-config-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .routing-config-row label { margin: 0; display: grid; gap: 6px; }
 .routing-confidence-readout { justify-self: start; }
-#routing-view input[type='range'] { appearance: none; -webkit-appearance: none; border: 0; background: transparent; padding: 0; height: 20px; accent-color: var(--amber); }
 
 .routing-save-row { display: flex; align-items: center; gap: 12px; }
 .dirty-hint { color: var(--caution); font: 600 10px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }

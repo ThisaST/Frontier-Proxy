@@ -142,7 +142,7 @@
         </section>
 
 
-        <!-- Tasks: queue + one unified task surface -->
+        <!-- Tasks: work queue, the conversation, and a route/files/activity inspector -->
         <section id="tasks-view" class="view">
           <div class="content-grid" id="content-grid">
             <section class="panel task-panel">
@@ -151,7 +151,7 @@
                 <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search…" aria-label="Search tasks" /><button id="clear-finished" class="text-button">Clear finished</button></div>
               </div>
               <div id="tasks-project-chip" class="project-chip-row"></div>
-              <div id="task-list" class="task-list"></div>
+              <div id="task-list" class="task-list" role="listbox" aria-label="Tasks" tabindex="0"></div>
             </section>
             <div class="grid-gutter" id="grid-gutter" title="Drag to resize"></div>
 
@@ -163,70 +163,65 @@
                 </div>
                 <div class="surface-header-right">
                   <span id="surface-status" class="status-pill muted">Idle</span>
+                  <button id="inspector-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse inspector" aria-label="Collapse inspector"><span data-icon="panel-right-close" aria-hidden="true"></span></button>
                   <button id="surface-focus" class="icon-button" type="button" aria-pressed="false" title="Focus this task" aria-label="Focus this task"><span data-icon="expand" aria-hidden="true"></span></button>
                 </div>
               </header>
 
               <div id="surface-meta" class="surface-meta"></div>
+              <div id="surface-actions" class="surface-actions"></div>
 
-              <nav class="surface-tabs" aria-label="Task sections">
-                <button class="surface-tab active" data-surface-tab="conversation">Conversation</button>
-                <button class="surface-tab" data-surface-tab="files">Files <span id="surface-file-count">0</span></button>
-                <button class="surface-tab" data-surface-tab="route">Route</button>
-                <div id="surface-actions" class="surface-actions"></div>
-              </nav>
-
-              <div id="surface-conversation" class="surface-panel active">
-                <div id="surface-stages" class="surface-stages"></div>
-                <div id="surface-thread" class="surface-thread markdown"></div>
-                <div id="surface-composer" class="output-composer" hidden>
-                  <div class="composer-draft">
-                    <div id="composer-input-attachments" class="composer-attachments"></div>
-                    <div class="composer-input-row">
-                      <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
-                      <textarea id="composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
-                      <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
-                    </div>
+              <div id="surface-stages" class="surface-stages"></div>
+              <div id="surface-thread" class="surface-thread markdown"></div>
+              <div id="surface-composer" class="output-composer" hidden>
+                <div class="composer-draft">
+                  <div id="composer-input-attachments" class="composer-attachments"></div>
+                  <div class="composer-input-row">
+                    <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
+                    <textarea id="composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
+                    <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
                   </div>
-                  <button id="composer-send" class="primary-button">Send</button>
                 </div>
-              </div>
-
-              <div id="surface-files" class="surface-panel">
-                <aside class="task-file-sidebar">
-                  <div class="task-file-sidebar-head"><p class="eyebrow" id="task-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
-                  <div id="surface-file-list" class="task-detail-file-list"></div>
-                </aside>
-                <section class="task-file-viewer">
-                  <header class="task-file-viewer-head">
-                    <div><p class="eyebrow" id="task-file-language">SOURCE</p><h3 id="task-file-title">Select a file</h3></div>
-                    <div class="task-file-mode" id="task-file-mode" hidden>
-                      <button data-file-mode="diff" class="active">Changes</button>
-                      <button data-file-mode="source">Current file</button>
-                    </div>
-                  </header>
-                  <div id="task-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the tree.</div>
-                  <div id="task-file-code" class="task-file-code"></div>
-                </section>
-              </div>
-
-              <div id="surface-route" class="surface-panel">
-                <div class="route-grid">
-                  <section class="route-card screen">
-                    <p class="eyebrow">WHY THIS AGENT</p>
-                    <div id="surface-receipt" class="routing-receipt"></div>
-                  </section>
-                  <section class="route-card screen">
-                    <p class="eyebrow">ATTEMPTS</p>
-                    <div id="surface-attempts"></div>
-                    <p class="eyebrow route-card-second">WORK LOG</p>
-                    <div id="surface-activity"></div>
-                  </section>
-                </div>
+                <button id="composer-send" class="primary-button">Send</button>
               </div>
             </section>
+
+            <div class="grid-gutter" id="inspector-gutter" title="Drag to resize"></div>
+
+            <aside class="panel inspector" id="task-inspector">
+              <div class="inspector-head">
+                <p class="eyebrow">INSPECTOR</p>
+              </div>
+              <div id="inspector-body" class="inspector-body"></div>
+            </aside>
           </div>
         </section>
+
+        <dialog id="task-file-overlay" class="file-overlay" aria-label="Files & changes">
+          <div class="file-overlay-shell">
+            <header class="file-overlay-head">
+              <div><p class="eyebrow">FILES &amp; CHANGES</p><h2 id="overlay-file-task-title">Project files</h2></div>
+              <button type="button" class="icon-button" id="file-overlay-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
+            </header>
+            <div class="file-overlay-body">
+              <aside class="task-file-sidebar">
+                <div class="task-file-sidebar-head"><p class="eyebrow" id="overlay-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
+                <div id="overlay-file-list" class="task-detail-file-list"></div>
+              </aside>
+              <section class="task-file-viewer">
+                <header class="task-file-viewer-head">
+                  <div><p class="eyebrow" id="overlay-file-language">SOURCE</p><h3 id="overlay-file-title">Select a file</h3></div>
+                  <div class="task-file-mode" id="overlay-file-mode" hidden>
+                    <button data-file-mode="diff" class="active">Changes</button>
+                    <button data-file-mode="source">Current file</button>
+                  </div>
+                </header>
+                <div id="overlay-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the tree.</div>
+                <div id="overlay-file-code" class="task-file-code"></div>
+              </section>
+            </div>
+          </div>
+        </dialog>
 
         <!-- Workspaces: one long-lived conversation per repo, with named agent participants -->
         <section id="workspace-view" class="view">
@@ -367,31 +362,36 @@
           </div>
         </section>
 
-        <!-- Agents: installed CLIs and what they have consumed -->
+        <!-- Agents: installed CLIs, as a table, with a detail drawer per row -->
         <section id="agents-view" class="view">
           <div class="section-intro">
             <div><p>Frontier runs the CLIs already installed and signed in on this machine. It never stores API keys.</p></div>
             <div class="header-actions">
-              <div class="segmented" id="agents-segmented" role="tablist">
-                <button class="active" data-agents-tab="registry" role="tab">Registry</button>
-                <button data-agents-tab="usage" role="tab">Usage &amp; limits</button>
-              </div>
               <button id="health-check" class="secondary-button" title="Re-check which CLIs are installed"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Check agents</button>
               <button id="add-provider" class="secondary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add CLI</button>
             </div>
           </div>
-          <div id="agents-registry" class="agents-panel active">
+          <div id="agents-setup-guide" class="setup-guide-callout">
+            <button type="button" id="agents-setup-dismiss" class="icon-button" aria-label="Dismiss getting-started guide"><span data-icon="close" aria-hidden="true"></span></button>
+            <p class="eyebrow">GETTING STARTED</p>
             <div class="setup-guide">
               <div><span>01</span><strong>Hosted coding agents</strong><p>Codex, Claude Code, and GitHub Copilot are included. Install and sign in to each CLI, then choose Check agents.</p></div>
               <div><span>02</span><strong>Local models</strong><p>Start Ollama, pull the configured model, then enable Codex + Ollama or direct Ollama.</p></div>
               <div><span>03</span><strong>Other agent CLIs</strong><p>Choose Add CLI, enter its executable and arguments, save, and confirm its status becomes Ready.</p></div>
             </div>
-            <div id="provider-grid" class="provider-grid"></div>
           </div>
-          <div id="agents-usage" class="agents-panel">
-            <div id="usage-grid" class="usage-grid"></div>
-          </div>
+          <div id="agents-table"></div>
         </section>
+
+        <dialog id="agent-drawer" class="drawer" aria-label="Agent details">
+          <div class="drawer-shell">
+            <header class="drawer-head">
+              <div><p class="eyebrow" id="agent-drawer-kind">AGENT</p><h2 id="agent-drawer-title">Agent</h2></div>
+              <button type="button" class="icon-button" id="agent-drawer-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
+            </header>
+            <div id="agent-drawer-body" class="drawer-body"></div>
+          </div>
+        </dialog>
 
         <section id="control-view" class="view">
           <div class="section-intro">

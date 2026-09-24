@@ -288,6 +288,22 @@ describe('Jev advisor routing', () => {
     expect(localFactor?.points).toBeLessThan(frontierFactor!.points)
   })
 
+  // Regression: tier fit must score a provider on the *closest* model it
+  // owns, not its best one — otherwise Claude (which owns both opus and
+  // haiku) would score zero on a trivial task just because it also has opus,
+  // even though it would actually run haiku for it (pickModel's own rule).
+  it('scores tier fit on the closest model a provider owns, not its best one', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5', 'claude-haiku-4-5'])
+    const frontierOnly = withModels('frontier-only', 'codex', ['gpt-5'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 0.3, complexityConfidence: 0.9 }) // desired tier: fast
+    const { decision } = routeTask(value, [claude, frontierOnly], { advisorMode: 'active' })
+    const claudeTier = decision.candidates.find((c) => c.providerId === 'claude')?.factors?.find((f) => f.label.includes('tier'))?.points ?? 0
+    const frontierOnlyTier = decision.candidates.find((c) => c.providerId === 'frontier-only')?.factors?.find((f) => f.label.includes('tier'))?.points ?? 0
+    expect(claudeTier).toBe(20)
+    expect(frontierOnlyTier).toBeLessThan(20)
+  })
+
   it('ignores the tier-fit signal when complexity confidence is below the threshold', () => {
     const frontierProvider = withModels('frontier', 'claude', ['claude-opus-5'])
     const value = task('balanced', 'coding')
@@ -383,6 +399,39 @@ describe('Jev advisor routing', () => {
     const { decision } = routeTask(value, [local], { advisorMode: 'active' })
     const tierFactor = decision.candidates[0].factors?.find((f) => f.label.includes('tier'))
     expect(Math.abs(tierFactor?.points ?? 0)).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('advisor route notes', () => {
+  it('says no key is stored when the fallback advice carries no error', () => {
+    const value = task('balanced', 'coding')
+    value.advice = { source: 'heuristic', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding' }
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active' })
+    expect(decision.advisor?.note).toBe('No Jev key stored; using the heuristic.')
+  })
+
+  it('keeps the "Jev unavailable" wording when the fallback advice carries an error', () => {
+    const value = task('balanced', 'coding')
+    value.advice = { source: 'heuristic', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding', error: 'Jev rejected the API key.' }
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active' })
+    expect(decision.advisor?.note).toBe('Jev unavailable: Jev rejected the API key.')
+  })
+
+  it('says Jev was not confident enough when both complexity and target confidence are below the threshold', () => {
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({
+      complexity: 2.0, complexityConfidence: 0.2,
+      target: { choice: 'claude::claude-sonnet-5', probabilities: { 'claude::claude-sonnet-5': 0.4 }, confidence: 0.2 }
+    })
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active', advisorMinConfidence: 0.5 })
+    expect(decision.advisor?.note).toBe('Jev was not confident enough to change this route.')
+  })
+
+  it('gives no low-confidence note when either signal clears the threshold', () => {
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.0, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active', advisorMinConfidence: 0.5 })
+    expect(decision.advisor?.note).toBeUndefined()
   })
 })
 

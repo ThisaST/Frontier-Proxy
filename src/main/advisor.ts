@@ -300,11 +300,13 @@ export class JevClient {
     return { json: json as JevResponseBody, latencyMs: Date.now() - started }
   }
 
-  // A tiny request used by "Test connection" in the Routing screen.
-  async test(key: string): Promise<{ ok: boolean; model?: string; latencyMs?: number; error?: string }> {
+  // A tiny request used by "Test connection" in the Routing screen. Uses the
+  // configured model (default 'jev-latest') rather than a hard-coded one, so
+  // testing a pinned version actually exercises that version.
+  async test(key: string, model = 'jev-latest'): Promise<{ ok: boolean; model?: string; latencyMs?: number; error?: string }> {
     const body: JevRequestBody = {
       state: { task: 'Connectivity check from Frontier Proxy.' },
-      model: 'jev-latest',
+      model: model?.trim() || 'jev-latest',
       questions: { ping: { type: 'noul', instructions: 'Is this state a connectivity check rather than a real coding task?' } }
     }
     try {
@@ -361,7 +363,7 @@ const repoFactsCache = new Map<string, { at: number; facts: RepoFacts | undefine
 async function computeRepoFacts(cwd: string): Promise<RepoFacts | undefined> {
   try {
     const { stdout } = await execFileAsync('git', ['-C', cwd, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
-      encoding: 'utf8', maxBuffer: 16_000_000
+      encoding: 'utf8', maxBuffer: 16_000_000, timeout: 1_500
     })
     const paths = stdout.split('\0').filter(Boolean)
     if (!paths.length) return undefined

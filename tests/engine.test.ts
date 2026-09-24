@@ -171,6 +171,20 @@ function trivialCipher() {
   return { encrypt: (value: string) => Buffer.from(value).toString('base64'), decrypt: (value: string) => Buffer.from(value, 'base64').toString('utf8') }
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
+}
+
+function fakeJevResponse(answers: Record<string, unknown>): Response {
+  return {
+    ok: true, status: 200, headers: new Headers(),
+    text: async () => '',
+    json: async () => ({ model: 'jev-1.13.0', usage: { input_tokens: 10, output_tokens: 0 }, answers })
+  } as unknown as Response
+}
+
 describe('Jev routing advisor', () => {
   it('never blocks the queue: a task still completes on the heuristic fallback when the advisor call hangs', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-'))
@@ -238,5 +252,110 @@ describe('Jev routing advisor', () => {
     expect(finished.advice?.source).toBe('heuristic')
     expect(finished.advice?.error).toBeUndefined()
     expect(called).toBe(false)
+  })
+
+  it('bounds pending time by its own overall deadline, and ignores a Jev answer that arrives after it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-deadline-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // The fetch itself never settles until the test resolves it — a generous
+    // per-attempt client timeout proves it is the engine's own overall
+    // deadline (well below it), not JevClient's, that ends the wait.
+    const gate = deferred<Response>()
+    const fetchMock = (async () => gate.promise) as unknown as typeof fetch
+    const jevClient = new JevClient({ fetch: fetchMock, timeoutMs: 60_000 })
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient, 40)
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    expect(created.type).toBe('coding')
+
+    const finished = await waitForTask(engine, created.id, 3_000)
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toBe('Jev did not answer in time')
+    expect(finished.type).toBe('coding')
+
+    // The real answer finally lands, long after the deadline already applied
+    // the heuristic and let the task run to completion. It must be ignored —
+    // never overwriting the advice or the type of a task that already moved on.
+    gate.resolve(fakeJevResponse({
+      task_type: { type: 'choice', choice: 'review', probabilities: { review: 0.95 }, confidence: 0.95 },
+      complexity: { type: 'score', score: 1, probabilities: {}, confidence: 0.9 },
+      edits_files: { type: 'noul', noul: 0.5 },
+      long_context: { type: 'noul', noul: 0.5 },
+      split_worthy: { type: 'noul', noul: 0.1 }
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const after = engine.snapshot().tasks.find((item) => item.id === created.id)
+    expect(after?.advice?.source).toBe('heuristic')
+    expect(after?.type).toBe('coding')
+  })
+
+  it('does not push orchestration subtasks or synthesis onto a frontier model just because the parent task rated architectural', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-orchestrate-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    // Echoes the resolved {model} argument back as its entire output, so a
+    // wrongly-applied advisor pick would visibly diverge from the configured
+    // default rather than being invisible in a passthrough "ok".
+    const echoModelScript = 'process.stdout.write(process.argv[1] || "")'
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      {
+        id: 'first', name: 'First Provider', kind: 'custom' as const, enabled: true, executable: process.execPath,
+        args: ['-e', echoModelScript, '{model}'], model: 'claude-haiku-4-5', priority: 1, maxConcurrent: 1,
+        capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general'] as ProxyTask['type'][]
+      }
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // A confident, architectural-complexity answer — exactly the case that
+    // would push every subtask onto a frontier model if advice leaked into
+    // subtask/synthesis routing.
+    const fetchMock = (async () => fakeJevResponse({
+      task_type: { type: 'choice', choice: 'coding', probabilities: { coding: 0.95 }, confidence: 0.95 },
+      complexity: { type: 'score', score: 2.9, probabilities: {}, confidence: 0.95 },
+      edits_files: { type: 'noul', noul: 0.9 },
+      long_context: { type: 'noul', noul: 0.8 },
+      split_worthy: { type: 'noul', noul: 0.1 }
+    })) as unknown as typeof fetch
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }))
+    await engine.initialize()
+    // Give the fake provider a second, larger model via the live runtime
+    // reference (real discovery for a 'custom' kind only ever finds its own
+    // configured default), so pickModel has an actual choice to get wrong.
+    const runtime = engine.providerRuntime('first')
+    if (runtime) runtime.models = ['claude-haiku-4-5', 'claude-opus-5']
+
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('jev')
+    expect(finished.advice?.complexity).toBe(2.9)
+    // The planner stage (the parent route) DID use the advice and picked the
+    // frontier-tier model for its own run.
+    expect(finished.routedModel).toEqual({ providerId: 'first', model: 'claude-opus-5', reason: expect.any(String) })
+    // Every subtask, and the synthesis step, ran on the provider's own
+    // default model — not the advice-suggested frontier one.
+    expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-haiku-4-5')).toBe(true)
+    expect(finished.output.trim()).toBe('claude-haiku-4-5')
   })
 })

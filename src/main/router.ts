@@ -99,32 +99,43 @@ function desiredTier(complexity: number, mode: RoutingMode): { tier: ModelTier; 
   return { tier: shifted, frontierAlsoFits: false }
 }
 
-// The best tier this provider can actually reach, from its discovered/known
-// models plus its configured default. A provider with no known models at all
-// is treated as its kind's natural tier (local for Ollama-backed CLIs,
-// standard otherwise) rather than penalised for a discovery gap.
-function providerBestTier(provider: RoutableProvider): ModelTier {
-  const models = [...new Set([...(provider.runtime.models ?? []), provider.model].filter((value): value is string => Boolean(value)))]
-  if (!models.length) return provider.kind === 'ollama' || provider.kind === 'codex-oss' ? 'local' : 'standard'
-  let best: ModelTier = 'local'
-  for (const model of models) {
-    const tier = tierFor(model, provider.kind)
-    if (TIER_ORDER.indexOf(tier) > TIER_ORDER.indexOf(best)) best = tier
+// Distance (in tier steps) from one tier to the desired one — 0 when they
+// match, or when the "frontier also fits" band applies. Shared by tier-fit
+// scoring and pickModel so the two can never disagree about which model a
+// provider would actually run for a given desire.
+function tierDistance(tier: ModelTier, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+  if (tier === desired.tier) return 0
+  if (desired.frontierAlsoFits && tier === 'frontier' && desired.tier === 'standard') return 0
+  return Math.abs(TIER_ORDER.indexOf(tier) - TIER_ORDER.indexOf(desired.tier))
+}
+
+// The minimum tier distance among a provider's own discovered/known models
+// (plus its configured default) to the desired tier — i.e. the distance of
+// the model this provider would *actually* run there, per pickModel's own
+// rule. Scoring on the provider's *best* tier instead would give a provider
+// like Claude, which owns both opus and haiku, zero credit for a trivial task
+// even though it would run haiku for it. A provider with no known models at
+// all falls back to its kind's natural tier (local for Ollama-backed CLIs,
+// standard otherwise) rather than being penalised for a discovery gap.
+function closestTierDistance(models: string[], kind: ProviderConfig['kind'], defaultModel: string | undefined, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+  const candidates = [...new Set([...(models ?? []), defaultModel].filter((value): value is string => Boolean(value)))]
+  if (!candidates.length) return tierDistance(kind === 'ollama' || kind === 'codex-oss' ? 'local' : 'standard', desired)
+  let best = Number.POSITIVE_INFINITY
+  for (const model of candidates) {
+    const distance = tierDistance(tierFor(model, kind), desired)
+    if (distance < best) best = distance
   }
   return best
 }
 
-function tierDistancePoints(providerTier: ModelTier, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
-  if (providerTier === desired.tier) return MAX_TIER_FIT_POINTS
-  if (desired.frontierAlsoFits && providerTier === 'frontier' && desired.tier === 'standard') return MAX_TIER_FIT_POINTS
-  const distance = Math.abs(TIER_ORDER.indexOf(providerTier) - TIER_ORDER.indexOf(desired.tier))
+function pointsForDistance(distance: number): number {
   return Math.max(-MAX_TIER_FIT_POINTS, MAX_TIER_FIT_POINTS - distance * 10)
 }
 
 function tierFitFactor(task: ProxyTask, provider: RoutableProvider, advice: RoutingAdvice, minConfidence: number): RoutingFactor | undefined {
   if (advice.complexity === undefined || (advice.complexityConfidence ?? 0) < minConfidence) return undefined
   const desired = desiredTier(advice.complexity, task.mode)
-  const points = tierDistancePoints(providerBestTier(provider), desired)
+  const points = pointsForDistance(closestTierDistance(provider.runtime.models ?? [], provider.kind, provider.model, desired))
   if (!points) return undefined
   return { label: `Jev: complexity ${advice.complexity.toFixed(1)} → ${desired.tier} tier`, points }
 }
@@ -175,10 +186,7 @@ export function pickModel(provider: Pick<ProviderConfig, 'id' | 'kind' | 'model'
   let best: string | undefined
   let bestDistance = Number.POSITIVE_INFINITY
   for (const model of candidates) {
-    const tier = tierFor(model, provider.kind)
-    const distance = tier === desired.tier || (desired.frontierAlsoFits && tier === 'frontier' && desired.tier === 'standard')
-      ? 0
-      : Math.abs(TIER_ORDER.indexOf(tier) - TIER_ORDER.indexOf(desired.tier))
+    const distance = tierDistance(tierFor(model, provider.kind), desired)
     if (distance < bestDistance) { bestDistance = distance; best = model }
   }
   return best
@@ -284,7 +292,17 @@ export function routeTask(task: ProxyTask, providers: RoutableProvider[], option
     } else if (!task.advice) {
       advisor.note = 'No advice yet.'
     } else if (task.advice.source === 'heuristic') {
-      advisor.note = task.advice.error ? `Jev unavailable: ${task.advice.error}` : 'Below the confidence threshold; using the heuristic.'
+      // A missing key and a genuine Jev failure read very differently to the
+      // user: the first has an obvious fix (add a key), the second doesn't.
+      advisor.note = task.advice.error ? `Jev unavailable: ${task.advice.error}` : 'No Jev key stored; using the heuristic.'
+    } else {
+      // source === 'jev' here in active mode — shadow+jev is handled by the
+      // branch above. A low-confidence answer still carries `source: 'jev'`
+      // (only task_type itself falls back to the heuristic below threshold),
+      // so say so explicitly rather than implying nothing was asked.
+      const complexityConfident = (task.advice.complexityConfidence ?? 0) >= minConfidence
+      const targetConfident = (task.advice.target?.confidence ?? 0) >= minConfidence
+      if (!complexityConfident && !targetConfident) advisor.note = 'Jev was not confident enough to change this route.'
     }
   }
 

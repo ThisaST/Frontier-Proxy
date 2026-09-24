@@ -226,6 +226,22 @@ describe('JevClient', () => {
     expect(bad.ok).toBe(false)
     expect(bad.error).toBe('Jev rejected the API key.')
   })
+
+  it('test() sends the configured model rather than a hard-coded one', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => fakeResponse(200, response()))
+    await new JevClient({ fetch: fetchMock as unknown as typeof fetch }).test('sk-test-token', 'jev-2024-06-01')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String(init?.body))
+    expect(body.model).toBe('jev-2024-06-01')
+  })
+
+  it('test() falls back to jev-latest when no model is given', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => fakeResponse(200, response()))
+    await new JevClient({ fetch: fetchMock as unknown as typeof fetch }).test('sk-test-token')
+    const [, init] = fetchMock.mock.calls[0]
+    const body = JSON.parse(String(init?.body))
+    expect(body.model).toBe('jev-latest')
+  })
 })
 
 describe('advise (end-to-end helper)', () => {

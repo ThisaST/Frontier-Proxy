@@ -109,7 +109,12 @@ export class OrchestrationEngine extends EventEmitter {
     private readonly store: JsonStore,
     private readonly mcpAuth?: McpAuthManager,
     private readonly advisorKeys?: AdvisorKeyManager,
-    private readonly jevClient: JevClient = new JevClient()
+    private readonly jevClient: JevClient = new JevClient(),
+    // Hard overall bound on how long a task can stay pending on Jev's
+    // advice, independent of JevClient's own per-attempt timeout/retry
+    // (which alone could add up to ~5s: 2s + a capped retry + 2s). Injectable
+    // so tests don't have to wait out the real default.
+    private readonly advisorDeadlineMs: number = 3_000
   ) { super() }
 
   async initialize(): Promise<void> {
@@ -213,26 +218,50 @@ export class OrchestrationEngine extends EventEmitter {
     const key = this.advisorKeys.getKey()
     if (!key) return
     this.pendingAdvice.add(task.id)
-    this.computeJevAdvice(task, settings, key)
-      .then((advice) => {
+
+    // Bounds how long any one task can stay pending regardless of what
+    // JevClient's own timeout/retry ends up doing (repoFacts included) — the
+    // queue pump must never wait longer than this for one task's advice.
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<RoutingAdvice>((resolve) => {
+      deadlineTimer = setTimeout(() => resolve({ ...heuristicAdvice(task.prompt), error: 'Jev did not answer in time' }), this.advisorDeadlineMs)
+      deadlineTimer.unref?.()
+    })
+
+    // Whichever of the real call or the deadline settles first wins; the
+    // other is left to resolve into the void. `settled` also protects against
+    // a genuinely slow Jev answer landing after the deadline already applied
+    // the heuristic and let the task move on (possibly already running, or
+    // cancelled) — that late result must never overwrite it.
+    let settled = false
+    const finish = (advice: RoutingAdvice): void => {
+      if (settled) return
+      settled = true
+      if (deadlineTimer) clearTimeout(deadlineTimer)
+      this.pendingAdvice.delete(task.id)
+      // A task that is no longer queued (cancelled while its advice was
+      // pending, most likely) has nothing left to route — leave it exactly as
+      // it finished rather than rewriting its type out from under it.
+      if (task.status === 'queued') {
         task.advice = advice
-        // Only active mode may move the task off the heuristic classification,
-        // and only when Jev was confident enough to actually override it.
         if (this.settings.advisor.mode === 'active' && advice.taskType !== advice.heuristicTaskType) task.type = advice.taskType
-      })
-      .catch((error) => {
-        task.advice = { ...heuristicAdvice(task.prompt), error: error instanceof Error ? error.message : String(error) }
-      })
-      .finally(() => {
-        this.pendingAdvice.delete(task.id)
-        this.advisorStatus = { lastError: task.advice?.error, lastCheckedAt: new Date().toISOString() }
-        void this.persistAndEmit()
-        void this.pump()
-      })
+      }
+      this.advisorStatus = { lastError: advice.error, lastCheckedAt: new Date().toISOString() }
+      void this.persistAndEmit()
+      void this.pump()
+    }
+
+    Promise.race([this.computeJevAdvice(task, settings, key), deadline])
+      .then(finish)
+      .catch((error) => finish({ ...heuristicAdvice(task.prompt), error: error instanceof Error ? error.message : String(error) }))
   }
 
   private async computeJevAdvice(task: ProxyTask, settings: RoutingAdvisorSettings, key: string): Promise<RoutingAdvice> {
     const facts = settings.shareRepoFacts ? await repoFacts(task.cwd).catch(() => undefined) : undefined
+    // The task may have been cancelled while repo facts were being gathered.
+    // Best-effort: skip the network call (and its token cost) for a task
+    // nobody is waiting on any more, rather than sending it regardless.
+    if (task.status !== 'queued') return heuristicAdvice(task.prompt)
     const attachments = (task.turns?.[0]?.attachments ?? []).map((item) => item.name)
     return await advise(this.jevClient, key, { prompt: task.prompt, attachments }, this.adviceCandidates(task), settings, facts)
   }
@@ -496,7 +525,7 @@ export class OrchestrationEngine extends EventEmitter {
     if (!this.advisorKeys?.hasKey()) return { ok: false, error: 'No API key is stored yet.' }
     const key = this.advisorKeys.getKey()
     if (!key) return { ok: false, error: 'The stored API key could not be read.' }
-    const result = await this.jevClient.test(key)
+    const result = await this.jevClient.test(key, this.settings.advisor.model)
     this.advisorStatus = { lastError: result.ok ? undefined : result.error, lastCheckedAt: new Date().toISOString() }
     this.emitSnapshot({ immediate: true })
     return result
@@ -944,14 +973,14 @@ export class OrchestrationEngine extends EventEmitter {
       task.orchestrationStage = 'synthesizing'
       task.output = ''
       await this.persistAndEmit()
-      const synthesizer = this.pickProvider(task)
+      const synthesizer = this.pickProvider(task, false)
       if (!synthesizer) throw new Error('No eligible provider is available to synthesize the task results.')
       this.selectTaskProvider(task, synthesizer.id)
       const synthesisResult = await this.runOne(synthesizer, buildSynthesisPrompt(task.prompt, task.subtasks), task, controller, (text) => {
         task.output += text
         task.estimatedOutputTokens = estimateTokens(task.output)
         this.emitSnapshot()
-      }, undefined, undefined, imagePaths)
+      }, undefined, undefined, imagePaths, false)
       if (!synthesisResult.ok) throw new Error(synthesisResult.error ?? 'No provider could synthesize the task results.')
 
       task.orchestrationStage = 'done'
@@ -1125,7 +1154,7 @@ export class OrchestrationEngine extends EventEmitter {
       subtask.status = 'running'; subtask.providerId = provider.id; subtask.startedAt = new Date().toISOString(); this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
-        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths)
+        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths, false)
         if (!subtask.output.trim()) subtask.output = result.output
         subtask.providerId = result.providerId
         subtask.model = result.model
@@ -1165,7 +1194,9 @@ export class OrchestrationEngine extends EventEmitter {
   // provider could take even when idle (no capability, cooldown, usage limit,
   // offline) is a genuine failure.
   private async awaitSubtaskProvider(task: ProxyTask, subtask: SubTask, controller: AbortController): Promise<ProviderConfig | undefined> {
-    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false }
+    // Never the parent's advice (see runOne's useAdvice=false): a subtask
+    // routes on the same factors as no-advisor routing.
+    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false, advice: undefined }
     for (;;) {
       if (controller.signal.aborted) return undefined
       const providers = this.snapshot().providers
@@ -1185,9 +1216,15 @@ export class OrchestrationEngine extends EventEmitter {
     onText?: (text: string) => void,
     cwd?: string,
     routingType?: TaskType,
-    imagePaths: string[] = []
+    imagePaths: string[] = [],
+    // False for orchestration subtask lanes and the synthesis step: a
+    // plan-level complexity rating (e.g. "architectural") must not push every
+    // small subtask, or the read-only synthesis pass, onto a frontier model.
+    // Only the planner stage (the parent route) and a single task's own
+    // failover keep the advice — both call this with the default.
+    useAdvice: boolean = true
   ): Promise<{ output: string; model?: string; ok: boolean; error?: string; providerId: string }> {
-    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false }
+    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false, advice: useAdvice ? task.advice : undefined }
     const ranked = rankProviders(routingTask, this.snapshot().providers, this.routingOptions())
     const candidateIds = [...new Set([initialProvider.id, ...ranked.map((item) => item.id)])]
     let final: { output: string; model?: string; ok: boolean; error?: string; providerId: string } = {
@@ -1204,7 +1241,7 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       let output = ''
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task), {
+      const result = await runProvider(this.withModel(provider, task, useAdvice), {
         prompt, cwd: cwd ?? task.cwd, signal: controller.signal, ...(await this.activeRunProfile(task)), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
@@ -1254,8 +1291,12 @@ export class OrchestrationEngine extends EventEmitter {
     }
   }
 
-  private pickProvider(task: ProxyTask): ProviderConfig | undefined {
-    const ranked = rankProviders({ ...task, orchestrated: false }, this.snapshot().providers, this.routingOptions())
+  // `useAdvice: false` picks a provider on the same factors as no-advisor
+  // routing — used for the orchestration synthesizer, which must not inherit
+  // the parent task's complexity rating (see runOne).
+  private pickProvider(task: ProxyTask, useAdvice: boolean = true): ProviderConfig | undefined {
+    const routing = { ...task, orchestrated: false, advice: useAdvice ? task.advice : undefined }
+    const ranked = rankProviders(routing, this.snapshot().providers, this.routingOptions())
     return this.settings.providers.find((item) => item.id === ranked[0]?.id)
   }
 
@@ -1265,9 +1306,16 @@ export class OrchestrationEngine extends EventEmitter {
 
   // Never hand a provider a model id belonging to another CLI: Codex fails the
   // whole run on `claude-opus-5` rather than ignoring it.
-  private withModel(provider: ProviderConfig, task: ProxyTask): ProviderConfig {
+  //
+  // `useAdvice: false` (subtask lanes and orchestration synthesis, via runOne)
+  // skips the advisor branch entirely — no read of task.advice, no write of
+  // task.routedModel — so a plan-level "architectural" complexity rating can
+  // never push every small subtask onto a frontier model. Per-subtask
+  // advising is a later phase; until then those runs use the provider default.
+  private withModel(provider: ProviderConfig, task: ProxyTask, useAdvice: boolean = true): ProviderConfig {
     const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.modelOwners())
     if (model !== provider.model) return { ...provider, model }
+    if (!useAdvice) return provider
     const routed = this.routedModelFor(provider, task)
     return routed ? { ...provider, model: routed } : provider
   }
@@ -1275,7 +1323,9 @@ export class OrchestrationEngine extends EventEmitter {
   // Model precedence per provider: user override (owner only, handled above) →
   // the advisor's pick for THIS provider, active mode only → provider default.
   // Never crosses providers: pickModel only ever chooses among this provider's
-  // own discovered/known models.
+  // own discovered/known models. `task` here is always the real task the
+  // caller is running (never a pseudo/routing-only copy), so this write is
+  // always attributed to the provider that is actually about to run.
   private routedModelFor(provider: ProviderConfig, task: ProxyTask): string | undefined {
     if (this.settings.advisor?.mode !== 'active' || task.advice?.source !== 'jev') return undefined
     const candidate = pickModel(provider, this.runtimes.get(provider.id)?.models ?? [], task.advice, task.mode)

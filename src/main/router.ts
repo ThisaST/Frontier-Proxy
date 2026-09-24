@@ -1,6 +1,7 @@
-import type { OutcomeStats, ProviderConfig, ProviderRuntime, ProxyTask, RoutingCandidate, RoutingDecision, RoutingFactor, TaskType } from '../shared/types'
+import type { AdvisorMode, ModelTier, OutcomeStats, ProviderConfig, ProviderRuntime, ProxyTask, RoutingAdvice, RoutingCandidate, RoutingDecision, RoutingFactor, RoutingMode, TaskType } from '../shared/types'
 import { activeSessions, sessionBlocked } from '../shared/sessions'
 import { efficiencyBaselines, efficiencyFactors, type EfficiencyBaselines } from './evidence'
+import { tierFor } from '../shared/model-profiles'
 
 export interface RoutableProvider extends ProviderConfig {
   runtime: ProviderRuntime
@@ -70,9 +71,130 @@ export function outcomeFactor(stats: OutcomeStats | undefined, taskType: TaskTyp
   return { label: `Recent ${taskType} outcomes (${stats.runs} runs)`, points }
 }
 
+// ---- Jev advisor factors ----
+// Jev advises, the router decides: every answer becomes a small, bounded,
+// labelled factor here — never an override of eligibility, an explicit pick,
+// or the model the user chose. Applied only when routeTask is told the
+// advisor is active AND the task's advice actually came from Jev (routeTask
+// gates this; the functions below assume both are already true).
+
+const TIER_ORDER: ModelTier[] = ['local', 'fast', 'standard', 'frontier']
+const MAX_TIER_FIT_POINTS = 20
+const MAX_TARGET_FIT_POINTS = 15
+const READ_ONLY_LOCAL_BONUS = 8
+// A noul below this reads as "probably will not edit files". 0.2 leaves a wide
+// margin above 0 so an uncertain-but-leaning-false answer still counts.
+const READ_ONLY_THRESHOLD = 0.2
+
+// The tier the task calls for, from Jev's complexity score, shifted by the
+// routing mode. Between 1.75 and 2.5 a "standard" desire also accepts
+// "frontier" at full credit — the complexity band explicitly says either is a
+// fine fit there, rather than penalising reaching for the bigger model.
+function desiredTier(complexity: number, mode: RoutingMode): { tier: ModelTier; frontierAlsoFits: boolean } {
+  const base: ModelTier = complexity < 0.75 ? 'fast' : complexity < 2.5 ? 'standard' : 'frontier'
+  const frontierAlsoFits = base === 'standard' && complexity >= 1.75
+  const shift = mode === 'saver' ? -1 : mode === 'quality' ? 1 : 0
+  if (!shift) return { tier: base, frontierAlsoFits }
+  const shifted = TIER_ORDER[Math.max(0, Math.min(TIER_ORDER.length - 1, TIER_ORDER.indexOf(base) + shift))]
+  return { tier: shifted, frontierAlsoFits: false }
+}
+
+// Distance (in tier steps) from one tier to the desired one — 0 when they
+// match, or when the "frontier also fits" band applies. Shared by tier-fit
+// scoring and pickModel so the two can never disagree about which model a
+// provider would actually run for a given desire.
+function tierDistance(tier: ModelTier, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+  if (tier === desired.tier) return 0
+  if (desired.frontierAlsoFits && tier === 'frontier' && desired.tier === 'standard') return 0
+  return Math.abs(TIER_ORDER.indexOf(tier) - TIER_ORDER.indexOf(desired.tier))
+}
+
+// The minimum tier distance among a provider's own discovered/known models
+// (plus its configured default) to the desired tier — i.e. the distance of
+// the model this provider would *actually* run there, per pickModel's own
+// rule. Scoring on the provider's *best* tier instead would give a provider
+// like Claude, which owns both opus and haiku, zero credit for a trivial task
+// even though it would run haiku for it. A provider with no known models at
+// all falls back to its kind's natural tier (local for Ollama-backed CLIs,
+// standard otherwise) rather than being penalised for a discovery gap.
+function closestTierDistance(models: string[], kind: ProviderConfig['kind'], defaultModel: string | undefined, desired: { tier: ModelTier; frontierAlsoFits: boolean }): number {
+  const candidates = [...new Set([...(models ?? []), defaultModel].filter((value): value is string => Boolean(value)))]
+  if (!candidates.length) return tierDistance(kind === 'ollama' || kind === 'codex-oss' ? 'local' : 'standard', desired)
+  let best = Number.POSITIVE_INFINITY
+  for (const model of candidates) {
+    const distance = tierDistance(tierFor(model, kind), desired)
+    if (distance < best) best = distance
+  }
+  return best
+}
+
+function pointsForDistance(distance: number): number {
+  return Math.max(-MAX_TIER_FIT_POINTS, MAX_TIER_FIT_POINTS - distance * 10)
+}
+
+function tierFitFactor(task: ProxyTask, provider: RoutableProvider, advice: RoutingAdvice, minConfidence: number): RoutingFactor | undefined {
+  if (advice.complexity === undefined || (advice.complexityConfidence ?? 0) < minConfidence) return undefined
+  const desired = desiredTier(advice.complexity, task.mode)
+  const points = pointsForDistance(closestTierDistance(provider.runtime.models ?? [], provider.kind, provider.model, desired))
+  if (!points) return undefined
+  return { label: `Jev: complexity ${advice.complexity.toFixed(1)} → ${desired.tier} tier`, points }
+}
+
+// Sums the target choice's probability mass over every (provider, model)
+// option this provider owns — a provider can appear under several models, and
+// each contributes to how much Jev likes sending this task to it at all,
+// independent of which specific model wins.
+function jevBestFitFactor(provider: RoutableProvider, advice: RoutingAdvice): RoutingFactor | undefined {
+  if (!advice.target) return undefined
+  const prefix = `${provider.id}::`
+  const share = Object.entries(advice.target.probabilities)
+    .filter(([key]) => key.startsWith(prefix))
+    .reduce((sum, [, value]) => sum + value, 0)
+  if (!share) return undefined
+  const points = Math.round(share * advice.target.confidence * MAX_TARGET_FIT_POINTS)
+  if (!points) return undefined
+  return { label: `Jev best fit (${Math.round(share * 100)}%)`, points }
+}
+
+function readOnlyFactor(provider: RoutableProvider, advice: RoutingAdvice): RoutingFactor | undefined {
+  if (advice.editsFiles === undefined || advice.editsFiles >= READ_ONLY_THRESHOLD) return undefined
+  if (provider.kind !== 'ollama' && provider.kind !== 'codex-oss') return undefined
+  return { label: 'Read-only task → local OK', points: READ_ONLY_LOCAL_BONUS }
+}
+
+function advisorFactors(task: ProxyTask, provider: RoutableProvider, advice: RoutingAdvice, minConfidence: number): RoutingFactor[] {
+  const factors: RoutingFactor[] = []
+  const tier = tierFitFactor(task, provider, advice, minConfidence)
+  if (tier) factors.push(tier)
+  const target = jevBestFitFactor(provider, advice)
+  if (target) factors.push(target)
+  const readOnly = readOnlyFactor(provider, advice)
+  if (readOnly) factors.push(readOnly)
+  return factors
+}
+
+// Which model this provider should run for the task, from Jev's complexity
+// signal alone — the tier closest to what the task calls for among this
+// provider's own discovered/known models. Pure and provider-scoped: it can
+// never suggest a model belonging to a different agent. Returns undefined
+// (keep the provider default) whenever there is no usable signal.
+export function pickModel(provider: Pick<ProviderConfig, 'id' | 'kind' | 'model'>, models: string[], advice: RoutingAdvice | undefined, mode: RoutingMode): string | undefined {
+  if (!advice || advice.source !== 'jev' || advice.complexity === undefined) return undefined
+  const desired = desiredTier(advice.complexity, mode)
+  const candidates = [...new Set([...(models ?? []), provider.model].filter((value): value is string => Boolean(value)))]
+  if (!candidates.length) return undefined
+  let best: string | undefined
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const model of candidates) {
+    const distance = tierDistance(tierFor(model, provider.kind), desired)
+    if (distance < bestDistance) { bestDistance = distance; best = model }
+  }
+  return best
+}
+
 // The score breakdown, kept as labelled parts so the UI can show exactly why a
 // provider won. The sum is the score the router actually sorts on.
-function scoreFactors(task: ProxyTask, provider: RoutableProvider, learnFromOutcomes: boolean, baselines: EfficiencyBaselines): RoutingFactor[] {
+function scoreFactors(task: ProxyTask, provider: RoutableProvider, learnFromOutcomes: boolean, baselines: EfficiencyBaselines, advisor?: { advice: RoutingAdvice; minConfidence: number }): RoutingFactor[] {
   const factors: RoutingFactor[] = [{ label: 'Configured priority', points: provider.priority }]
   const affinityPoints = affinity[task.type][provider.kind] ?? 0
   if (affinityPoints) factors.push({ label: `${task.type} affinity`, points: affinityPoints })
@@ -95,6 +217,7 @@ function scoreFactors(task: ProxyTask, provider: RoutableProvider, learnFromOutc
     if (outcome) factors.push(outcome)
     factors.push(...efficiencyFactors(provider.runtime, baselines))
   }
+  if (advisor) factors.push(...advisorFactors(task, provider, advisor.advice, advisor.minConfidence))
   return factors
 }
 
@@ -104,29 +227,88 @@ function total(factors: RoutingFactor[]): number {
 
 // One pass produces both the ranking the engine acts on and the explanation the
 // UI shows, so a routing receipt can never drift from the real decision.
-export interface RoutingOptions { now?: number; learnFromOutcomes?: boolean }
+export interface RoutingOptions {
+  now?: number
+  learnFromOutcomes?: boolean
+  advisorMode?: AdvisorMode
+  advisorMinConfidence?: number
+}
+
+function rank(
+  task: ProxyTask,
+  preflight: Array<{ provider: RoutableProvider; reason: string | undefined }>,
+  learnFromOutcomes: boolean,
+  baselines: EfficiencyBaselines,
+  advisor?: { advice: RoutingAdvice; minConfidence: number }
+): Array<{ provider: RoutableProvider; factors: RoutingFactor[]; score: number }> {
+  return preflight
+    .flatMap(({ provider, reason }) => {
+      if (reason) return []
+      const factors = scoreFactors(task, provider, learnFromOutcomes, baselines, advisor)
+      return [{ provider, factors, score: total(factors) }]
+    })
+    .sort((left, right) => right.score - left.score || left.provider.runtime.usage.tasks - right.provider.runtime.usage.tasks)
+}
 
 export function routeTask(task: ProxyTask, providers: RoutableProvider[], options: RoutingOptions = {}): { ranked: RoutableProvider[]; decision: RoutingDecision } {
   const now = options.now ?? Date.now()
+  const advisorMode = options.advisorMode ?? 'off'
+  const minConfidence = options.advisorMinConfidence ?? 0.5
+  // Gate: an advisor factor is only ever scored when the mode is active AND
+  // this task's advice actually came from Jev (never the heuristic fallback,
+  // which carries no complexity/target signal worth trusting for this).
+  const activeAdvice = advisorMode === 'active' && task.advice?.source === 'jev' ? task.advice : undefined
+  const shadowAdvice = advisorMode === 'shadow' && task.advice?.source === 'jev' ? task.advice : undefined
+
   const preflight = providers.map((provider) => ({ provider, reason: skipReason(task, provider, now) }))
   const eligible = preflight.filter((item) => !item.reason).map((item) => item.provider)
-  const baselines = options.learnFromOutcomes === false ? {} : efficiencyBaselines(eligible.map((provider) => provider.runtime))
-  const evaluated = preflight.map(({ provider, reason }) => {
-    const factors = reason ? undefined : scoreFactors(task, provider, options.learnFromOutcomes !== false, baselines)
-    return { provider, reason, factors, score: factors ? total(factors) : undefined }
-  })
-  const ranked = evaluated
-    .filter((item): item is typeof item & { score: number } => item.score !== undefined)
-    .sort((left, right) => right.score - left.score || left.provider.runtime.usage.tasks - right.provider.runtime.usage.tasks)
+  const learnFromOutcomes = options.learnFromOutcomes !== false
+  const baselines = learnFromOutcomes ? efficiencyBaselines(eligible.map((provider) => provider.runtime)) : {}
+
+  const ranked = rank(task, preflight, learnFromOutcomes, baselines, activeAdvice ? { advice: activeAdvice, minConfidence } : undefined)
 
   const candidates: RoutingCandidate[] = [
     ...ranked.map(({ provider, score, factors }) => ({ providerId: provider.id, providerName: provider.name, eligible: true, score, factors })),
-    ...evaluated.filter((item) => item.score === undefined)
+    ...preflight.filter(({ reason }) => reason)
       .map(({ provider, reason }) => ({ providerId: provider.id, providerName: provider.name, eligible: false, skippedReason: reason }))
   ]
+
+  let advisor: RoutingDecision['advisor']
+  if (advisorMode !== 'off') {
+    advisor = { mode: advisorMode, applied: Boolean(activeAdvice) }
+    if (shadowAdvice) {
+      // Shadow mode never changes `ranked`/`chosenProviderId` above — this is a
+      // second, throwaway ranking purely for the "what would Jev have chosen"
+      // comparison shown in the UI.
+      const shadowRanked = rank(task, preflight, learnFromOutcomes, baselines, { advice: shadowAdvice, minConfidence })
+      const winner = shadowRanked[0]
+      if (winner) {
+        advisor.wouldChooseProviderId = winner.provider.id
+        advisor.wouldChooseModel = pickModel(winner.provider, winner.provider.runtime.models ?? [], shadowAdvice, task.mode)
+        advisor.note = winner.provider.id === ranked[0]?.provider.id ? 'Agrees with the current route.' : 'Would route differently.'
+      } else {
+        advisor.note = 'No eligible provider even with advice applied.'
+      }
+    } else if (!task.advice) {
+      advisor.note = 'No advice yet.'
+    } else if (task.advice.source === 'heuristic') {
+      // A missing key and a genuine Jev failure read very differently to the
+      // user: the first has an obvious fix (add a key), the second doesn't.
+      advisor.note = task.advice.error ? `Jev unavailable: ${task.advice.error}` : 'No Jev key stored; using the heuristic.'
+    } else {
+      // source === 'jev' here in active mode — shadow+jev is handled by the
+      // branch above. A low-confidence answer still carries `source: 'jev'`
+      // (only task_type itself falls back to the heuristic below threshold),
+      // so say so explicitly rather than implying nothing was asked.
+      const complexityConfident = (task.advice.complexityConfidence ?? 0) >= minConfidence
+      const targetConfident = (task.advice.target?.confidence ?? 0) >= minConfidence
+      if (!complexityConfident && !targetConfident) advisor.note = 'Jev was not confident enough to change this route.'
+    }
+  }
+
   return {
     ranked: ranked.map(({ provider }) => provider),
-    decision: { at: new Date(now).toISOString(), taskType: task.type, mode: task.mode, chosenProviderId: ranked[0]?.provider.id, candidates }
+    decision: { at: new Date(now).toISOString(), taskType: task.type, mode: task.mode, chosenProviderId: ranked[0]?.provider.id, candidates, advisor }
   }
 }
 

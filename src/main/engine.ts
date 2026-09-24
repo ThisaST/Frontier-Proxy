@@ -4,8 +4,9 @@ import { stat } from 'node:fs/promises'
 import { classifyTask, estimateTokens } from '../shared/classify'
 import { freshDefaults } from '../shared/defaults'
 import { activeSessions, sessionWindowExpired } from '../shared/sessions'
+import { describeCandidate } from '../shared/model-profiles'
 import type {
-  ActivityEvent, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, OutcomeStats, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, ResolvedSkill, SessionInfo, SkillCatalog, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageDay, UsageSample, VerificationReport, Workspace, WorkspaceEntry, WorkspaceStreamEvent, WorkspaceView
+  ActivityEvent, AdvisorPreviewInput, AdvisorPreviewResult, AdvisorTestResult, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ContextSample, ControlPlaneProfile, ConversationTurn, CreateTaskInput, OutcomeStats, ProviderConfig, ProviderPatch, ProviderRuntime, ProxyTask, ResolvedSkill, RoutingAdvice, RoutingAdvisorSettings, SessionInfo, SkillCatalog, StreamEvent, SubTask, TaskAttempt, TaskFileContent, TaskType, TaskWorkspaceSnapshot, UsageDay, UsageSample, VerificationReport, Workspace, WorkspaceEntry, WorkspaceStreamEvent, WorkspaceView
 } from '../shared/types'
 
 // Tool names that mutate files, mapped to the change action to record.
@@ -24,8 +25,10 @@ function recordFileChange(task: ProxyTask, event: ActivityEvent): void {
 import { buildProviderCommand, checkProvider, checkProviderAuth, discoverModels, resolveTaskModel, runProvider, type ModelOwner } from './providers'
 import { hydrateExecutablePath } from './env'
 import { discoverSkills, resolveSkills } from './skills'
-import { rankProviders, routeTask } from './router'
+import { pickModel, rankProviders, routeTask, type RoutingOptions } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
+import { advise, buildJevRequest, heuristicAdvice, adviceFromResponse, repoFacts, JevClient, type AdvisorKeyManager, type AdviceCandidate } from './advisor'
+import { tierFor } from '../shared/model-profiles'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
 import { branchChangeStats, branchFileDiff, deleteTaskBranch, listBranchInbox, mergeTaskBranch } from './branches'
 import { verifyWorktree } from './verify'
@@ -96,8 +99,23 @@ export class OrchestrationEngine extends EventEmitter {
   // it through the same paths task state already uses.
   private workspaces: Workspace[] = []
   private workspacesView: WorkspaceView[] = []
+  // Task ids currently awaiting a Jev answer. Transient only — never persisted,
+  // so a task interrupted mid-advice by a restart simply routes on whatever
+  // advice it already has (heuristic, set synchronously at creation).
+  private readonly pendingAdvice = new Set<string>()
+  private advisorStatus: { lastError?: string; lastCheckedAt?: string } = {}
 
-  constructor(private readonly store: JsonStore, private readonly mcpAuth?: McpAuthManager) { super() }
+  constructor(
+    private readonly store: JsonStore,
+    private readonly mcpAuth?: McpAuthManager,
+    private readonly advisorKeys?: AdvisorKeyManager,
+    private readonly jevClient: JevClient = new JevClient(),
+    // Hard overall bound on how long a task can stay pending on Jev's
+    // advice, independent of JevClient's own per-attempt timeout/retry
+    // (which alone could add up to ~5s: 2s + a capped retry + 2s). Injectable
+    // so tests don't have to wait out the real default.
+    private readonly advisorDeadlineMs: number = 3_000
+  ) { super() }
 
   async initialize(): Promise<void> {
     const state = await this.store.load()
@@ -106,9 +124,11 @@ export class OrchestrationEngine extends EventEmitter {
     this.settings.verification ??= freshDefaults().verification
     this.settings.notifications ??= freshDefaults().notifications
     this.settings.learnFromOutcomes ??= true
+    this.settings.advisor ??= freshDefaults().advisor
     this.tasks = state.tasks
     this.workspaces = state.workspaces ?? []
     await this.mcpAuth?.initialize()
+    await this.advisorKeys?.initialize()
     await this.mcpAuth?.reconcile(this.settings.controlPlane)
     for (const provider of this.settings.providers) {
       const runtime = blankRuntime()
@@ -134,7 +154,8 @@ export class OrchestrationEngine extends EventEmitter {
       providers: this.settings.providers.map((provider) => ({ ...provider, runtime: this.runtimes.get(provider.id) ?? blankRuntime() })),
       settings: this.settings,
       mcpAuth: this.mcpAuth?.statuses(this.settings.controlPlane) ?? [],
-      workspaces: this.workspacesView
+      workspaces: this.workspacesView,
+      advisor: { hasKey: Boolean(this.advisorKeys?.hasKey()), lastError: this.advisorStatus.lastError, lastCheckedAt: this.advisorStatus.lastCheckedAt }
     })
   }
 
@@ -175,10 +196,85 @@ export class OrchestrationEngine extends EventEmitter {
       turns: [{ id: randomUUID(), role: 'user', content: prompt, attachments: attachments.length ? attachments : undefined, at: new Date().toISOString() }],
       skillIds: input.skillIds?.length ? [...new Set(input.skillIds)] : undefined
     }
+    // First turn only: bench lanes route nobody (each lane goes straight to its
+    // chosen agent) and continuations/workspace turns are out of scope entirely.
+    if (!task.bench) {
+      task.advice = heuristicAdvice(prompt)
+      this.requestAdvice(task)
+    }
     this.tasks.unshift(task)
     await this.persistAndEmit()
     void this.pump()
     return structuredClone(task)
+  }
+
+  // Fires the Jev call in the background (never awaited by createTask, so the
+  // caller never blocks on it) and marks the task pending until it settles —
+  // bounded by JevClient's own timeout/retry, never indefinite. A missing key
+  // or `off` mode leaves the heuristic advice already set untouched.
+  private requestAdvice(task: ProxyTask): void {
+    const settings = this.settings.advisor
+    if (!settings || settings.mode === 'off' || !this.advisorKeys?.hasKey()) return
+    const key = this.advisorKeys.getKey()
+    if (!key) return
+    this.pendingAdvice.add(task.id)
+
+    // Bounds how long any one task can stay pending regardless of what
+    // JevClient's own timeout/retry ends up doing (repoFacts included) — the
+    // queue pump must never wait longer than this for one task's advice.
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<RoutingAdvice>((resolve) => {
+      deadlineTimer = setTimeout(() => resolve({ ...heuristicAdvice(task.prompt), error: 'Jev did not answer in time' }), this.advisorDeadlineMs)
+      deadlineTimer.unref?.()
+    })
+
+    // Whichever of the real call or the deadline settles first wins; the
+    // other is left to resolve into the void. `settled` also protects against
+    // a genuinely slow Jev answer landing after the deadline already applied
+    // the heuristic and let the task move on (possibly already running, or
+    // cancelled) — that late result must never overwrite it.
+    let settled = false
+    const finish = (advice: RoutingAdvice): void => {
+      if (settled) return
+      settled = true
+      if (deadlineTimer) clearTimeout(deadlineTimer)
+      this.pendingAdvice.delete(task.id)
+      // A task that is no longer queued (cancelled while its advice was
+      // pending, most likely) has nothing left to route — leave it exactly as
+      // it finished rather than rewriting its type out from under it.
+      if (task.status === 'queued') {
+        task.advice = advice
+        if (this.settings.advisor.mode === 'active' && advice.taskType !== advice.heuristicTaskType) task.type = advice.taskType
+      }
+      this.advisorStatus = { lastError: advice.error, lastCheckedAt: new Date().toISOString() }
+      void this.persistAndEmit()
+      void this.pump()
+    }
+
+    Promise.race([this.computeJevAdvice(task, settings, key), deadline])
+      .then(finish)
+      .catch((error) => finish({ ...heuristicAdvice(task.prompt), error: error instanceof Error ? error.message : String(error) }))
+  }
+
+  private async computeJevAdvice(task: ProxyTask, settings: RoutingAdvisorSettings, key: string): Promise<RoutingAdvice> {
+    const facts = settings.shareRepoFacts ? await repoFacts(task.cwd).catch(() => undefined) : undefined
+    // The task may have been cancelled while repo facts were being gathered.
+    // Best-effort: skip the network call (and its token cost) for a task
+    // nobody is waiting on any more, rather than sending it regardless.
+    if (task.status !== 'queued') return heuristicAdvice(task.prompt)
+    const attachments = (task.turns?.[0]?.attachments ?? []).map((item) => item.name)
+    return await advise(this.jevClient, key, { prompt: task.prompt, attachments }, this.adviceCandidates(task), settings, facts)
+  }
+
+  // The (provider, model) options Jev is asked to pick from — every eligible
+  // provider's discovered/known models, each described by model-profiles.ts so
+  // this stays the one place that says what a model is good at.
+  private adviceCandidates(task: ProxyTask): AdviceCandidate[] {
+    const eligible = rankProviders({ ...task, orchestrated: false }, this.snapshot().providers, this.routingOptions())
+    return eligible.flatMap((provider) => {
+      const models = [...new Set([...(provider.runtime.models ?? []), provider.model].filter((value): value is string => Boolean(value)))]
+      return models.map((model) => ({ providerId: provider.id, model, description: describeCandidate(provider, model) }))
+    })
   }
 
   async cancelTask(taskId: string): Promise<void> {
@@ -375,7 +471,7 @@ export class OrchestrationEngine extends EventEmitter {
     return this.snapshot()
   }
 
-  async updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes'>>): Promise<AppSnapshot> {
+  async updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes' | 'advisor'>>): Promise<AppSnapshot> {
     if (changes.maxParallelTasks !== undefined) this.settings.maxParallelTasks = Math.max(1, Math.min(8, changes.maxParallelTasks))
     if (changes.quotaCooldownMinutes !== undefined) this.settings.quotaCooldownMinutes = Math.max(1, Math.min(1_440, changes.quotaCooldownMinutes))
     if (changes.memory !== undefined) this.settings.memory = changes.memory
@@ -390,9 +486,86 @@ export class OrchestrationEngine extends EventEmitter {
       onlyWhenUnfocused: Boolean(changes.notifications.onlyWhenUnfocused)
     }
     if (changes.learnFromOutcomes !== undefined) this.settings.learnFromOutcomes = Boolean(changes.learnFromOutcomes)
+    if (changes.advisor !== undefined) {
+      const modes: RoutingAdvisorSettings['mode'][] = ['off', 'shadow', 'active']
+      this.settings.advisor = {
+        mode: modes.includes(changes.advisor.mode) ? changes.advisor.mode : 'off',
+        model: changes.advisor.model?.trim() || 'jev-latest',
+        minConfidence: Math.max(0, Math.min(1, changes.advisor.minConfidence ?? 0.5)),
+        shareRepoFacts: changes.advisor.shareRepoFacts !== false,
+        previewWhileTyping: Boolean(changes.advisor.previewWhileTyping)
+      }
+    }
     await this.persistAndEmit()
     void this.pump()
     return this.snapshot()
+  }
+
+  // ---- Jev routing advisor (ADR 0002) ----
+  // The API key never leaves the main process: it is written encrypted to its
+  // own file (AdvisorKeyManager), and the renderer only ever learns `hasKey`.
+
+  async setAdvisorKey(key: string): Promise<AppSnapshot> {
+    if (!this.advisorKeys) throw new Error('Secure credential storage is not available in this build.')
+    await this.advisorKeys.setKey(key)
+    this.advisorStatus = {}
+    await this.persistAndEmit()
+    return this.snapshot()
+  }
+
+  async clearAdvisorKey(): Promise<AppSnapshot> {
+    if (!this.advisorKeys) throw new Error('Secure credential storage is not available in this build.')
+    await this.advisorKeys.clearKey()
+    this.advisorStatus = {}
+    await this.persistAndEmit()
+    return this.snapshot()
+  }
+
+  async testAdvisor(): Promise<AdvisorTestResult> {
+    if (!this.advisorKeys?.hasKey()) return { ok: false, error: 'No API key is stored yet.' }
+    const key = this.advisorKeys.getKey()
+    if (!key) return { ok: false, error: 'The stored API key could not be read.' }
+    const result = await this.jevClient.test(key, this.settings.advisor.model)
+    this.advisorStatus = { lastError: result.ok ? undefined : result.error, lastCheckedAt: new Date().toISOString() }
+    this.emitSnapshot({ immediate: true })
+    return result
+  }
+
+  // Powers the Routing screen's "what is sent" disclosure and the Home
+  // composer's route-preview line. Uses heuristic advice only unless
+  // `previewWhileTyping` is on and a key exists — otherwise every keystroke
+  // would send a draft prompt to TypeSafe.
+  async previewAdvisor(input: AdvisorPreviewInput): Promise<AdvisorPreviewResult> {
+    await this.assertDirectory(input.cwd)
+    const settings = this.settings.advisor
+    const mode = input.mode ?? settings.mode
+    const pseudoTask: ProxyTask = {
+      id: 'preview', prompt: input.prompt, cwd: input.cwd, mode: 'balanced', type: classifyTask(input.prompt),
+      preferredProviderId: input.preferredProviderId, modelOverride: input.model, modelOverrideProviderId: input.modelProviderId,
+      status: 'queued', createdAt: new Date().toISOString(), output: '', attempts: [],
+      estimatedInputTokens: estimateTokens(input.prompt), estimatedOutputTokens: 0
+    }
+    const heuristic = heuristicAdvice(input.prompt)
+    const facts = settings.shareRepoFacts ? await repoFacts(input.cwd).catch(() => undefined) : undefined
+    const candidates = this.adviceCandidates(pseudoTask)
+    const request = buildJevRequest({ prompt: input.prompt, attachments: input.attachments }, candidates, settings, facts)
+
+    let advice: RoutingAdvice = heuristic
+    if (settings.previewWhileTyping && mode !== 'off' && this.advisorKeys?.hasKey()) {
+      const key = this.advisorKeys.getKey()
+      if (key) {
+        try {
+          const { json, latencyMs } = await this.jevClient.request(key, request)
+          advice = adviceFromResponse(json, heuristic.taskType, settings.minConfidence, { latencyMs })
+        } catch (error) {
+          advice = { ...heuristic, error: error instanceof Error ? error.message : String(error) }
+        }
+      }
+    }
+    pseudoTask.advice = advice
+    const { ranked, decision } = routeTask(pseudoTask, this.snapshot().providers, { ...this.routingOptions(), advisorMode: mode })
+    const chosen = ranked[0] ? this.settings.providers.find((provider) => provider.id === ranked[0].id) : undefined
+    return { request, heuristic, decision, model: chosen ? this.withModel(chosen, pseudoTask).model : undefined }
   }
 
   async updateControlPlane(profile: ControlPlaneProfile): Promise<AppSnapshot> {
@@ -501,7 +674,10 @@ export class OrchestrationEngine extends EventEmitter {
     this.pumping = true
     try {
       while (this.tasks.filter((task) => task.status === 'running').length < this.settings.maxParallelTasks) {
-        const task = [...this.tasks].reverse().find((item) => item.status === 'queued')
+        // A task awaiting a Jev answer is skipped, not blocked on: an older
+        // queued task behind it can still start. JevClient's own timeout/retry
+        // bounds how long any one task can stay pending here.
+        const task = [...this.tasks].reverse().find((item) => item.status === 'queued' && !this.pendingAdvice.has(item.id))
         if (!task) break
         // A bench run targets its chosen agents directly, so it does not compete
         // for the router's ranking — only for the lanes each provider allows.
@@ -797,14 +973,14 @@ export class OrchestrationEngine extends EventEmitter {
       task.orchestrationStage = 'synthesizing'
       task.output = ''
       await this.persistAndEmit()
-      const synthesizer = this.pickProvider(task)
+      const synthesizer = this.pickProvider(task, false)
       if (!synthesizer) throw new Error('No eligible provider is available to synthesize the task results.')
       this.selectTaskProvider(task, synthesizer.id)
       const synthesisResult = await this.runOne(synthesizer, buildSynthesisPrompt(task.prompt, task.subtasks), task, controller, (text) => {
         task.output += text
         task.estimatedOutputTokens = estimateTokens(task.output)
         this.emitSnapshot()
-      }, undefined, undefined, imagePaths)
+      }, undefined, undefined, imagePaths, false)
       if (!synthesisResult.ok) throw new Error(synthesisResult.error ?? 'No provider could synthesize the task results.')
 
       task.orchestrationStage = 'done'
@@ -978,7 +1154,7 @@ export class OrchestrationEngine extends EventEmitter {
       subtask.status = 'running'; subtask.providerId = provider.id; subtask.startedAt = new Date().toISOString(); this.emitSnapshot()
       const workdir = worktrees.get(subtask.id) ?? task.cwd
       try {
-        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths)
+        const result = await this.runOne(provider, subtask.prompt, task, controller, (text) => { subtask.output += text; this.emitSnapshot() }, workdir, subtask.type, imagePaths, false)
         if (!subtask.output.trim()) subtask.output = result.output
         subtask.providerId = result.providerId
         subtask.model = result.model
@@ -1018,7 +1194,9 @@ export class OrchestrationEngine extends EventEmitter {
   // provider could take even when idle (no capability, cooldown, usage limit,
   // offline) is a genuine failure.
   private async awaitSubtaskProvider(task: ProxyTask, subtask: SubTask, controller: AbortController): Promise<ProviderConfig | undefined> {
-    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false }
+    // Never the parent's advice (see runOne's useAdvice=false): a subtask
+    // routes on the same factors as no-advisor routing.
+    const routing = { ...task, type: subtask.type, preferredProviderId: undefined, orchestrated: false, advice: undefined }
     for (;;) {
       if (controller.signal.aborted) return undefined
       const providers = this.snapshot().providers
@@ -1038,9 +1216,15 @@ export class OrchestrationEngine extends EventEmitter {
     onText?: (text: string) => void,
     cwd?: string,
     routingType?: TaskType,
-    imagePaths: string[] = []
+    imagePaths: string[] = [],
+    // False for orchestration subtask lanes and the synthesis step: a
+    // plan-level complexity rating (e.g. "architectural") must not push every
+    // small subtask, or the read-only synthesis pass, onto a frontier model.
+    // Only the planner stage (the parent route) and a single task's own
+    // failover keep the advice — both call this with the default.
+    useAdvice: boolean = true
   ): Promise<{ output: string; model?: string; ok: boolean; error?: string; providerId: string }> {
-    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false }
+    const routingTask = { ...task, type: routingType ?? task.type, preferredProviderId: undefined, orchestrated: false, advice: useAdvice ? task.advice : undefined }
     const ranked = rankProviders(routingTask, this.snapshot().providers, this.routingOptions())
     const candidateIds = [...new Set([initialProvider.id, ...ranked.map((item) => item.id)])]
     let final: { output: string; model?: string; ok: boolean; error?: string; providerId: string } = {
@@ -1057,7 +1241,7 @@ export class OrchestrationEngine extends EventEmitter {
       const started = Date.now()
       let output = ''
       let contextReported = false
-      const result = await runProvider(this.withModel(provider, task), {
+      const result = await runProvider(this.withModel(provider, task, useAdvice), {
         prompt, cwd: cwd ?? task.cwd, signal: controller.signal, ...(await this.activeRunProfile(task)), imagePaths,
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
@@ -1099,12 +1283,20 @@ export class OrchestrationEngine extends EventEmitter {
     return ranked
   }
 
-  private routingOptions(): { learnFromOutcomes: boolean } {
-    return { learnFromOutcomes: this.settings.learnFromOutcomes !== false }
+  private routingOptions(): RoutingOptions {
+    return {
+      learnFromOutcomes: this.settings.learnFromOutcomes !== false,
+      advisorMode: this.settings.advisor?.mode ?? 'off',
+      advisorMinConfidence: this.settings.advisor?.minConfidence ?? 0.5
+    }
   }
 
-  private pickProvider(task: ProxyTask): ProviderConfig | undefined {
-    const ranked = rankProviders({ ...task, orchestrated: false }, this.snapshot().providers, this.routingOptions())
+  // `useAdvice: false` picks a provider on the same factors as no-advisor
+  // routing — used for the orchestration synthesizer, which must not inherit
+  // the parent task's complexity rating (see runOne).
+  private pickProvider(task: ProxyTask, useAdvice: boolean = true): ProviderConfig | undefined {
+    const routing = { ...task, orchestrated: false, advice: useAdvice ? task.advice : undefined }
+    const ranked = rankProviders(routing, this.snapshot().providers, this.routingOptions())
     return this.settings.providers.find((item) => item.id === ranked[0]?.id)
   }
 
@@ -1114,9 +1306,32 @@ export class OrchestrationEngine extends EventEmitter {
 
   // Never hand a provider a model id belonging to another CLI: Codex fails the
   // whole run on `claude-opus-5` rather than ignoring it.
-  private withModel(provider: ProviderConfig, task: ProxyTask): ProviderConfig {
+  //
+  // `useAdvice: false` (subtask lanes and orchestration synthesis, via runOne)
+  // skips the advisor branch entirely — no read of task.advice, no write of
+  // task.routedModel — so a plan-level "architectural" complexity rating can
+  // never push every small subtask onto a frontier model. Per-subtask
+  // advising is a later phase; until then those runs use the provider default.
+  private withModel(provider: ProviderConfig, task: ProxyTask, useAdvice: boolean = true): ProviderConfig {
     const model = resolveTaskModel(this.modelOwner(provider), task.modelOverride, task.modelOverrideProviderId, this.modelOwners())
-    return model === provider.model ? provider : { ...provider, model }
+    if (model !== provider.model) return { ...provider, model }
+    if (!useAdvice) return provider
+    const routed = this.routedModelFor(provider, task)
+    return routed ? { ...provider, model: routed } : provider
+  }
+
+  // Model precedence per provider: user override (owner only, handled above) →
+  // the advisor's pick for THIS provider, active mode only → provider default.
+  // Never crosses providers: pickModel only ever chooses among this provider's
+  // own discovered/known models. `task` here is always the real task the
+  // caller is running (never a pseudo/routing-only copy), so this write is
+  // always attributed to the provider that is actually about to run.
+  private routedModelFor(provider: ProviderConfig, task: ProxyTask): string | undefined {
+    if (this.settings.advisor?.mode !== 'active' || task.advice?.source !== 'jev') return undefined
+    const candidate = pickModel(provider, this.runtimes.get(provider.id)?.models ?? [], task.advice, task.mode)
+    if (!candidate || candidate === provider.model) return undefined
+    task.routedModel = { providerId: provider.id, model: candidate, reason: `Jev: complexity ${task.advice.complexity?.toFixed(1) ?? '—'} suggests the ${tierFor(candidate, provider.kind)} tier` }
+    return candidate
   }
 
   // Say so in the transcript when the picked model could not travel with the task.

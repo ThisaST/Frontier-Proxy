@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, SkillCatalog, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry, WorkspaceParticipant, WorkspaceStreamEvent } from '../shared/types'
+import type { AdvisorPreviewInput, AdvisorPreviewResult, AdvisorTestResult, AppSettings, AppSnapshot, BranchRepo, ChatContextItem, ControlPlaneProfile, CreateTaskInput, FrontierApi, ProviderPatch, ProxyTask, SelectedImage, SkillCatalog, StreamEvent, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry, WorkspaceParticipant, WorkspaceStreamEvent } from '../shared/types'
 
 const api: FrontierApi = {
   getSnapshot: () => ipcRenderer.invoke('frontier:snapshot') as Promise<AppSnapshot>,
@@ -23,7 +23,7 @@ const api: FrontierApi = {
   updateProvider: (patch: ProviderPatch) => ipcRenderer.invoke('frontier:update-provider', patch) as Promise<AppSnapshot>,
   addCustomProvider: () => ipcRenderer.invoke('frontier:add-custom-provider') as Promise<AppSnapshot>,
   removeProvider: (providerId: string) => ipcRenderer.invoke('frontier:remove-provider', providerId) as Promise<AppSnapshot>,
-  updateSettings: (changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes'>>) =>
+  updateSettings: (changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes' | 'advisor'>>) =>
     ipcRenderer.invoke('frontier:update-settings', changes) as Promise<AppSnapshot>,
   updateControlPlane: (profile: ControlPlaneProfile) =>
     ipcRenderer.invoke('frontier:update-control-plane', profile) as Promise<AppSnapshot>,
@@ -35,6 +35,10 @@ const api: FrontierApi = {
     ipcRenderer.invoke('frontier:authenticate-mcp', serverId) as Promise<AppSnapshot>,
   disconnectMcpServer: (serverId: string) =>
     ipcRenderer.invoke('frontier:disconnect-mcp', serverId) as Promise<AppSnapshot>,
+  setAdvisorKey: (key: string) => ipcRenderer.invoke('advisor:set-key', key) as Promise<AppSnapshot>,
+  clearAdvisorKey: () => ipcRenderer.invoke('advisor:clear-key') as Promise<AppSnapshot>,
+  testAdvisor: () => ipcRenderer.invoke('advisor:test') as Promise<AdvisorTestResult>,
+  previewAdvisor: (input: AdvisorPreviewInput) => ipcRenderer.invoke('advisor:preview', input) as Promise<AdvisorPreviewResult>,
   chooseDirectory: (currentPath?: string) => ipcRenderer.invoke('frontier:choose-directory', currentPath) as Promise<string | null>,
   createWorkspace: (name: string, cwd: string) => ipcRenderer.invoke('frontier:create-workspace', name, cwd) as Promise<AppSnapshot>,
   updateWorkspace: (workspaceId: string, name: string) => ipcRenderer.invoke('frontier:update-workspace', workspaceId, name) as Promise<AppSnapshot>,

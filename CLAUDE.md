@@ -358,6 +358,73 @@ and with it off the router scores exactly as it did before. Cancelling a task re
 nothing — that is the user's decision, not a verdict on the agent. Deleting a branch that
 was already merged is housekeeping, not a rejection.
 
+## Routing advisor (Jev)
+
+Jev (TypeSafe's System One model, ADR 0002) is an **auxiliary service**, not a coding
+agent: it never generates text and never runs on the user's behalf, so it falls under
+ADR 0002's narrowed "no API keys" rule rather than breaking it. **Jev advises, the router
+decides** — its answers only ever become bounded, labelled `RoutingFactor`s next to every
+other factor; they never override eligibility (`skipReason`), an explicit pick (+1000), or
+a user-picked model.
+
+- **What's sent** — `buildJevRequest` (`src/main/advisor.ts`, pure) sends the prompt
+  (trimmed to fit Jev's budget, keeping head and tail), attachment *names* only, and —
+  when `AppSettings.advisor.shareRepoFacts` is on (default) — lightweight `repoFacts(cwd)`:
+  top languages, file count, manifests, and top-level folder names from `git ls-files`.
+  File contents never leave the machine. One request asks five questions at once:
+  `task_type` (choice over the six `TaskType`s), `complexity` (score, 4 levels: trivial →
+  single-file → multi-file → architectural), `edits_files`/`long_context`/`split_worthy`
+  (nouls), and `target` — a choice over every eligible `(provider, model)` pair, each
+  described by `src/shared/model-profiles.ts`'s `describeCandidate` (the one place that
+  says what a model is good at: tier + strengths, honest about what it *can't* do — an
+  Ollama provider has no file tools). `target` is omitted below two candidates.
+- **Modes** — `AdvisorMode`: `off` (default; routing scores exactly as without this
+  feature), `shadow` (records what Jev *would* have chosen in `decision.advisor`, next to
+  the real route, without changing it), `active` (its answers become real factors and can
+  become the routed model). `AppSettings.advisor` holds the mode, Jev model id,
+  `minConfidence` (default 0.5 — a `task_type`/`complexity` answer below it is ignored),
+  `shareRepoFacts`, and `previewWhileTyping`.
+- **Never blocks the queue** — `JevClient` (injected `fetch`) hard-times-out each attempt
+  (~2s default), retries once on 429/529 honouring `Retry-After` (capped, so a slow retry
+  can't itself stall things), then the caller (`advise`) falls back to `heuristicAdvice`
+  (today's `classifyTask`) with the error attached. The engine computes heuristic advice
+  *synchronously* at task creation and only *fires* the Jev call — the queue pump skips a
+  task while its `OrchestrationEngine.pendingAdvice` flag is set and picks an older queued
+  task instead, never blocking on it, and the flag is bounded by the client's own
+  timeout/retry so it can never hang indefinitely.
+- **Router factors** (`src/main/router.ts`, gated on `mode === 'active' && task.advice
+  ?.source === 'jev'`): **tier fit** (±20) scores how close a provider's best
+  discovered/known model gets to the tier `complexity` calls for (`<0.75` fast, `<1.75`
+  standard, `<2.5` standard-or-frontier, `≥2.5` frontier), shifted one tier by
+  saver/quality mode, gated on `complexityConfidence ≥ minConfidence`; **Jev best fit**
+  (0…+15 × confidence) sums `target`'s probability mass over a provider's own
+  `(providerId)::(model)` options; **read-only bonus** (+8) favours local providers only
+  when `editsFiles < 0.2`. `pickModel(provider, models, advice, mode)` is pure and
+  provider-scoped — it can never hand a model id to a different agent — and returns
+  `undefined` (keep the provider default) when there's no usable signal.
+- **Model precedence** (`OrchestrationEngine.withModel`): user override (owner only, via
+  `resolveTaskModel`) → the advisor's pick *for this specific provider* (active mode only;
+  recorded as `task.routedModel` with a plain-language reason) → the provider's own
+  default. Orchestrated tasks advise the planner's route only; per-subtask advising is a
+  later phase. Continuations, bench lanes, and workspace turns never get advice — bench and
+  workspaces aren't routed at all, and a continuation stays pinned to the transcript.
+- **Credentials** — the API key is encrypted with the same Electron `safeStorage`
+  codec/pattern as MCP OAuth tokens (`AdvisorKeyManager`, its own small file under
+  userData), lives only in the main process, and is redacted from every `JevClient` error
+  message. `AppSnapshot.advisor` exposes only `{ hasKey, lastError, lastCheckedAt }` — the
+  key itself never reaches the renderer, `frontier-state.json`, or a log. IPC:
+  `advisor:set-key` / `advisor:clear-key` / `advisor:test` / `advisor:preview` (the preview
+  returns the exact request body that would be sent, heuristic advice, and the resulting
+  `RoutingDecision` — it calls Jev for real only when `previewWhileTyping` is on and a key
+  exists, otherwise it stays on the heuristic so typing never leaks a draft prompt).
+- Tests: `tests/advisor.test.ts` (request shape/trimming, response parsing incl.
+  malformed shapes, confidence gating, 401/422/429-then-success/timeout via a fake `fetch`,
+  key redaction, `repoFacts` against a temp git repo), `tests/model-profiles.test.ts`, and
+  additions to `tests/router.test.ts`/`tests/engine.test.ts` (off/shadow score identically
+  to no-advice, factor bounds, explicit picks and ineligibility still win, `pickModel` never
+  crosses providers, saver/quality tier shifts, and a task still completes on the heuristic
+  fallback when the advisor call hangs).
+
 ## Provider login state
 
 `checkProvider` only runs `<exe> --version`, which is why a provider can show **Ready** and

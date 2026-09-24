@@ -24,16 +24,25 @@ export function lamp(tone: Tone, label: string, blink = false): HTMLElement {
 }
 
 // Ten discrete segments by default. Replaces every continuous meter (plan
-// windows, context occupancy, tracked budget). `aria-valuenow` carries the
-// real number even though the visual is stepped.
+// windows, context occupancy, tracked budget). A `meter`/`progressbar` role
+// requires `aria-valuenow` (axe: aria-required-attr) — when the value is
+// genuinely unknown ("No plan limit reported") this renders as a plain
+// labelled image instead of a value-less meter.
 export function gaugeSeg(percent: number | undefined, tone: Tone = 'phosphor', label?: string, segments = 10): HTMLElement {
-  const clamped = Math.min(100, Math.max(0, percent ?? 0))
-  const lit = Math.round((clamped / 100) * segments)
   const node = element('div', `gauge-seg tone-${tone}`)
+  if (percent === undefined) {
+    node.setAttribute('role', 'img')
+    node.setAttribute('aria-label', label ? `${label} — no data reported` : 'No data reported')
+    for (let index = 0; index < segments; index += 1) node.append(element('span', 'seg'))
+    return node
+  }
+  const clamped = Math.min(100, Math.max(0, percent))
+  const lit = Math.round((clamped / 100) * segments)
   node.setAttribute('role', 'meter')
   node.setAttribute('aria-valuemin', '0')
   node.setAttribute('aria-valuemax', '100')
-  if (percent !== undefined) node.setAttribute('aria-valuenow', String(Math.round(clamped)))
+  node.setAttribute('aria-valuenow', String(Math.round(clamped)))
+  node.setAttribute('aria-valuetext', `${Math.round(clamped)}%${label ? ` — ${label}` : ''}`)
   if (label) node.setAttribute('aria-label', label)
   for (let index = 0; index < segments; index += 1) node.append(element('span', index < lit ? 'seg lit' : 'seg'))
   return node
@@ -178,6 +187,21 @@ export interface DialogHandle {
   el: HTMLDialogElement
   open(returnFocusTo?: HTMLElement): void
   close(): void
+}
+
+// For the dialogs that still call the native `showModal()` directly (command
+// palette, confirm, participants, …) rather than going through `dialogHandle`
+// — patches that one instance's `showModal` so whatever had focus when it
+// opened gets it back on close, without touching any call site. Idempotent:
+// safe to call once per dialog even if more than one module reaches the same
+// shared element (e.g. `#confirm-dialog`).
+export function restoreFocusOnClose(el: HTMLDialogElement): void {
+  if (el.dataset.focusReturnBound) return
+  el.dataset.focusReturnBound = 'true'
+  let returnFocusTo: HTMLElement | undefined
+  const original = el.showModal.bind(el)
+  el.showModal = () => { returnFocusTo = document.activeElement as HTMLElement | null ?? undefined; original() }
+  el.addEventListener('close', () => returnFocusTo?.focus())
 }
 
 export function dialogHandle(el: HTMLDialogElement): DialogHandle {

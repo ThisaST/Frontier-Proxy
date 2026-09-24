@@ -55,3 +55,8 @@
 @media (max-width: 1240px) {
   .home-columns { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 640px) {
+  .composer-panel-head { flex-wrap: wrap; }
+  .composer-advanced > .form-row { grid-template-columns: 1fr; }
+}

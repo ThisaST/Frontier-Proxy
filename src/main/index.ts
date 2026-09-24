@@ -54,8 +54,8 @@ function createWindow(): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 980,
-    minHeight: 680,
+    minWidth: 720,
+    minHeight: 560,
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#0c0e0d',

@@ -3,6 +3,7 @@
 // by the ⌘N dialog and Home's composer (P3b) so the two forms cannot drift.
 import type { CreateTaskInput, ProxyTask, SkillCatalog } from '../../shared/types'
 import { byId, element, emptyState } from './ui/dom'
+import { initRadioGroup, syncRadioGroupTabIndex } from './ui/segmented'
 import { messageContext, composerDraft, clearComposerDraft, attachmentPreviewCache } from './composer'
 import { persistControlPlaneDraft } from './views/control'
 import { snapshot } from './state'
@@ -141,6 +142,7 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
       button.classList.toggle('active', active)
       button.setAttribute('aria-checked', String(active))
     })
+    document.querySelectorAll<HTMLElement>(`${ids.root} .run-modes`).forEach(syncRadioGroupTabIndex)
     if (ids.singleOptions) byId(ids.singleOptions).hidden = mode === 'bench'
     if (ids.benchOptions) byId(ids.benchOptions).hidden = mode !== 'bench'
     if (ids.modelField) byId(ids.modelField).hidden = mode === 'bench'
@@ -234,6 +236,8 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
 
   function init(): void {
     document.querySelectorAll<HTMLElement>(`${ids.root} .run-mode`).forEach((button) => button.addEventListener('click', () => setRunMode((button.dataset.runMode as RunMode) ?? 'single')))
+    document.querySelectorAll<HTMLElement>(`${ids.root} .run-modes`).forEach((group) =>
+      initRadioGroup(group, (option) => setRunMode((option.dataset.runMode as RunMode) ?? 'single')))
     byId<HTMLSelectElement>(ids.providerOverrideSelect).addEventListener('change', renderModelOptions)
     byId<HTMLSelectElement>(ids.modelSelect).addEventListener('change', () => {
       const custom = byId<HTMLInputElement>(ids.modelCustom)

@@ -65,6 +65,7 @@ function renderMcpServers(): void {
 
     const top = element('div', 'cp-server-top')
     const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = server.enabled
+    toggle.setAttribute('aria-label', `Enable ${server.name || 'this MCP server'}`)
     toggle.addEventListener('change', () => { server.enabled = toggle.checked })
     const toggleWrap = document.createElement('label'); toggleWrap.className = 'switch small'
     toggleWrap.append(toggle, element('span', 'slider'))

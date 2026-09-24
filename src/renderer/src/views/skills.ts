@@ -10,8 +10,11 @@ import { snapshot, setSnapshot } from '../state'
 export const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss'] as const
 export const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama' }
 
+function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
+function writeStorage(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
+
 const SKILLS_CWD_KEY = 'fp-skills-cwd'
-let skillsCwd = localStorage.getItem(SKILLS_CWD_KEY) ?? ''
+let skillsCwd = readStorage(SKILLS_CWD_KEY) ?? ''
 let skillCatalog: SkillCatalog | undefined
 
 // Kinds among the configured providers that the catalog's per-source
@@ -65,6 +68,7 @@ function renderSkillList(): void {
     heading.append(element('strong', undefined, skill.name), element('p', undefined, skill.description || 'No description provided.'))
 
     const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = !disabled.has(skill.id)
+    toggle.setAttribute('aria-label', `Enable ${skill.name}`)
     const toggleWrap = document.createElement('label'); toggleWrap.className = 'switch small'
     toggleWrap.append(toggle, element('span', 'slider'))
     toggle.addEventListener('change', async () => {
@@ -88,7 +92,7 @@ function renderSkillList(): void {
 async function loadSkillsView(refresh = false): Promise<void> {
   const cwd = byId<HTMLInputElement>('skills-cwd').value.trim()
   skillsCwd = cwd
-  localStorage.setItem(SKILLS_CWD_KEY, cwd)
+  writeStorage(SKILLS_CWD_KEY, cwd)
   if (!cwd) { skillCatalog = undefined; renderSkillRoots(); renderSkillList(); return }
   try {
     skillCatalog = await window.frontier.listSkills(cwd, refresh)

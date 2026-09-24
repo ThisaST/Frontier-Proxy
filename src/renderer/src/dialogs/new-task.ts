@@ -4,12 +4,14 @@
 // pre-filling that field from the current project.
 import { byId } from '../ui/dom'
 import { errorMessage, reportError } from '../ui/feedback'
+import { restoreFocusOnClose } from '../ui/components'
 import { createTaskForm, type RunMode } from '../task-form'
 import { currentProject } from '../project'
 import { setSelectedTaskId } from '../state'
 import { switchView } from '../main'
 
 export const taskDialog = byId<HTMLDialogElement>('task-dialog')
+restoreFocusOnClose(taskDialog)
 
 const form = createTaskForm({
   root: '#task-dialog',

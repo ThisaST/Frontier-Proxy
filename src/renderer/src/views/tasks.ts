@@ -125,8 +125,12 @@ export function renderTasks(): void {
     if (!tasksInGroup.length) continue
     const collapsed = collapsedGroups.has(group.id)
     const section = element('div', `task-group${collapsed ? ' collapsed' : ''}`)
+    section.setAttribute('role', 'group')
+    const headerId = `task-group-head-${group.id}`
+    section.setAttribute('aria-labelledby', headerId)
     const header = element('button', 'task-group-head') as HTMLButtonElement
     header.type = 'button'
+    header.id = headerId
     header.setAttribute('aria-expanded', String(!collapsed))
     const caret = element('span', 'task-group-caret'); caret.append(icon(collapsed ? 'chevron-right' : 'chevron-down', 14))
     header.append(caret, element('span', 'task-group-label', group.label), element('span', 'task-group-count', String(tasksInGroup.length)))
@@ -137,15 +141,19 @@ export function renderTasks(): void {
     })
     section.append(header)
     if (!collapsed) {
+      // The rows container is its own `listbox` of `option` rows (axe:
+      // aria-required-children) — `#task-list` itself is a plain `group`
+      // holding several such listboxes, one per status group, rather than one
+      // listbox owning non-option header buttons directly.
       const rows = element('div', 'task-group-rows')
+      rows.setAttribute('role', 'listbox')
+      rows.setAttribute('aria-label', `${group.label} tasks`)
       for (const task of tasksInGroup) rows.append(taskRow(task))
       section.append(rows)
     }
     fragment.append(section)
   }
   container.replaceChildren(fragment)
-  if (selectedTaskId) container.setAttribute('aria-activedescendant', taskRowId(selectedTaskId))
-  else container.removeAttribute('aria-activedescendant')
   renderSurface()
 }
 
@@ -173,37 +181,62 @@ export let applyInspectorWidth: () => void = () => undefined
 
 const LIST_COLLAPSE_KEY = 'fp-list-collapsed'
 const INSPECTOR_COLLAPSE_KEY = 'fp-inspector-collapsed'
-let listCollapsed = readLS(LIST_COLLAPSE_KEY) === 'true'
+let listCollapsedManual = readLS(LIST_COLLAPSE_KEY) === 'true'
 let inspectorCollapsedManual = readLS(INSPECTOR_COLLAPSE_KEY) === 'true'
-// Set only while the inspector is auto-collapsed for lack of room; toggling
-// it there raises the inspector as a floating overlay instead of trying to
-// squeeze the grid below its floor. Transient — not persisted.
+// Set only while a panel is auto-collapsed for lack of room; toggling it
+// there raises it as a floating overlay instead of trying to squeeze the
+// grid below its floor. Transient — not persisted.
 let inspectorOverlayOpen = false
+let listOverlayOpen = false
 let lastAutoCollapse = false
-
-function applyListState(): void {
-  byId('content-grid').classList.toggle('list-collapsed', listCollapsed)
-}
+let lastListAutoCollapse = false
 
 export function toggleTaskList(): void {
-  listCollapsed = !listCollapsed
-  writeLS(LIST_COLLAPSE_KEY, String(listCollapsed))
-  applyListState()
+  // Too narrow for the list to sit inline: its own toggle opens it as a
+  // floating overlay instead of fighting the auto-collapse (mirrors the
+  // inspector's own toggle below).
+  if (lastListAutoCollapse && !listCollapsedManual) {
+    listOverlayOpen = !listOverlayOpen
+    applyInspectorState()
+    return
+  }
+  listCollapsedManual = !listCollapsedManual
+  writeLS(LIST_COLLAPSE_KEY, String(listCollapsedManual))
+  applyInspectorState()
 }
 
+// Drives both side panels' collapse/overlay state from the grid's real,
+// laid-out width — never a fixed viewport breakpoint. The inspector (softer,
+// secondary panel) gives way first, once the centre would drop under its
+// comfortable width; the list only auto-collapses once even a collapsed
+// inspector leaves no room for the centre's hard 420px floor (SURFACE_MIN_WIDTH
+// below). Named `applyInspectorState` for the existing
+// exported call sites (main.ts, resize handlers) — it now owns the list too
+// because the two decisions are coupled (each affects the room left for the
+// other).
 export function applyInspectorState(): void {
   const grid = byId('content-grid')
   const available = grid.getBoundingClientRect().width
-  const listSpace = listCollapsed ? 0 : (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH
-  const inspectorSpace = (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH
+  const inspectorSpaceFull = (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH
+  const listSpaceFull = (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH
+
   // Only a real, laid-out measurement counts — the grid reports 0 while the
   // Tasks view is hidden, which must never look like "too narrow to fit".
-  const autoCollapse = available > 0 && (available - listSpace - inspectorSpace) < CENTRE_AUTO_COLLAPSE_WIDTH
+  const autoCollapse = available > 0 && (available - listSpaceFull - inspectorSpaceFull) < CENTRE_AUTO_COLLAPSE_WIDTH
   lastAutoCollapse = autoCollapse
   const collapsed = inspectorCollapsedManual || autoCollapse
   const overlay = autoCollapse && !inspectorCollapsedManual && inspectorOverlayOpen
+  const inspectorGridSpace = collapsed ? 0 : inspectorSpaceFull
+
+  const autoCollapseList = available > 0 && (available - inspectorGridSpace - listSpaceFull) < SURFACE_MIN_WIDTH
+  lastListAutoCollapse = autoCollapseList
+  const listCollapsedNow = listCollapsedManual || autoCollapseList
+  const listOverlay = autoCollapseList && !listCollapsedManual && listOverlayOpen
+
   grid.classList.toggle('inspector-collapsed', collapsed)
   grid.classList.toggle('inspector-overlay-open', overlay)
+  grid.classList.toggle('list-collapsed', listCollapsedNow)
+  grid.classList.toggle('list-overlay-open', listOverlay)
 
   const visible = !collapsed || overlay
   const toggle = byId<HTMLButtonElement>('inspector-toggle')
@@ -212,6 +245,14 @@ export function applyInspectorState(): void {
   toggle.title = visible ? (autoCollapse ? 'Hide inspector' : 'Collapse inspector') : (autoCollapse ? 'Show inspector' : 'Expand inspector')
   toggle.setAttribute('aria-label', toggle.title)
   toggle.replaceChildren(icon(visible ? 'panel-right-close' : 'panel-right', 16))
+
+  const listVisible = !listCollapsedNow || listOverlay
+  const listToggle = byId<HTMLButtonElement>('list-toggle')
+  listToggle.setAttribute('aria-pressed', String(listVisible))
+  listToggle.setAttribute('aria-expanded', String(listVisible))
+  listToggle.title = listVisible ? (autoCollapseList ? 'Hide queue' : 'Collapse queue') : (autoCollapseList ? 'Show queue' : 'Expand queue')
+  listToggle.setAttribute('aria-label', listToggle.title)
+  listToggle.replaceChildren(icon(listVisible ? 'collapse' : 'expand', 16))
 }
 
 export function toggleInspector(): void {
@@ -1119,7 +1160,7 @@ export function initTasksView(): void {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleComposerAction() }
   })
 
-  applyListState()
+  byId('list-toggle').addEventListener('click', () => toggleTaskList())
   applyInspectorState()
 
   // How much column width the *other* side panel currently reserves
@@ -1184,7 +1225,7 @@ export function initTasksView(): void {
       else writeLS('fp-wq-width', String(clamped))
     })
     // Shrinking the window can invalidate a width that used to fit.
-    window.addEventListener('resize', () => { if (currentView === 'tasks') applyQueueWidth() })
+    window.addEventListener('resize', () => { if (currentView === 'tasks') { applyQueueWidth(); applyInspectorState() } })
   })()
 
   // Draggable divider between the surface and the inspector — same pattern,

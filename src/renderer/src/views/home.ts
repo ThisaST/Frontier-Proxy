@@ -5,6 +5,8 @@ import { tierFor } from '../../../shared/model-profiles'
 import { byId, element, emptyState } from '../ui/dom'
 import { chip, gaugeSeg, lamp, radar, type Tone } from '../ui/components'
 import { icon } from '../ui/icons'
+import { tooltip } from '../ui/tooltip'
+import { announce } from '../ui/announce'
 import { errorMessage, reportError } from '../ui/feedback'
 import { countdown, formatCost, formatNumber, timeAgo } from '../ui/format'
 import { providerCapacity, providerName, providerQuota, trackedTokens, type SnapshotProvider } from '../providers-view-model'
@@ -48,8 +50,8 @@ export function renderMiniProviders(): void {
     const capacity = providerCapacity(provider)
     const button = element('button', 'mini-provider-lamp') as HTMLButtonElement
     button.type = 'button'
-    button.title = `${provider.name} · ${capacity.label}`
     button.setAttribute('aria-label', `${provider.name}: ${capacity.label}`)
+    tooltip(button, `${provider.name} · ${capacity.label}`)
     button.append(lamp(providerLampTone(provider), capacity.label))
     button.addEventListener('click', () => switchView('agents'))
     return button
@@ -101,8 +103,9 @@ function renderRouteResult(result: AdvisorPreviewResult): void {
   const line = byId('home-route-preview')
   const providerId = result.decision.chosenProviderId
   const provider = providerId ? snapshot.providers.find((item) => item.id === providerId) : undefined
-  if (!provider) { renderRouteIdle('No agent is currently eligible to run this.'); return }
+  if (!provider) { renderRouteIdle('No agent is currently eligible to run this.'); announce('route-preview', 'Route preview: no agent is currently eligible.'); return }
   line.className = 'route-preview'
+  announce('route-preview', `Route preview: ${provider.name}${result.model ? ` · ${result.model}` : ''}`)
   const tier = tierFor(result.model, provider.kind)
   const nodes: HTMLElement[] = [
     element('span', 'route-preview-arrow', '→'),

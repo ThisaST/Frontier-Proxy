@@ -11,6 +11,8 @@ import { openBranchInReview } from './main'
 import { onProjectChange, projectMatches, renderProjectChipInto } from './project'
 import { lamp } from './ui/components'
 import { icon, type IconName } from './ui/icons'
+import { initRadioGroup, syncRadioGroupTabIndex } from './ui/segmented'
+import { restoreFocusOnClose } from './ui/components'
 import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
@@ -37,6 +39,10 @@ function emptyState(title: string, detail: string): HTMLElement {
   empty.append(element('strong', undefined, title), detail)
   return empty
 }
+
+function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
+function writeStorage(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
+function removeStorage(key: string): void { try { localStorage.removeItem(key) } catch { /* private mode / disabled storage */ } }
 
 function timeAgo(date?: string): string {
   if (!date) return '—'
@@ -72,6 +78,7 @@ function reportError(action: string, error: unknown): void {
 // mirrors main.ts's own confirmAction over the same shared `#confirm-dialog` markup.
 // Only one modal can be open at a time, so the two independent implementations never race.
 const confirmDialog = byId<HTMLDialogElement>('confirm-dialog')
+restoreFocusOnClose(confirmDialog)
 function confirmAction(title: string, body: string, acceptLabel: string): Promise<boolean> {
   byId('confirm-title').textContent = title
   byId('confirm-body').textContent = body
@@ -463,6 +470,7 @@ async function sendWsMessage(): Promise<void> {
 // and closing it (`.close()`) only dismisses that one, leaving this dialog open beneath.
 
 const participantsDialog = byId<HTMLDialogElement>('participants-dialog')
+restoreFocusOnClose(participantsDialog)
 byId('workspace-participants-button').addEventListener('click', () => participantsDialog.showModal())
 byId('participants-dialog-close').addEventListener('click', () => participantsDialog.close())
 
@@ -569,7 +577,7 @@ function applyWorkspaceGutters(): void { for (const apply of workspaceGutterAppl
 
 function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: string, storageKey: string, min: number, max: number, anchor: 'left' | 'right'): void {
   const clamp = (value: number): number | undefined => (Number.isFinite(value) && value > 0 ? Math.round(Math.min(max, Math.max(min, value))) : undefined)
-  const stored = Number(localStorage.getItem(storageKey))
+  const stored = Number(readStorage(storageKey))
   let width: number | undefined = Number.isFinite(stored) && stored > 0 ? clamp(stored) : undefined
   const apply = (): void => { if (width === undefined) grid.style.removeProperty(cssVar); else grid.style.setProperty(cssVar, `${width}px`) }
   let dragging = false
@@ -585,7 +593,7 @@ function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: st
   window.addEventListener('mouseup', () => {
     if (!dragging) return
     dragging = false; gutter.classList.remove('dragging'); document.body.style.userSelect = ''
-    if (width === undefined) localStorage.removeItem(storageKey); else localStorage.setItem(storageKey, String(width))
+    if (width === undefined) removeStorage(storageKey); else writeStorage(storageKey, String(width))
   })
   workspaceGutterAppliers.push(apply)
 }
@@ -597,6 +605,7 @@ onProjectChange(() => { if (latestSnapshot) renderWorkspaceView(latestSnapshot) 
 // ---- Workspace create / rename dialog ----
 
 const workspaceFormDialog = byId<HTMLDialogElement>('workspace-form-dialog')
+restoreFocusOnClose(workspaceFormDialog)
 
 function openWorkspaceForm(mode: 'create' | 'rename', workspace?: WorkspaceView): void {
   workspaceFormMode = mode
@@ -665,6 +674,7 @@ byId('workspace-delete-button').addEventListener('click', () => void deleteCurre
 // ---- Participant editor dialog ----
 
 const participantDialog = byId<HTMLDialogElement>('participant-dialog')
+restoreFocusOnClose(participantDialog)
 
 function renderAccentPicker(selected: string): void {
   const container = byId('ws-participant-accent')
@@ -683,11 +693,13 @@ function setParticipantKind(kind: ParticipantKind): void {
     const active = button.dataset.kind === kind
     button.classList.toggle('active', active); button.setAttribute('aria-checked', String(active))
   })
+  syncRadioGroupTabIndex(byId('ws-participant-kind'))
   byId('ws-participant-agent-fields').hidden = kind !== 'agent'
   byId('ws-participant-capabilities').hidden = kind !== 'agent'
 }
 document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) =>
   button.addEventListener('click', () => setParticipantKind(button.dataset.kind === 'human' ? 'human' : 'agent')))
+initRadioGroup(byId('ws-participant-kind'), (option) => setParticipantKind(option.dataset.kind === 'human' ? 'human' : 'agent'))
 
 let handleEdited = false
 byId<HTMLInputElement>('ws-participant-handle').addEventListener('input', () => { handleEdited = true })

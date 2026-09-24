@@ -1,13 +1,25 @@
 // Home — Mission Control: agent capacity, what's running, and branches waiting
 // for review.
-import { byId, element, emptyState, gauge } from '../ui/dom'
+import { byId, element, emptyState } from '../ui/dom'
+import { gaugeSeg, lamp, type Tone } from '../ui/components'
+import { icon } from '../ui/icons'
 import { countdown, formatCost, formatNumber, timeAgo } from '../ui/format'
-import { providerCapacity, providerName, providerQuota, trackedTokens } from '../providers-view-model'
-import { taskElapsed, taskKindLabel } from '../task-helpers'
+import { providerCapacity, providerName, providerQuota, trackedTokens, type SnapshotProvider } from '../providers-view-model'
+import { taskElapsed, taskKindLabel, taskStatusIndicator } from '../task-helpers'
 import { snapshot } from '../state'
 import { reviewRepos, reviewLoaded } from './review'
 import { openTask } from './tasks'
 import { openBranchInReview, switchView } from '../main'
+
+// Shared by the sidebar rail, Home's agent cards, and Agents/Usage cards: what
+// lamp tone a provider's capacity reads as right now.
+export function providerLampTone(provider: SnapshotProvider): Tone {
+  const capacity = providerCapacity(provider)
+  if (capacity.tone === 'limited') return 'alarm'
+  if (provider.runtime.running) return 'caution'
+  if (provider.runtime.available) return 'phosphor'
+  return 'muted'
+}
 
 // --- Sidebar rail ---
 
@@ -18,9 +30,7 @@ export function renderMiniProviders(): void {
     const capacity = providerCapacity(provider)
     row.title = `${provider.name} · ${capacity.label}`
     row.setAttribute('aria-label', `${provider.name}: ${capacity.label}`)
-    const dot = element('span', `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`)
-    dot.setAttribute('aria-hidden', 'true')
-    row.append(dot, element('span', undefined, provider.name), element('small', undefined, capacity.label.toLowerCase()))
+    row.append(lamp(providerLampTone(provider), capacity.label), element('span', undefined, provider.name), element('small', undefined, capacity.label.toLowerCase()))
     return row
   }))
 }
@@ -38,7 +48,7 @@ export function renderHome(): void {
       const card = element('article', `home-agent ${capacity.tone}`)
       const head = element('div', 'home-agent-head')
       const identity = element('div', 'home-agent-identity')
-      identity.append(element('span', `provider-dot ${capacity.tone === 'limited' ? 'limited' : provider.runtime.running ? 'busy' : provider.runtime.available ? 'online' : ''}`), element('strong', undefined, provider.name))
+      identity.append(lamp(providerLampTone(provider), capacity.label), element('strong', undefined, provider.name))
       head.append(identity, element('span', `capacity-badge ${capacity.tone}`, capacity.label))
 
       const plan = providerQuota(provider)
@@ -50,7 +60,7 @@ export function renderHome(): void {
       )
       // Without a reported percentage the bar tracks the window's clock, not
       // usage — a muted tone so it never reads as "how much you have left".
-      quota.append(quotaHead, gauge(plan.percent ?? plan.timePercent, plan.percent === undefined ? 'time' : plan.percent >= 90 ? 'high' : ''))
+      quota.append(quotaHead, gaugeSeg(plan.percent ?? plan.timePercent, plan.percent === undefined ? 'muted' : plan.percent >= 90 ? 'caution' : 'amber', plan.text))
 
       const running = snapshot.tasks.find((task) => task.status === 'running' && task.selectedProviderId === provider.id)
       const foot = element('div', 'home-agent-foot')
@@ -76,7 +86,7 @@ export function renderHome(): void {
       const row = element('button', 'home-task')
       const latest = task.activity?.at(-1)
       row.append(
-        element('span', `task-state-dot ${task.status}`),
+        taskStatusIndicator(task.status),
         (() => {
           const body = element('div', 'home-task-body')
           body.append(element('strong', undefined, task.prompt), element('small', undefined, latest ? `${latest.label}${latest.detail ? ` · ${latest.detail}` : ''}` : `${taskKindLabel(task)} · ${providerName(task.selectedProviderId)}`))
@@ -98,7 +108,8 @@ export function renderHome(): void {
       const row = element('button', 'home-branch')
       const body = element('div', 'home-task-body')
       body.append(element('strong', undefined, branch.subject), element('small', undefined, `${repo.name} · ${branch.files.length} file${branch.files.length === 1 ? '' : 's'}`))
-      row.append(element('span', 'branch-glyph', '⑃'), body, element('span', 'home-task-time', timeAgo(branch.committedAt)))
+      const branchIcon = element('span', 'branch-glyph'); branchIcon.append(icon('branch', 14))
+      row.append(branchIcon, body, element('span', 'home-task-time', timeAgo(branch.committedAt)))
       row.addEventListener('click', () => openBranchInReview(branch.cwd, branch.branch))
       return row
     }))

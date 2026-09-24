@@ -2,6 +2,7 @@
 // views.
 import type { ProxyTask, VerificationReport } from '../../shared/types'
 import { element } from './ui/dom'
+import { lamp, radar } from './ui/components'
 import { formatDuration } from './ui/format'
 
 export function taskIsBusy(task: ProxyTask): boolean {
@@ -25,6 +26,18 @@ export function taskTokens(task: ProxyTask): { input: number; output: number; es
 
 export function taskKindLabel(task: ProxyTask): string {
   return task.bench ? 'Comparison' : task.orchestrated ? 'Split & delegate' : 'Single agent'
+}
+
+// The status indicator shared by the work queue, Home's active list, and the
+// command palette: a radar sweep while queued for routing (the moment the
+// spec singles out for the radar motif), a blinking amber lamp while running,
+// and a plain lamp once the task has a final state.
+export function taskStatusIndicator(status: ProxyTask['status']): HTMLElement {
+  if (status === 'queued') return radar(16, 'Queued for routing')
+  if (status === 'running') return lamp('amber', 'Running')
+  if (status === 'completed') return lamp('phosphor', 'Completed')
+  if (status === 'failed') return lamp('alarm', 'Failed')
+  return lamp('muted', 'Cancelled')
 }
 
 // A verification report in one chip. "not run" is deliberately distinct from

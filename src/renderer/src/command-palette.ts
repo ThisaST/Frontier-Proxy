@@ -1,5 +1,6 @@
 // The ⌘K command palette: quick navigation, quick actions, and task search.
 import { byId, element } from './ui/dom'
+import { icon, type IconName } from './ui/icons'
 import { providerName } from './providers-view-model'
 import { taskKindLabel } from './task-helpers'
 import { snapshot } from './state'
@@ -11,7 +12,7 @@ const commandPalette = byId<HTMLDialogElement>('command-palette')
 let commandPaletteIndex = 0
 
 interface CommandPaletteEntry {
-  icon: string
+  icon: IconName
   label: string
   detail: string
   shortcut?: string
@@ -21,17 +22,17 @@ interface CommandPaletteEntry {
 
 function commandPaletteEntries(query: string): CommandPaletteEntry[] {
   const commands: CommandPaletteEntry[] = [
-    { icon: '＋', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run', run: () => openTaskDialog() },
-    { icon: '⚖', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => openTaskDialog('bench') },
-    { icon: '◇', label: 'Go to Home', detail: 'Agent capacity and what is running', keywords: 'navigate mission control', run: () => switchView('home') },
-    { icon: '⌁', label: 'Go to Tasks', detail: 'The work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
-    { icon: '⑃', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
-    { icon: '◫', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
-    { icon: '⊹', label: 'Go to Context & Tools', detail: 'MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
-    { icon: '❖', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
-    { icon: '⌘', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
-    { icon: '↻', label: 'Check agents', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
-    { icon: '×', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
+    { icon: 'plus', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run', run: () => openTaskDialog() },
+    { icon: 'compare', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => openTaskDialog('bench') },
+    { icon: 'home', label: 'Go to Home', detail: 'Agent capacity and what is running', keywords: 'navigate mission control', run: () => switchView('home') },
+    { icon: 'tasks', label: 'Go to Tasks', detail: 'The work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
+    { icon: 'review', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
+    { icon: 'agents', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
+    { icon: 'control', label: 'Go to Context & Tools', detail: 'MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
+    { icon: 'skills', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
+    { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
+    { icon: 'refresh', label: 'Check agents', detail: 'Refresh CLI availability and models', keywords: 'health refresh status', run: () => byId<HTMLButtonElement>('health-check').click() },
+    { icon: 'trash', label: 'Clear finished tasks', detail: 'Remove completed, failed, and cancelled tasks', keywords: 'clean history', run: () => byId<HTMLButtonElement>('clear-finished').click() }
   ]
   const normalized = query.trim().toLowerCase()
   const matchingCommands = commands.filter((entry) => !normalized || `${entry.label} ${entry.detail} ${entry.keywords}`.toLowerCase().includes(normalized))
@@ -39,7 +40,7 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
     .filter((task) => !normalized || `${task.prompt} ${task.type} ${task.status} ${providerName(task.selectedProviderId)}`.toLowerCase().includes(normalized))
     .slice(0, normalized ? 10 : 5)
     .map((task): CommandPaletteEntry => ({
-      icon: task.status === 'running' ? '◌' : task.status === 'completed' ? '✓' : '·',
+      icon: task.status === 'running' ? 'loader' : task.status === 'completed' ? 'check' : 'notice',
       label: task.prompt,
       detail: `${taskKindLabel(task)} · ${task.status} · ${providerName(task.selectedProviderId)}`,
       keywords: 'task conversation workspace',
@@ -62,7 +63,8 @@ function renderCommandPalette(): void {
     button.type = 'button'; button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(index === commandPaletteIndex))
     const copy = element('span', 'command-palette-item-copy')
     copy.append(element('strong', undefined, entry.label), element('small', undefined, entry.detail))
-    button.append(element('span', 'command-palette-item-icon', entry.icon), copy, element('span', 'command-palette-item-key', entry.shortcut ?? ''))
+    const iconSlot = element('span', 'command-palette-item-icon'); iconSlot.append(icon(entry.icon, 16))
+    button.append(iconSlot, copy, element('span', 'command-palette-item-key', entry.shortcut ?? ''))
     button.addEventListener('click', () => { commandPalette.close(); entry.run() })
     return button
   }))

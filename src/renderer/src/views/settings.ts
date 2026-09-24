@@ -1,10 +1,24 @@
-// Settings — scheduling, memory, verification, and notification preferences.
+// Settings — scheduling, memory, verification, notification, and appearance
+// preferences. Appearance is renderer-only (theme.ts) — it never touches
+// `snapshot.settings` or the main process.
 import { byId } from '../ui/dom'
 import { reportError, showToast } from '../ui/feedback'
 import { textLines } from '../ui/format'
 import { snapshot } from '../state'
+import { effectsPreference, setEffectsPreference, setThemePreference, themePreference } from '../theme'
+
+function renderAppearance(): void {
+  const theme = themePreference()
+  document.querySelectorAll<HTMLButtonElement>('#appearance-theme button').forEach((button) => {
+    const active = button.dataset.themeChoice === theme
+    button.classList.toggle('active', active)
+    button.setAttribute('aria-selected', String(active))
+  })
+  byId<HTMLInputElement>('appearance-effects').checked = effectsPreference() === 'off'
+}
 
 export function renderSettings(): void {
+  renderAppearance()
   byId<HTMLInputElement>('max-parallel').value = String(snapshot.settings.maxParallelTasks)
   byId<HTMLInputElement>('cooldown-minutes').value = String(snapshot.settings.quotaCooldownMinutes)
   const memory = byId<HTMLTextAreaElement>('memory-input')
@@ -20,6 +34,13 @@ export function renderSettings(): void {
 }
 
 export function initSettingsView(): void {
+  document.querySelectorAll<HTMLButtonElement>('#appearance-theme button').forEach((button) => button.addEventListener('click', () => {
+    setThemePreference((button.dataset.themeChoice as 'system' | 'console' | 'daylight') ?? 'system')
+    renderAppearance()
+  }))
+  byId<HTMLInputElement>('appearance-effects').addEventListener('change', (event) => {
+    setEffectsPreference((event.target as HTMLInputElement).checked ? 'off' : 'on')
+  })
   byId('save-memory').addEventListener('click', async () => {
     const button = byId<HTMLButtonElement>('save-memory'); button.disabled = true
     try { await window.frontier.updateSettings({ memory: byId<HTMLTextAreaElement>('memory-input').value }); showToast('Memory saved') }

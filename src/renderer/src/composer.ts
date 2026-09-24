@@ -2,6 +2,7 @@
 // follow-up composer and the new-task dialog's prompt field.
 import type { ChatContextItem, SelectedImage, WorkspaceEntry } from '../../shared/types'
 import { byId } from './ui/dom'
+import { icon } from './ui/icons'
 import { reportError, showToast } from './ui/feedback'
 import { selectedTaskId, snapshot } from './state'
 
@@ -38,7 +39,7 @@ export function renderDraftImages(inputId: string): void {
   container.replaceChildren(...images.map((item) => {
     const chip = document.createElement('div'); chip.className = 'composer-image-chip'; chip.title = item.name
     const image = document.createElement('img'); image.alt = item.name; image.src = draft.previews.get(item.id) ?? ''
-    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `Remove ${item.name}`)
+    const remove = document.createElement('button'); remove.type = 'button'; remove.append(icon('close', 14)); remove.setAttribute('aria-label', `Remove ${item.name}`)
     remove.addEventListener('click', () => {
       draft.items = draft.items.filter((candidate) => candidate.id !== item.id)
       draft.previews.delete(item.id)
@@ -106,11 +107,11 @@ export function renderMentions(inputId: string): void {
   const nodes = draft.mentionEntries.map((entry, index) => {
     const button = document.createElement('button'); button.type = 'button'; button.className = `composer-mention ${index === draft.mentionIndex ? 'selected' : ''}`
     button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(index === draft.mentionIndex))
-    const icon = document.createElement('span'); icon.className = 'composer-mention-icon'; icon.textContent = entry.kind === 'folder' ? '▱' : '◇'
+    const mentionIcon = document.createElement('span'); mentionIcon.className = 'composer-mention-icon'; mentionIcon.append(icon(entry.kind === 'folder' ? 'folder' : 'file', 14))
     const copy = document.createElement('span'); copy.className = 'composer-mention-copy'
     const name = document.createElement('strong'); name.textContent = entry.name
     const path = document.createElement('small'); path.textContent = entry.path
-    copy.append(name, path); button.append(icon, copy)
+    copy.append(name, path); button.append(mentionIcon, copy)
     button.addEventListener('mousedown', (event) => { event.preventDefault(); selectMention(inputId, entry) })
     return button
   })

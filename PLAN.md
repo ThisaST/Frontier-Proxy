@@ -3,7 +3,56 @@
 Frontier is a **control plane above local, already-authenticated coding CLIs**
 (Claude Code, Codex, GitHub Copilot, Ollama). Configure MCP / tools / context /
 models once; Frontier routes and orchestrates work across providers and reports
-real usage. No API keys — auth is each CLI's own login.
+real usage. No API keys for coding agents — auth is each CLI's own login. The one
+narrow, opt-in exception is the Jev routing advisor (see the 2026-09-25 entry
+below and [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)).
+
+## 2026-09-25 — Renderer split, Phosphor Console, Jev advisor, new IA (branch: jev-routing-ui-improvements)
+
+A full pass on the desktop UI and the routing stack, landed as five phases on one branch:
+
+- **P1a — Renderer split.** The old monolithic renderer became `main.ts` (bootstrap),
+  `state.ts`, `ui/` (`dom`, `format`, `feedback`, `icons`, `components`), `views/*` (one
+  file per screen), `task-form.ts` (shared by Home and the ⌘N dialog), `project.ts`, and
+  `theme.ts`. No behavior change; see CLAUDE.md's new "Renderer architecture & design
+  system" section for the module map.
+- **P1b — Phosphor Console.** A new visual identity: a retro-future instrument panel
+  (`docs/design-phosphor-console.md`) — semantic design tokens (`styles/tokens.css`),
+  Console (dark) / Daylight (light) themes following `prefers-color-scheme`, Chakra
+  Petch / IBM Plex Sans / JetBrains Mono bundled with `@fontsource` (no CDN), Lucide
+  icons (`ui/icons.ts`), and a component kit (`ui/components.ts`) — bezel panels with
+  corner ticks, readouts, segmented gauges, status lamps, and a radar-sweep motif for
+  "advising" states. Reskins the existing layout; IA changes were deliberately deferred
+  to P3/P4 so the look could be judged on its own.
+- **P2 — Jev backend.** The routing advisor: `src/main/advisor.ts` builds bounded,
+  privacy-conscious requests (prompt + attachment names + optional lightweight repo
+  facts, never file contents), `AdvisorKeyManager` encrypts the key with `safeStorage`,
+  and `src/main/router.ts` folds Jev's typed answers into bounded, labelled
+  `RoutingFactor`s gated on Off/Shadow/Active mode and a confidence threshold. Landed
+  under [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md), which narrows
+  (rather than drops) the "no API keys" rule for auxiliary, non-agent services.
+- **P3 — Information architecture, Home, Routing screen.** A composer-first Home with a
+  live route preview (agent, model, radar sweep while scoring), a project switcher
+  scoping the whole app to one repo, and a dedicated Routing screen — the Jev console:
+  mode, credentials, the exact request payload preview, the model catalog, and the
+  agreement summary.
+- **P4 — Tasks and Agents.** Tasks became a three-pane screen (work queue, conversation,
+  collapsible route/files/activity inspector) replacing the old detail-view/tab layout;
+  the file viewer moved into an overlay. Providers became a dense Agents table with a
+  per-row detail drawer instead of one card per provider.
+- **P5 — Per-model learning, calibration, per-subtask advice.** `modelOutcomes` extends
+  outcome-aware routing one level deeper (provider → model), Jev advice can now route
+  individual orchestration subtasks by their own complexity instead of inheriting one
+  provider default, and the Routing screen gained a calibration view bucketing
+  Jev-advised tasks by answer confidence against what actually happened.
+
+**P7a — site re-theme** (this change) brings `site/` to the same Phosphor Console tokens
+and adds routing-advisor documentation and the narrowed API-key copy; see `site/` and the
+docs pages under `site/src/pages/docs/`. Still deferred (unchanged in Remaining work
+below): **forges** (opening pull requests through GitHub/GitLab/Bitbucket — credentials
+for these already fall under ADR 0002, implementation not started) and a **responsive/
+accessibility pass** (tracked as P7b — desktop-only layout and contrast/keyboard audit
+remain).
 
 ## Done
 
@@ -112,9 +161,11 @@ because it travels on its own channel.
    from the ⌘K palette. Nothing in the app currently remembers a run's shape.
 2. **Scheduled and git-triggered runs** — templates on a schedule, or when a branch moves.
    Honest scope: only while the app is open, no daemon.
-3. **Push / open PR through the user's own `gh`** — the Review inbox dead-ends at a local
-   merge. Delegating the handoff to an already-authenticated CLI is the same principle as
-   delegating the models.
+3. **Forges — push / open PR through the user's own `gh`/`glab`** — the Review inbox
+   dead-ends at a local merge. Delegating the handoff to an already-authenticated CLI is
+   the same principle as delegating the models; a forge API credential (to open the PR
+   itself) already falls under [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)
+   as an auxiliary, non-agent service. Not started.
 4. **Quota forecasting** — project the burn rate against the reported window and offer to
    shift the queue to a local model before the cap lands, instead of only reporting it.
 5. **Context compaction before a continuation overflows** — `contextTokens/contextWindow`
@@ -128,8 +179,11 @@ because it travels on its own channel.
 9. **Provider stream compatibility fixtures** — validate Codex and Copilot parsing against
    captured events from current CLI releases; consume exact Codex context occupancy if its
    JSON stream adds it.
-10. **Theme/accessibility polish** — deeper theming, responsive behavior below the current
-    desktop minimum width, and a dedicated keyboard/accessibility pass.
+10. **Responsive & accessibility pass (P7b, in progress)** — Phosphor Console theming
+    itself landed in P1b/P7a, including a standalone contrast checker
+    (`scripts/check-contrast.mjs`) for the token pairs used as text; it is not yet wired
+    into `pnpm` scripts or CI. Still open: responsive behavior below the current desktop
+    minimum width, and a full keyboard/screen-reader pass.
 
 ## GitHub Copilot CLI — extensible surfaces worth mirroring
 From `copilot --help` (v1.0.73):

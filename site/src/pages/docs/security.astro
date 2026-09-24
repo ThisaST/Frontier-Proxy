@@ -8,11 +8,44 @@ import { url } from "../../lib/site";
   title="Security & data"
   description="What Frontier Proxy runs, what it stores, what it never does — and the boundaries you should know before pointing an agent at a folder."
 >
-  <h2>No API keys</h2>
+  <h2>No API keys for coding agents</h2>
   <p>
-    Frontier does not call model APIs and holds no keys of its own. There are no key or token fields on providers,
-    by design. Every agent authenticates through its own CLI's login session, which stays where that CLI put it. If a
-    provider cannot authenticate, log in with that CLI — <code>copilot login</code>, for example.
+    Frontier does not call model APIs on an agent's behalf and holds no model-execution keys of its own. There are no
+    key or token fields on any coding-agent provider, by design. Every agent authenticates through its own CLI's login
+    session, which stays where that CLI put it. If a provider cannot authenticate, log in with that CLI —
+    <code>copilot login</code>, for example.
+  </p>
+
+  <h2>The one narrow exception: auxiliary services</h2>
+  <p>
+    A service that never runs a coding agent — never generates text, never edits a file, never runs on your behalf —
+    may hold an opt-in credential. Today that is the <a href={url("docs/routing")}>Jev routing advisor</a>; a forge
+    API to open pull requests through your own <code>gh</code>/<code>glab</code> login is planned under the same rule.
+    See <a href="https://github.com/ThisaST/Frontier-Proxy/blob/main/docs/adr/0002-auxiliary-service-credentials.md" rel="noopener">ADR 0002</a>.
+  </p>
+  <ul class="ticks">
+    <li><strong>Off by default.</strong> Routing works exactly as it always has until you turn an advisor on.</li>
+    <li>
+      <strong>Encrypted, main-process only.</strong> The key is encrypted with Electron's <code>safeStorage</code> —
+      backed by Keychain on macOS, DPAPI on Windows, and the OS keyring on Linux — and never reaches the renderer,
+      <code>frontier-state.json</code>, a log, or an error message. The renderer only ever learns <code>hasKey</code>.
+    </li>
+    <li>
+      <strong>What leaves the machine when it's on:</strong> the prompt text, trimmed to fit the advisor's budget, and
+      attachment <em>names</em> only — never attachment contents. When "share repo facts" is enabled (the default), it
+      also sends lightweight repository metadata: top languages, file count, manifest names, and top-level folder
+      names. <strong>File contents never leave the machine</strong>, in either case.
+    </li>
+    <li>
+      <strong>Advisory, never authoritative.</strong> Its answers only ever become bounded, labelled routing factors
+      next to every other factor — they can never override an eligibility rule, an explicit provider pick, or a
+      user-picked model. Losing the advisor (off, offline, invalid key, rate limited, slow) leaves routing behaving
+      exactly as it does without it.
+    </li>
+  </ul>
+  <p>
+    The sidebar's privacy line is derived from your actual settings and never says "local only" while an advisor is
+    active — it names what is on.
   </p>
 
   <h2>How processes are launched</h2>

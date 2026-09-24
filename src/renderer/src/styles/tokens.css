@@ -1,0 +1,18 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --bg: #0a0c0b;
+  --surface: #111412;
+  --surface-2: #171b18;
+  --line: #272d29;
+  --line-soft: #1d221f;
+  --text: #edf1ed;
+  --muted: #89928b;
+  --green: #a9ef72;
+  --green-deep: #173122;
+  --yellow: #e9d47a;
+  --red: #fb8d88;
+  --blue: #8dbdea;
+  --sidebar-width: 244px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

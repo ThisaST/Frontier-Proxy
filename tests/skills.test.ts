@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { discoverSkills, invalidateSkillCatalog, parseSkillFrontmatter, resolveSkills, skillRoots } from '../src/main/skills'
 import type { SkillCatalog, SkillDefinition } from '../src/shared/types'
 
@@ -90,6 +90,15 @@ describe('skillRoots', () => {
     expect(roots.find((root) => root.root === '/repo/.opencode/skills')).toMatchObject({ scope: 'project', nativeFor: ['opencode'] })
     // Every entry starts unresolved; discoverSkills is the one that stats them.
     expect(roots.every((root) => root.exists === false)).toBe(true)
+  })
+
+  it('finds OpenCode global skills under $XDG_CONFIG_HOME for the real home only', () => {
+    vi.stubEnv('XDG_CONFIG_HOME', '/xdg')
+    try {
+      expect(skillRoots('/repo', homedir()).map((root) => root.root)).toContain('/xdg/opencode/skills')
+      // An injected home keeps its own layout, so tests never depend on the runner's env.
+      expect(skillRoots('/repo', '/home/user').map((root) => root.root)).toContain('/home/user/.config/opencode/skills')
+    } finally { vi.unstubAllEnvs() }
   })
 })
 

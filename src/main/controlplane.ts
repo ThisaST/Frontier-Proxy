@@ -265,10 +265,42 @@ function openCodeMcp(profile: ControlPlaneProfile, environment: Record<string, s
 }
 
 // OpenCode permission keys are lowercase tool names (`bash`, `edit`,
-// `webfetch`…); a bare word from the shared list is lowercased to match, and
-// anything with a pattern in it is passed through as written.
-function openCodePermissionKey(tool: string): string {
-  return /^[A-Za-z_]+$/.test(tool) ? tool.toLowerCase() : tool
+// `webfetch`…), and every file-writing tool shares `edit`. A Claude-style
+// `Tool(pattern)` entry becomes that tool's pattern map (`Bash(git:*)` →
+// `bash: { "git *": … }`) — a literal `Bash(rm *)` key is accepted by OpenCode
+// but matches nothing, so the rule would silently not apply. Anything else
+// (e.g. an MCP tool glob) is passed through as a flat rule.
+const OPENCODE_TOOL_KEYS: Record<string, string> = { write: 'edit', multiedit: 'edit', notebookedit: 'edit', patch: 'edit' }
+// Keys OpenCode accepts only a flat action for; a pattern map on one makes the
+// whole config invalid and the CLI refuses to start (verified, 1.18.x).
+const OPENCODE_FLAT_ONLY = new Set(['todowrite', 'question', 'webfetch', 'websearch', 'doom_loop'])
+
+function openCodePermissions(allowed: string[], disallowed: string[]): Record<string, unknown> {
+  const flat = new Map<string, 'allow' | 'deny'>()
+  const patterns = new Map<string, Map<string, 'allow' | 'deny'>>()
+  // Denies are applied after allows so a tool named in both ends up denied.
+  const rules = [...allowed.map((tool) => [tool, 'allow'] as const), ...disallowed.map((tool) => [tool, 'deny'] as const)]
+  for (const [tool, action] of rules) {
+    const match = /^([A-Za-z_]+)(?:\((.*)\))?$/.exec(tool)
+    if (!match) { flat.set(tool, action); continue }
+    const lower = match[1].toLowerCase()
+    const key = OPENCODE_TOOL_KEYS[lower] ?? lower
+    const pattern = match[2]?.trim().replace(/:\*$/, ' *')
+    if (!pattern || pattern === '*') { flat.set(key, action); continue }
+    if (OPENCODE_FLAT_ONLY.has(key)) continue // cannot be scoped; applying it tool-wide would over-block or over-allow
+    const map = patterns.get(key) ?? new Map<string, 'allow' | 'deny'>()
+    map.delete(pattern) // re-insert so the later (deny) rule also comes later in the map
+    map.set(pattern, action)
+    patterns.set(key, map)
+  }
+  const permission: Record<string, unknown> = Object.fromEntries(flat)
+  for (const [key, map] of patterns) {
+    // OpenCode applies the last matching rule, so the tool-wide action goes
+    // first and the specific patterns — denies after allows — follow it.
+    const ordered = [...map].sort((a, b) => Number(a[1] === 'deny') - Number(b[1] === 'deny'))
+    permission[key] = Object.fromEntries([...(flat.has(key) ? [['*', flat.get(key)]] : []), ...ordered])
+  }
+  return permission
 }
 
 function trimmedList(values: string[]): string[] {
@@ -361,9 +393,7 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       if (mcp) config.mcp = mcp
       const skillRoots = skillRootDirs(ambientEnabled)
       if (skillRoots.length) config.skills = { paths: skillRoots }
-      const permission: Record<string, unknown> = {}
-      for (const tool of allowed) permission[openCodePermissionKey(tool)] = 'allow'
-      for (const tool of disallowed) permission[openCodePermissionKey(tool)] = 'deny'
+      const permission = openCodePermissions(allowed, disallowed)
       if (addDirs.length) permission.external_directory = Object.fromEntries(addDirs.flatMap((dir) => [[dir, 'allow'], [`${dir.replace(/[\\/]+$/, '')}/**`, 'allow']]))
       if (enabled.length || disabled.length) {
         permission.skill = Object.fromEntries([...enabled.map((skill) => [skill.name, 'allow']), ...disabled.map((skill) => [skill.name, 'deny'])])

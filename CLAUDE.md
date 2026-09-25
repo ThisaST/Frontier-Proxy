@@ -68,8 +68,12 @@ unit-tested function (`tests/controlplane.test.ts`). Per CLI:
 - **OpenCode**: no per-run flags, so the profile is an inline config document in the
   `OPENCODE_CONFIG_CONTENT` env var (merged over the user's `opencode.json` for that process
   only): `mcp` entries (`local`/`remote`, header secrets via OpenCode's `{env:VAR}`),
-  allowed/disallowed tools → `permission` allow/deny (bare words lowercased to OpenCode's tool
-  keys), extra dirs → `permission.external_directory`. The shared prompt goes through
+  allowed/disallowed tools → `permission` allow/deny on OpenCode's lowercase tool keys, with
+  Claude-style `Tool(pattern)` turned into that tool's pattern map (`Bash(git:*)` →
+  `bash: { "git *": … }`; a literal `Bash(rm *)` key is accepted but matches nothing) and
+  patterns on flat-only keys (`webfetch`, `websearch`, …) dropped, because a pattern map there
+  makes OpenCode refuse to start. Global skills follow `$XDG_CONFIG_HOME`. Extra dirs →
+  `permission.external_directory`. The shared prompt goes through
   `promptPrefix`, like Copilot. The Context & Tools preview shows this document after the args.
 
 `buildProviderCommand(provider, cwd, prompt, profile?)` splices the injected args in

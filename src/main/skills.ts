@@ -19,12 +19,16 @@ interface RootSpec { root: string; scope: SkillScope; nativeFor: ProviderKind[] 
 
 function personalRoots(home: string): RootSpec[] {
   const h = resolve(home)
+  // OpenCode's global config follows $XDG_CONFIG_HOME. It only describes the
+  // real home; an injected one (tests) keeps its own layout.
+  const xdgConfig = home === homedir() ? process.env.XDG_CONFIG_HOME?.trim() : undefined
+  const openCodeConfig = xdgConfig ? resolve(xdgConfig, 'opencode') : join(h, '.config', 'opencode')
   return [
     { root: join(h, '.claude', 'skills'), scope: 'personal', nativeFor: ['claude', 'opencode'] },
     { root: join(h, '.copilot', 'skills'), scope: 'personal', nativeFor: ['copilot'] },
     { root: join(h, '.agents', 'skills'), scope: 'personal', nativeFor: ['copilot', 'codex', 'codex-oss', 'opencode'] },
     { root: join(h, '.codex', 'skills'), scope: 'personal', nativeFor: ['codex', 'codex-oss'] },
-    { root: join(h, '.config', 'opencode', 'skills'), scope: 'personal', nativeFor: ['opencode'] }
+    { root: join(openCodeConfig, 'skills'), scope: 'personal', nativeFor: ['opencode'] }
   ]
 }
 

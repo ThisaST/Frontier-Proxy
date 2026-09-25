@@ -249,13 +249,29 @@ describe('OpenCode control plane', () => {
         remote: { type: 'remote', url: 'https://mcp.example/api', enabled: true }
       },
       permission: {
-        edit: 'allow', read: 'allow', 'Bash(rm *)': 'deny',
+        edit: 'allow', read: 'allow', bash: { 'rm *': 'deny' },
         external_directory: { 'C:/docs': 'allow', 'C:/docs/**': 'allow' }
       }
     })
     // No system-prompt flag exists, so shared context rides on the prompt.
     expect(injection.promptPrefix).toContain('Prefer pnpm.')
     expect(injection.promptPrefix).toContain('"files" (stdio)')
+  })
+
+  // A literal `Bash(rm *)` key is accepted by OpenCode but matches nothing, and a
+  // pattern map on a flat-only key (webfetch) stops the CLI from starting.
+  it('translates Claude-style tool patterns into OpenCode pattern maps', () => {
+    const tools: ControlPlaneProfile = {
+      ...profile, systemPrompt: '', addDirs: [], mcpServers: [],
+      allowedTools: ['Bash', 'Bash(git:*)', 'Write', 'WebFetch(domain:example.com)', 'mcp__files__*'],
+      disallowedTools: ['Bash(rm *)', 'Bash(git:*)', 'WebSearch']
+    }
+    expect(config(controlPlaneInjection(provider('opencode'), tools)).permission).toEqual({
+      bash: { '*': 'allow', 'rm *': 'deny', 'git *': 'deny' },
+      edit: 'allow',
+      'mcp__files__*': 'allow',
+      websearch: 'deny'
+    })
   })
 
   // The secret must reach OpenCode through its own {env:VAR} interpolation,

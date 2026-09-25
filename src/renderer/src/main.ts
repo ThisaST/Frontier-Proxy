@@ -63,8 +63,8 @@ let taskSkillsDebounce: number | undefined
 
 // Kinds whose CLI can be handed a skill selection at all (ollama/custom never
 // see the control plane, so they never see skills either).
-const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss'] as const
-const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama' }
+const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss', 'opencode'] as const
+const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama', opencode: 'OpenCode' }
 
 const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 const taskDialog = byId<HTMLDialogElement>('task-dialog')
@@ -1435,7 +1435,7 @@ function renderProviders(): void {
       form.append(field('GitHub MCP toolsets', copilotToolsets, true), field('Individual GitHub MCP tools', copilotTools, true), allToolsRow, help)
     }
 
-    const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind)
+    const cpCapable = (SKILL_CAPABLE_KINDS as readonly string[]).includes(provider.kind)
     let cpToggle: HTMLInputElement | undefined
     if (cpCapable) {
       cpToggle = document.createElement('input'); cpToggle.type = 'checkbox'; cpToggle.checked = provider.useControlPlane !== false
@@ -1935,7 +1935,7 @@ function renderMcpServers(): void {
 function renderPreviewProviderOptions(): void {
   const select = byId<HTMLSelectElement>('cp-preview-provider')
   const current = select.value
-  const capable = snapshot.providers.filter((provider) => ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind))
+  const capable = snapshot.providers.filter((provider) => (SKILL_CAPABLE_KINDS as readonly string[]).includes(provider.kind))
   select.replaceChildren(new Option('Select agent…', ''), ...capable.map((provider) => new Option(provider.name, provider.id)))
   if (capable.some((provider) => provider.id === current)) select.value = current
 }
@@ -1982,10 +1982,13 @@ function skillBadges(sources: SkillCatalog['skills'][number]['sources']): HTMLEl
   const badges = element('div', 'skill-badges')
   for (const kind of configuredSkillKinds()) {
     const native = nativeFor.has(kind as typeof SKILL_CAPABLE_KINDS[number])
-    // Native = enforced via the CLI's own flag (Claude's Skill(...)). Everything
+    // Native = enforced via the CLI's own flag (Claude's Skill(...)). OpenCode
+    // is enforced either way: a root it does not scan joins through its config
+    // (`skills.paths`) and the per-skill permission still applies. Everything
     // else is only ever a prompt-injected suggestion — no flag can stop the CLI
     // from discovering the skill itself, so this must never read as a guarantee.
-    badges.append(element('span', `skill-badge ${native ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : 'prompt-injected · best effort'}`))
+    const viaConfig = !native && kind === 'opencode'
+    badges.append(element('span', `skill-badge ${native || viaConfig ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : viaConfig ? 'added via config' : 'prompt-injected · best effort'}`))
   }
   return badges
 }

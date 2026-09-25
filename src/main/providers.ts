@@ -97,7 +97,7 @@ export interface ProviderCommand {
 export function buildProviderCommand(provider: ProviderConfig, cwd: string, prompt: string, profile?: ControlPlaneProfile, resumeSessionId?: string, imagePaths: string[] = [], skills: ResolvedSkill[] = []): ProviderCommand {
   const extra = provider.args ?? []
   const cp = profile ? controlPlaneInjection(provider, profile, skills) : { args: [] as string[], promptPrefix: undefined as string | undefined }
-  const resume = resumeSessionId && provider.kind === 'claude' ? ['--resume', resumeSessionId] : []
+  const resume = !resumeSessionId ? [] : provider.kind === 'claude' ? ['--resume', resumeSessionId] : provider.kind === 'opencode' ? ['--session', resumeSessionId] : []
   switch (provider.kind) {
     case 'codex':
       return {
@@ -128,6 +128,17 @@ export function buildProviderCommand(provider: ProviderConfig, cwd: string, prom
         executable: provider.executable,
         args: ['-s', '--no-ask-user', `--allow-tool=${COPILOT_SAFE_TOOLS}`,
           ...(provider.model ? ['--model', provider.model] : []), ...copilotGithubMcpArgs(provider), ...cp.args, ...extra],
+        promptPrefix: cp.promptPrefix,
+        env: cp.env
+      }
+    case 'opencode':
+      // `--dir` is required, not cosmetic: without it OpenCode resolves the
+      // project from the inherited $PWD rather than the spawn cwd, and then
+      // misses the project's skills and config.
+      return {
+        executable: provider.executable,
+        args: ['run', '--format', 'json', '--dir', cwd, ...resume, ...(provider.model ? ['--model', provider.model] : []),
+          ...imagePaths.flatMap((path) => ['--file', path]), ...cp.args, ...extra],
         promptPrefix: cp.promptPrefix,
         env: cp.env
       }
@@ -223,7 +234,7 @@ function condense(text: string, limit = 140): string {
 function summarizeToolInput(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined
   const dict = input as Dict
-  for (const key of ['file_path', 'path', 'command', 'pattern', 'url', 'query', 'notebook_path', 'prompt', 'description']) {
+  for (const key of ['file_path', 'filePath', 'path', 'command', 'pattern', 'url', 'query', 'notebook_path', 'prompt', 'description', 'name']) {
     const value = dict[key]
     if (typeof value === 'string' && value.trim()) return condense(value, 120)
   }
@@ -375,6 +386,50 @@ export function parseCodexLine(event: Dict, handlers: StreamHandlers): void {
   if (event.type === 'error' && typeof event.message === 'string') handlers.onText(`\n${codexErrorMessage(event.message)}\n`)
 }
 
+export interface OpenCodeStreamState { sessionId?: string; wroteText: boolean }
+
+// OpenCode tool ids are lowercase (`write`, `edit`, `bash`); capitalise them so
+// file tools line up with FILE_TOOL_ACTIONS and the feed reads like Claude's.
+function openCodeToolLabel(tool: string): string {
+  return tool ? `${tool[0].toUpperCase()}${tool.slice(1)}` : 'Tool'
+}
+
+// Parse one `opencode run --format json` event. Text arrives as whole parts
+// (not deltas), usage per step on `step_finish`. The stream never names the
+// model, so task.model falls back to the provider's configured one.
+export function parseOpenCodeLine(event: Dict, handlers: StreamHandlers, state: OpenCodeStreamState): void {
+  if (typeof event.sessionID === 'string' && event.sessionID !== state.sessionId) {
+    state.sessionId = event.sessionID
+    handlers.onSessionId?.(event.sessionID)
+  }
+  const part = event.part as Dict | undefined
+  const at = new Date().toISOString()
+  if (event.type === 'text' && typeof part?.text === 'string' && part.text.trim()) {
+    handlers.onText(state.wroteText ? `\n\n${part.text}` : part.text)
+    state.wroteText = true
+  } else if (event.type === 'reasoning' && typeof part?.text === 'string' && part.text.trim()) {
+    handlers.onActivity({ kind: 'thinking', label: 'Thinking', detail: condense(part.text), at })
+  } else if (event.type === 'tool_use' && typeof part?.tool === 'string') {
+    const toolState = part.state as Dict | undefined
+    handlers.onActivity({ kind: 'tool', label: openCodeToolLabel(part.tool), detail: summarizeToolInput(toolState?.input), at })
+  } else if (event.type === 'step_finish') {
+    const tokens = part?.tokens as Dict | undefined
+    if (!tokens) return
+    const cache = tokens.cache as Dict | undefined
+    const input = (finiteNumber(tokens.input) ?? 0) + (finiteNumber(cache?.read) ?? 0) + (finiteNumber(cache?.write) ?? 0)
+    const output = (finiteNumber(tokens.output) ?? 0) + (finiteNumber(tokens.reasoning) ?? 0)
+    handlers.onUsage?.({ inputTokens: input, outputTokens: output, costUsd: finiteNumber(part?.cost) ?? 0 })
+    // Each step re-sends the whole conversation, so its input is the current
+    // occupancy; OpenCode does not report the window itself.
+    handlers.onContext?.({ tokens: input + output })
+  } else if (event.type === 'error') {
+    const error = event.error as Dict | undefined
+    const data = error?.data as Dict | undefined
+    const message = text(data?.message) ?? text(error?.message) ?? text(error?.name)
+    if (message) handlers.onText(`\n${message}\n`)
+  }
+}
+
 // Codex forwards backend failures verbatim, so its `error` event's message is
 // often a whole JSON envelope (`{"type":"error","status":400,"error":{…}}`).
 // Show the sentence inside it rather than dumping the envelope in the transcript.
@@ -402,6 +457,7 @@ function consumeJsonLines(
   let session: SessionInfo | undefined
   let sessionId: string | undefined
   const state: ClaudeStreamState = { streamedText: false, thinking: '', contextOutputTokens: 0 }
+  const openCodeState: OpenCodeStreamState = { wroteText: false }
   const textHandlers: StreamHandlers = {
     onText: (text) => { output += text; handlers.onText(text) },
     onModel: (value) => { model = value; handlers.onModel(value) },
@@ -427,6 +483,7 @@ function consumeJsonLines(
       try {
         const event = JSON.parse(line) as Dict
         if (provider.kind === 'claude') parseClaudeLine(event, textHandlers, state)
+        else if (provider.kind === 'opencode') parseOpenCodeLine(event, textHandlers, openCodeState)
         else parseCodexLine(event, textHandlers)
       } catch {
         rawError += `${line}\n`
@@ -570,6 +627,17 @@ export function copilotAuthFromConfig(raw: string): AuthProbe {
   return { state: 'logged-out', detail: `${last ? `${last}'s session has expired. ` : ''}Run \`copilot login\`.` }
 }
 
+// OpenCode keeps credentials for every model provider it can reach in
+// `$XDG_DATA_HOME/opencode/auth.json`. It also serves free models with no
+// credentials at all, so an empty or missing file is `unknown`, never logged-out.
+export function openCodeAuthFromFile(raw: string): AuthProbe {
+  let parsed: unknown
+  try { parsed = JSON.parse(raw) } catch { return { state: 'unknown' } }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { state: 'unknown' }
+  const providers = Object.keys(parsed)
+  return providers.length ? { state: 'logged-in', detail: `Credentials for ${providers.join(', ')}` } : { state: 'unknown' }
+}
+
 async function fileExists(path: string): Promise<boolean> {
   try { return (await stat(path)).isFile() } catch { return false }
 }
@@ -595,6 +663,13 @@ export async function checkProviderAuth(provider: ProviderConfig, home = homedir
     return { ...(raw === undefined ? { state: 'unknown' as const } : copilotAuthFromConfig(raw)), checkedAt }
   }
   if (provider.kind === 'claude') return { ...(await claudeAuth(home)), checkedAt }
+  if (provider.kind === 'opencode') {
+    // $XDG_DATA_HOME only describes the real home; an injected one (tests) keeps its own layout.
+    const xdg = home === homedir() ? process.env.XDG_DATA_HOME?.trim() : undefined
+    const dataHome = xdg || join(home, '.local', 'share')
+    const raw = await readFile(join(dataHome, 'opencode', 'auth.json'), 'utf8').catch(() => undefined)
+    return { ...(raw === undefined ? { state: 'unknown' as const } : openCodeAuthFromFile(raw)), checkedAt }
+  }
   return { state: (await fileExists(join(home, '.codex', 'auth.json'))) ? 'logged-in' : 'unknown', checkedAt }
 }
 
@@ -680,6 +755,12 @@ export function parseCodexModels(output: string): string[] {
     .map((model) => (model.slug as string).trim())
 }
 
+// Parse `opencode models` — one `provider/model` id per line, the only form its
+// `--model` flag accepts. Anything else (banners, warnings) is dropped.
+export function parseOpenCodeModels(output: string): string[] {
+  return output.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[\w.@-]+\/\S+$/.test(line))
+}
+
 // Models this provider can run. Real discovery wherever the CLI can be asked:
 // `ollama list` for Ollama-backed providers, `codex debug models` for Codex.
 // The curated set is only a fallback for CLIs that cannot be asked at all. The
@@ -691,6 +772,8 @@ export async function discoverModels(provider: ProviderConfig): Promise<string[]
     for (const name of parseOllamaModels(await captureCommand(provider.executable, ['list']))) set.add(name)
   } else if (provider.kind === 'codex-oss') {
     for (const name of parseOllamaModels(await captureCommand('ollama', ['list']))) set.add(name)
+  } else if (provider.kind === 'opencode') {
+    for (const name of parseOpenCodeModels(await captureCommand(provider.executable, ['models']))) set.add(name)
   } else if (provider.kind === 'codex') {
     const discovered = parseCodexModels(await captureCommand(provider.executable, ['debug', 'models']))
     for (const name of discovered.length ? discovered : KNOWN_MODELS.codex ?? []) set.add(name)

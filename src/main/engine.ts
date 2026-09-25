@@ -435,7 +435,11 @@ export class OrchestrationEngine extends EventEmitter {
     const provider = this.settings.providers.find((item) => item.id === providerId)
     if (!provider) throw new Error(`Unknown provider: ${providerId}`)
     const skills = options?.cwd ? resolveSkills(await discoverSkills(options.cwd), this.settings.skills, options.skillIds) : []
-    return buildProviderCommand(provider, '<working directory>', '<task prompt>', profile ?? this.settings.controlPlane, undefined, [], skills).args
+    const command = buildProviderCommand(provider, '<working directory>', '<task prompt>', profile ?? this.settings.controlPlane, undefined, [], skills)
+    // OpenCode takes the profile as an inline config document, not flags. Show
+    // it; the header-secret variables beside it stay out of the preview.
+    const config = command.env?.OPENCODE_CONFIG_CONTENT
+    return config ? [...command.args, `\nOPENCODE_CONFIG_CONTENT=${config}`] : command.args
   }
 
   // ---- Workspace wiring (Phase 4) ----

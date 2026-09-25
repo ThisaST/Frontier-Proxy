@@ -79,12 +79,15 @@ describe('skillRoots', () => {
       '/home/user/.copilot/skills',
       '/home/user/.agents/skills',
       '/home/user/.codex/skills',
+      '/home/user/.config/opencode/skills',
       '/repo/.claude/skills',
       '/repo/.github/skills',
-      '/repo/.agents/skills'
+      '/repo/.agents/skills',
+      '/repo/.opencode/skills'
     ])
-    expect(roots.find((root) => root.root === '/home/user/.claude/skills')).toMatchObject({ scope: 'personal', nativeFor: ['claude'] })
-    expect(roots.find((root) => root.root === '/repo/.claude/skills')).toMatchObject({ scope: 'project', nativeFor: ['claude', 'copilot'] })
+    expect(roots.find((root) => root.root === '/home/user/.claude/skills')).toMatchObject({ scope: 'personal', nativeFor: ['claude', 'opencode'] })
+    expect(roots.find((root) => root.root === '/repo/.claude/skills')).toMatchObject({ scope: 'project', nativeFor: ['claude', 'copilot', 'opencode'] })
+    expect(roots.find((root) => root.root === '/repo/.opencode/skills')).toMatchObject({ scope: 'project', nativeFor: ['opencode'] })
     // Every entry starts unresolved; discoverSkills is the one that stats them.
     expect(roots.every((root) => root.exists === false)).toBe(true)
   })
@@ -102,7 +105,7 @@ describe('discoverSkills', () => {
     expect(shared).toBeDefined()
     expect(shared!.sources).toHaveLength(2)
     const nativeFor = new Set(shared!.sources.flatMap((source) => source.nativeFor))
-    expect(nativeFor).toEqual(new Set(['claude', 'copilot', 'codex', 'codex-oss']))
+    expect(nativeFor).toEqual(new Set(['claude', 'copilot', 'codex', 'codex-oss', 'opencode']))
   })
 
   it('skips a folder that has no SKILL.md', async () => {

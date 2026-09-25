@@ -39,6 +39,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
     },
     {
+      // OpenCode reuses whatever model providers its own `opencode auth` holds;
+      // models are `provider/model` ids from `opencode models`.
+      id: 'opencode', name: 'OpenCode', kind: 'opencode', enabled: true, executable: 'opencode',
+      priority: 72, maxConcurrent: 1,
+      capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
+    },
+    {
       id: 'codex-ollama', name: 'Codex + Ollama', kind: 'codex-oss', enabled: false, executable: 'codex',
       model: 'qwen3-coder', priority: 65, maxConcurrent: 1,
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']

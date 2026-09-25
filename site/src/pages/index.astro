@@ -9,6 +9,7 @@ const providers = [
   { name: "Codex CLI", detail: "codex exec · workspace-write", state: "online" },
   { name: "Claude Code", detail: "print mode · acceptEdits", state: "busy" },
   { name: "GitHub Copilot", detail: "copilot -s · non-interactive", state: "online" },
+  { name: "OpenCode", detail: "opencode run · json events", state: "online" },
   { name: "Ollama", detail: "local models · qwen3-coder", state: "grey" },
 ];
 
@@ -82,7 +83,7 @@ const steps = [
         <h1>Route coding tasks to the agents you already pay for.</h1>
         <p class="lede">
           Frontier Proxy is a desktop app that sends work to <strong>Codex CLI</strong>, <strong>Claude Code</strong>,
-          <strong>GitHub Copilot CLI</strong>, and <strong>Ollama</strong> models already installed and signed in on
+          <strong>GitHub Copilot CLI</strong>, <strong>OpenCode</strong>, and <strong>Ollama</strong> models already installed and signed in on
           your machine. It picks the right one, fails over when a plan runs out, and keeps every conversation in one place.
         </p>
 
@@ -279,6 +280,11 @@ const steps = [
               <td><strong>GitHub Copilot CLI</strong></td>
               <td><code>copilot -s --no-ask-user --allow-tool=…</code></td>
               <td class="muted">Coding, review, GitHub-aware work</td>
+            </tr>
+            <tr>
+              <td><strong>OpenCode</strong></td>
+              <td><code>opencode run --format json --dir &lt;cwd&gt;</code></td>
+              <td class="muted">Coding, review, any model OpenCode is signed in to, resumable sessions</td>
             </tr>
             <tr>
               <td><strong>Codex + Ollama</strong></td>

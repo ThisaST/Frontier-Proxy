@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildProviderCommand, codexErrorMessage, discoverModels, modelRejectionError, parseCodexModels, resolveTaskModel, runProvider, type ModelOwner } from '../src/main/providers'
+import { buildProviderCommand, codexErrorMessage, discoverModels, modelRejectionError, parseCodexModels, parseOpenCodeModels, resolveTaskModel, runProvider, type ModelOwner } from '../src/main/providers'
 import type { ControlPlaneProfile, ProviderConfig } from '../src/shared/types'
 
 function custom(args: string[]): ProviderConfig {
@@ -197,6 +197,32 @@ describe('Codex model catalog', () => {
     expect(parseCodexModels('{"models":[{"visibility":"list"}]}')).toEqual([])
     // Warnings printed ahead of the JSON must not defeat the parse.
     expect(parseCodexModels(`warning: update available\n${catalog}`)).toContain('gpt-5.6-sol')
+  })
+})
+
+describe('OpenCode adapter', () => {
+  const opencode: ProviderConfig = {
+    id: 'opencode', name: 'OpenCode', kind: 'opencode', enabled: true, executable: 'opencode',
+    model: 'opencode/big-pickle', priority: 1, maxConcurrent: 1, capabilities: ['coding']
+  }
+
+  // `--dir` is load-bearing: without it OpenCode takes the project from the
+  // inherited $PWD and misses the task's skills and config.
+  it('runs headless JSON in the task directory with the prompt on stdin', () => {
+    const command = buildProviderCommand(opencode, '/workspace', 'fix the bug')
+    expect(command.args).toEqual(['run', '--format', 'json', '--dir', '/workspace', '--model', 'opencode/big-pickle'])
+    expect(command.promptInArgs).toBeUndefined()
+    expect(command.args.join(' ')).not.toContain('fix the bug')
+  })
+
+  it('resumes its own session and attaches images', () => {
+    const command = buildProviderCommand(opencode, '/workspace', 'continue', undefined, 'ses_123', ['/tmp/shot.png'])
+    expect(command.args).toEqual(['run', '--format', 'json', '--dir', '/workspace', '--session', 'ses_123', '--model', 'opencode/big-pickle', '--file', '/tmp/shot.png'])
+  })
+
+  it('reads provider/model ids from `opencode models`', () => {
+    expect(parseOpenCodeModels('opencode/big-pickle\nopencode-go/glm-5.1\n\nwarning: cache refreshed\nanthropic/claude-sonnet-4.5\n'))
+      .toEqual(['opencode/big-pickle', 'opencode-go/glm-5.1', 'anthropic/claude-sonnet-4.5'])
   })
 })
 

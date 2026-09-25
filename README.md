@@ -106,6 +106,17 @@ Leave the provider executable as `copilot`, then enable it and select **Check pr
 
 The provider card also lets you extend Copilot's built-in GitHub MCP server with selected toolsets or individual tools. Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset plus your selections.
 
+### OpenCode
+
+Install [OpenCode](https://opencode.ai) and sign it in to whichever model providers you use — Frontier reuses OpenCode's own credential store and never asks for a key:
+
+```bash
+curl -fsSL https://opencode.ai/install | bash
+opencode auth login
+```
+
+Frontier runs `opencode run --format json --dir <cwd>` with the prompt on stdin, streams its tool calls, per-step token usage, and cost, and resumes follow-ups in the same OpenCode session (`--session`). Models are OpenCode's `provider/model` ids, discovered from `opencode models`. The shared Context & Tools profile is delivered as an inline config document (`OPENCODE_CONFIG_CONTENT`), and skill enable/disable is enforced through OpenCode's own `permission.skill` rules.
+
 Official references: [installing Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) and [programmatic CLI options](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference).
 
 ### Open-source models

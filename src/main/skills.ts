@@ -20,10 +20,11 @@ interface RootSpec { root: string; scope: SkillScope; nativeFor: ProviderKind[] 
 function personalRoots(home: string): RootSpec[] {
   const h = resolve(home)
   return [
-    { root: join(h, '.claude', 'skills'), scope: 'personal', nativeFor: ['claude'] },
+    { root: join(h, '.claude', 'skills'), scope: 'personal', nativeFor: ['claude', 'opencode'] },
     { root: join(h, '.copilot', 'skills'), scope: 'personal', nativeFor: ['copilot'] },
-    { root: join(h, '.agents', 'skills'), scope: 'personal', nativeFor: ['copilot', 'codex', 'codex-oss'] },
-    { root: join(h, '.codex', 'skills'), scope: 'personal', nativeFor: ['codex', 'codex-oss'] }
+    { root: join(h, '.agents', 'skills'), scope: 'personal', nativeFor: ['copilot', 'codex', 'codex-oss', 'opencode'] },
+    { root: join(h, '.codex', 'skills'), scope: 'personal', nativeFor: ['codex', 'codex-oss'] },
+    { root: join(h, '.config', 'opencode', 'skills'), scope: 'personal', nativeFor: ['opencode'] }
   ]
 }
 
@@ -33,9 +34,10 @@ function personalRoots(home: string): RootSpec[] {
 function projectRoots(dir: string): RootSpec[] {
   const d = resolve(dir)
   return [
-    { root: join(d, '.claude', 'skills'), scope: 'project', nativeFor: ['claude', 'copilot'] },
+    { root: join(d, '.claude', 'skills'), scope: 'project', nativeFor: ['claude', 'copilot', 'opencode'] },
     { root: join(d, '.github', 'skills'), scope: 'project', nativeFor: ['copilot'] },
-    { root: join(d, '.agents', 'skills'), scope: 'project', nativeFor: ['copilot', 'codex', 'codex-oss'] }
+    { root: join(d, '.agents', 'skills'), scope: 'project', nativeFor: ['copilot', 'codex', 'codex-oss', 'opencode'] },
+    { root: join(d, '.opencode', 'skills'), scope: 'project', nativeFor: ['opencode'] }
   ]
 }
 

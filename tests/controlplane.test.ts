@@ -264,14 +264,33 @@ describe('OpenCode control plane', () => {
     const tools: ControlPlaneProfile = {
       ...profile, systemPrompt: '', addDirs: [], mcpServers: [],
       allowedTools: ['Bash', 'Bash(git:*)', 'Write', 'WebFetch(domain:example.com)', 'mcp__files__*'],
-      disallowedTools: ['Bash(rm *)', 'Bash(git:*)', 'WebSearch']
+      disallowedTools: ['Bash(rm *)', 'Bash(git:*)', 'WebSearch', 'mcp__github__delete_repo']
     }
     expect(config(controlPlaneInjection(provider('opencode'), tools)).permission).toEqual({
       bash: { '*': 'allow', 'rm *': 'deny', 'git *': 'deny' },
       edit: 'allow',
-      'mcp__files__*': 'allow',
+      'files_*': 'allow',
+      github_delete_repo: 'deny',
       websearch: 'deny'
     })
+  })
+
+  // OpenCode names MCP tools `<server>_<tool>` (verified live); Claude's
+  // `mcp__<server>__…` form matched nothing there.
+  it('renames Claude-style MCP tool rules to OpenCode tool names', () => {
+    const tools: ControlPlaneProfile = { ...profile, systemPrompt: '', addDirs: [], mcpServers: [], allowedTools: ['mcp__files'], disallowedTools: ['mcp__github__delete_repo'] }
+    expect(config(controlPlaneInjection(provider('opencode'), tools)).permission).toEqual({ 'files_*': 'allow', github_delete_repo: 'deny' })
+  })
+
+  // A user's own Skill(...) rule must survive the catalog's per-skill map.
+  it('keeps explicit Skill rules over the catalog selection', () => {
+    const on = skill('on-skill', { nativeFor: ['opencode'] })
+    const off = skill('off-skill', { nativeFor: ['opencode'], enabled: false })
+    const base = { ...profile, systemPrompt: '', addDirs: [], mcpServers: [], allowedTools: [] }
+    expect(config(controlPlaneInjection(provider('opencode'), { ...base, disallowedTools: ['Skill(on-skill)'] }, [on, off])).permission)
+      .toEqual({ skill: { 'on-skill': 'deny', 'off-skill': 'deny' } })
+    expect(config(controlPlaneInjection(provider('opencode'), { ...base, disallowedTools: ['Skill'] }, [on, off])).permission)
+      .toEqual({ skill: { '*': 'deny', 'off-skill': 'deny' } })
   })
 
   // The secret must reach OpenCode through its own {env:VAR} interpolation,
@@ -293,7 +312,11 @@ describe('OpenCode control plane', () => {
     const injection = controlPlaneInjection(provider('opencode'), { ...profile, mcpServers: [], addDirs: [], allowedTools: [], disallowedTools: [] }, [native, ambient, off])
     expect(config(injection)).toEqual({
       skills: { paths: ['/skills/ambient-skill'] },
-      permission: { skill: { 'native-skill': 'allow', 'ambient-skill': 'allow', 'off-skill': 'deny' } }
+      permission: {
+        // Headless, the external-directory prompt is auto-rejected, so the root must be allowed to read its files.
+        external_directory: { '/skills/ambient-skill': 'allow', '/skills/ambient-skill/**': 'allow' },
+        skill: { 'native-skill': 'allow', 'ambient-skill': 'allow', 'off-skill': 'deny' }
+      }
     })
     expect(injection.promptPrefix).not.toContain('skills catalog')
   })

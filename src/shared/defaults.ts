@@ -43,6 +43,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
       // models are `provider/model` ids from `opencode models`.
       id: 'opencode', name: 'OpenCode', kind: 'opencode', enabled: true, executable: 'opencode',
       priority: 72, maxConcurrent: 1,
+      // OpenCode reports occupancy but never the window, and its model varies
+      // with whatever it is signed in to. A common ~200k window keeps the
+      // context meter visible, labelled as an estimate; override per provider.
+      contextWindow: 200_000,
       capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
     },
     {

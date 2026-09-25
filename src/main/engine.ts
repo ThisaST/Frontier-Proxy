@@ -1143,7 +1143,7 @@ export class OrchestrationEngine extends EventEmitter {
     runtime.usage.inputTokens += usage.inputTokens
     runtime.usage.outputTokens += usage.outputTokens
     runtime.usage.costUsd += usage.costUsd
-    // Only Claude reports cost. Without this flag a Codex-heavy day reads as
+    // Only Claude and OpenCode report cost. Without this flag a Codex-heavy day reads as
     // "$0.00 spent" rather than "this CLI does not report cost".
     if (usage.costUsd > 0) runtime.usage.costReported = true
     // Attribute the reported tokens to the model that produced them, so a day

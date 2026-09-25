@@ -6,13 +6,15 @@ export interface RoutableProvider extends ProviderConfig {
   runtime: ProviderRuntime
 }
 
+// OpenCode runs whatever model it is signed in to, so its affinity is a flat
+// middle value rather than a per-task-type profile of one model family.
 const affinity: Record<TaskType, Partial<Record<ProviderConfig['kind'], number>>> = {
-  coding: { codex: 18, copilot: 16, claude: 14, 'codex-oss': 8, ollama: -8 },
-  debugging: { codex: 18, copilot: 16, claude: 15, 'codex-oss': 7, ollama: -8 },
-  review: { claude: 18, copilot: 16, codex: 14, 'codex-oss': 8, ollama: 5 },
-  planning: { claude: 18, copilot: 14, codex: 12, 'codex-oss': 7, ollama: 8 },
-  documentation: { claude: 17, copilot: 14, codex: 10, 'codex-oss': 8, ollama: 10 },
-  general: { claude: 14, copilot: 14, codex: 12, 'codex-oss': 8, ollama: 9 }
+  coding: { codex: 18, copilot: 16, claude: 14, opencode: 12, 'codex-oss': 8, ollama: -8 },
+  debugging: { codex: 18, copilot: 16, claude: 15, opencode: 12, 'codex-oss': 7, ollama: -8 },
+  review: { claude: 18, copilot: 16, codex: 14, opencode: 12, 'codex-oss': 8, ollama: 5 },
+  planning: { claude: 18, copilot: 14, codex: 12, opencode: 12, 'codex-oss': 7, ollama: 8 },
+  documentation: { claude: 17, copilot: 14, codex: 10, opencode: 12, 'codex-oss': 8, ollama: 10 },
+  general: { claude: 14, copilot: 14, codex: 12, opencode: 12, 'codex-oss': 8, ollama: 9 }
 }
 
 const MODE_LABEL: Record<ProxyTask['mode'], string> = { balanced: 'Balanced', quality: 'Quality first', saver: 'Token saver' }

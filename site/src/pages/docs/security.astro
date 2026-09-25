@@ -45,6 +45,14 @@ import { url } from "../../lib/site";
             commands — <em>not</em> <code>--allow-all</code>.
           </td>
         </tr>
+        <tr>
+          <td><strong>OpenCode</strong></td>
+          <td>
+            No permission flag and <em>not</em> <code>--auto</code>: it follows your own <code>opencode.json</code>
+            permissions, whose defaults let a headless run edit files and run shell commands. Context &amp; Tools
+            allow/deny rules are layered on top for that run only; anything left at <code>ask</code> is auto-rejected.
+          </td>
+        </tr>
       </tbody>
     </table>
   </div>

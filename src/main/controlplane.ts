@@ -281,6 +281,10 @@ function openCodePermissions(allowed: string[], disallowed: string[]): Record<st
   // Denies are applied after allows so a tool named in both ends up denied.
   const rules = [...allowed.map((tool) => [tool, 'allow'] as const), ...disallowed.map((tool) => [tool, 'deny'] as const)]
   for (const [tool, action] of rules) {
+    // OpenCode names MCP tools `<server>_<tool>` (verified), so Claude's
+    // `mcp__<server>__<tool>` / `mcp__<server>__*` would otherwise match nothing.
+    const mcp = /^mcp__(.+?)(?:__(.+))?$/.exec(tool)
+    if (mcp) { flat.set(`${mcp[1]}_${mcp[2] ?? '*'}`, action); continue }
     const match = /^([A-Za-z_]+)(?:\((.*)\))?$/.exec(tool)
     if (!match) { flat.set(tool, action); continue }
     const lower = match[1].toLowerCase()
@@ -301,6 +305,19 @@ function openCodePermissions(allowed: string[], disallowed: string[]): Record<st
     permission[key] = Object.fromEntries([...(flat.has(key) ? [['*', flat.get(key)]] : []), ...ordered])
   }
   return permission
+}
+
+// The catalog's per-skill choice merged with any `Skill`/`Skill(name)` rules
+// from the shared tool lists; the user's own rules are applied last so an
+// explicit deny is never re-allowed by the catalog, and a blanket `Skill` deny
+// suppresses the catalog's allows altogether.
+function openCodeSkillPermission(user: unknown, enabled: ResolvedSkill[], disabled: ResolvedSkill[]): Record<string, string> | undefined {
+  const userMap = user && typeof user === 'object' ? { ...(user as Record<string, string>) } : {}
+  const userAll = typeof user === 'string' ? user : userMap['*']
+  delete userMap['*']
+  const catalog = [...(userAll === 'deny' ? [] : enabled.map((skill) => [skill.name, 'allow'])), ...disabled.map((skill) => [skill.name, 'deny'])]
+  const merged = { ...(userAll ? { '*': userAll } : {}), ...Object.fromEntries(catalog), ...userMap }
+  return Object.keys(merged).length ? merged : undefined
 }
 
 function trimmedList(values: string[]): string[] {
@@ -394,10 +411,13 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       const skillRoots = skillRootDirs(ambientEnabled)
       if (skillRoots.length) config.skills = { paths: skillRoots }
       const permission = openCodePermissions(allowed, disallowed)
-      if (addDirs.length) permission.external_directory = Object.fromEntries(addDirs.flatMap((dir) => [[dir, 'allow'], [`${dir.replace(/[\\/]+$/, '')}/**`, 'allow']]))
-      if (enabled.length || disabled.length) {
-        permission.skill = Object.fromEntries([...enabled.map((skill) => [skill.name, 'allow']), ...disabled.map((skill) => [skill.name, 'deny'])])
-      }
+      // A skill root outside the project needs the same allow as an extra dir:
+      // headless, OpenCode auto-rejects its default external-directory prompt,
+      // so the agent could list the skill but not read its bundled files.
+      const outside = [...new Set([...addDirs, ...skillRoots])]
+      if (outside.length) permission.external_directory = Object.fromEntries(outside.flatMap((dir) => [[dir, 'allow'], [`${dir.replace(/[\\/]+$/, '')}/**`, 'allow']]))
+      const skillPermission = openCodeSkillPermission(permission.skill, enabled, disabled)
+      if (skillPermission) permission.skill = skillPermission
       if (Object.keys(permission).length) config.permission = permission
       if (Object.keys(config).length) environment.OPENCODE_CONFIG_CONTENT = JSON.stringify(config)
       // No per-run system-prompt flag; fold context into the prompt, like Copilot.

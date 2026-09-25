@@ -72,8 +72,11 @@ unit-tested function (`tests/controlplane.test.ts`). Per CLI:
   Claude-style `Tool(pattern)` turned into that tool's pattern map (`Bash(git:*)` →
   `bash: { "git *": … }`; a literal `Bash(rm *)` key is accepted but matches nothing) and
   patterns on flat-only keys (`webfetch`, `websearch`, …) dropped, because a pattern map there
-  makes OpenCode refuse to start. Global skills follow `$XDG_CONFIG_HOME`. Extra dirs →
-  `permission.external_directory`. The shared prompt goes through
+  makes OpenCode refuse to start. OpenCode names MCP tools `<server>_<tool>` (verified), so
+  `mcp__<server>__<tool>` → `<server>_<tool>` and `mcp__<server>__*` → `<server>_*`. Global
+  skills follow `$XDG_CONFIG_HOME`. Extra dirs **and** ambient skill roots →
+  `permission.external_directory` allows — headless, OpenCode auto-rejects its default
+  external-directory prompt. The shared prompt goes through
   `promptPrefix`, like Copilot. The Context & Tools preview shows this document after the args.
 
 `buildProviderCommand(provider, cwd, prompt, profile?)` splices the injected args in
@@ -108,7 +111,8 @@ badge and a live "how it's working" feed like Claude Code.
   parts are whole (not deltas) and joined as paragraphs; `tool_use` parts become activity with
   the tool id capitalised (`write`→Write, `edit`→Edit, so `FILE_TOOL_ACTIONS` works);
   `step_finish` carries per-step tokens (+cache) and `cost` → `onUsage`, and its input is the
-  context occupancy (no window reported → estimated); `sessionID` → `onSessionId`, resumed with
+  context occupancy, paired with the provider's `contextWindow` (default 200k) and labelled
+  estimated; `sessionID` → `onSessionId`, resumed with
   `--session`. The stream never names the model, so `task.model` is the configured one.
 - **Copilot / Ollama / custom**: raw text passthrough; `task.model` falls back to the
   provider's configured model.
@@ -179,7 +183,9 @@ Claude and OpenCode have a verified per-run lever:
 - **OpenCode** — enforced too (verified against the real CLI): enabled skills get
   `permission.skill.<name> = "allow"`, disabled ones `"deny"` — the skill tool then reports a
   denied skill as *not found*. Roots OpenCode doesn't scan join through `skills.paths`, so an
-  ambient skill is still native to it; nothing is listed in the prompt.
+  ambient skill is still native to it; nothing is listed in the prompt. The catalog map is
+  merged with the user's own `Skill`/`Skill(name)` tool rules, which are applied last: an
+  explicit deny is never re-allowed by the catalog, and a blanket `Skill` deny drops its allows.
 - **Copilot / Codex** — no per-run skill flag exists, so `Skill(...)` is **never** emitted into
   their args. They get the enabled skills' name, description, and absolute `SKILL.md` path
   through the existing prompt seams (`promptPrefix` / `developer_instructions`), plus a

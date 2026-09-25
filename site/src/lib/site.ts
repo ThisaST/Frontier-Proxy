@@ -5,7 +5,7 @@ export const LATEST_URL = `${RELEASES_URL}/latest`;
 export const ISSUES_URL = `${REPO_URL}/issues`;
 
 export const SITE_NAME = "Frontier Proxy";
-export const TAGLINE = "A local-first desktop router for Codex, Claude Code, Copilot CLI, and local models.";
+export const TAGLINE = "A local-first desktop router for Codex, Claude Code, Copilot CLI, OpenCode, and local models.";
 
 /** Prefix an in-site path with Astro's configured base, always ending in a slash. */
 export function url(path = "/"): string {

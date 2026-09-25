@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseClaudeLine, parseCodexLine, type StreamHandlers } from '../src/main/providers'
+import { parseClaudeLine, parseCodexLine, parseOpenCodeLine, type StreamHandlers } from '../src/main/providers'
 import type { ActivityEvent, ContextSample, SessionInfo, UsageSample } from '../src/shared/types'
 
 // Real event shapes captured from `claude -p --output-format stream-json`.
@@ -142,5 +142,66 @@ describe('codex stream parsing', () => {
     expect(activity.map(({ label, detail }) => [label, detail])).toEqual([
       ['Write', 'src/new.ts'], ['Edit', 'src/app.ts'], ['Delete', 'src/old.ts']
     ])
+  })
+})
+
+// Event shapes captured from `opencode run --format json` (1.18.x).
+function collectOpenCode(lines: object[]): { text: string; activity: ActivityEvent[]; usage: UsageSample[]; context?: ContextSample; sessionIds: string[] } {
+  let text = ''
+  let context: ContextSample | undefined
+  const usage: UsageSample[] = []
+  const activity: ActivityEvent[] = []
+  const sessionIds: string[] = []
+  const handlers: StreamHandlers = {
+    onText: (value) => { text += value },
+    onModel: () => {},
+    onActivity: (event) => { activity.push(event) },
+    onUsage: (value) => { usage.push(value) },
+    onContext: (value) => { context = value },
+    onSessionId: (value) => { sessionIds.push(value) }
+  }
+  const state = { wroteText: false }
+  for (const line of lines) parseOpenCodeLine(line as Record<string, unknown>, handlers, state)
+  return { text, activity, usage, context, sessionIds }
+}
+
+describe('opencode stream parsing', () => {
+  const session = 'ses_f2645fbd3ffe3Fwi7dPyG7dQ0t'
+  const run = [
+    { type: 'step_start', sessionID: session, part: { type: 'step-start' } },
+    { type: 'tool_use', sessionID: session, part: { type: 'tool', tool: 'write', state: { status: 'completed', input: { filePath: '/repo/a.txt', content: 'hi\n' } } } },
+    { type: 'text', sessionID: session, part: { type: 'text', text: "I'll create the file and edit it." } },
+    { type: 'step_finish', sessionID: session, part: { type: 'step-finish', reason: 'tool-calls', tokens: { total: 23482, input: 11091, output: 74, reasoning: 0, cache: { write: 0, read: 12317 } }, cost: 0 } },
+    { type: 'tool_use', sessionID: session, part: { type: 'tool', tool: 'edit', state: { status: 'completed', input: { filePath: '/repo/a.txt', oldString: 'hi', newString: 'bye' } } } },
+    { type: 'tool_use', sessionID: session, part: { type: 'tool', tool: 'bash', state: { status: 'completed', input: { command: 'ls -la' } } } },
+    { type: 'text', sessionID: session, part: { type: 'text', text: '`a.txt` now contains `bye`.' } },
+    { type: 'step_finish', sessionID: session, part: { type: 'step-finish', reason: 'stop', tokens: { total: 23746, input: 21, output: 15, reasoning: 4, cache: { write: 2, read: 23710 } }, cost: 0.0012 } }
+  ]
+
+  it('streams text parts as separate paragraphs and captures the session once', () => {
+    const { text, sessionIds } = collectOpenCode(run)
+    expect(text).toBe("I'll create the file and edit it.\n\n`a.txt` now contains `bye`.")
+    expect(sessionIds).toEqual([session])
+  })
+
+  // Write/Edit must line up with FILE_TOOL_ACTIONS so the Files changed panel fills.
+  it('turns tool parts into activity with Claude-style labels', () => {
+    expect(collectOpenCode(run).activity.map(({ label, detail }) => [label, detail])).toEqual([
+      ['Write', '/repo/a.txt'], ['Edit', '/repo/a.txt'], ['Bash', 'ls -la']
+    ])
+  })
+
+  it('reports usage per step and the last step as context occupancy', () => {
+    const { usage, context } = collectOpenCode(run)
+    expect(usage).toEqual([
+      { inputTokens: 23408, outputTokens: 74, costUsd: 0 },
+      { inputTokens: 23733, outputTokens: 19, costUsd: 0.0012 }
+    ])
+    expect(context).toEqual({ tokens: 23752 })
+  })
+
+  it('surfaces an error event as readable text', () => {
+    const { text } = collectOpenCode([{ type: 'error', sessionID: session, error: { name: 'UnknownError', data: { message: 'Unexpected server error. Check server logs for details.' } } }])
+    expect(text).toBe('\nUnexpected server error. Check server logs for details.\n')
   })
 })

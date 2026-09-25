@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { checkProviderAuth, copilotAuthFromConfig } from '../src/main/providers'
+import { checkProviderAuth, copilotAuthFromConfig, openCodeAuthFromFile } from '../src/main/providers'
 import type { ProviderConfig, ProviderKind } from '../src/shared/types'
 
 function provider(kind: ProviderKind): ProviderConfig {
@@ -70,5 +70,20 @@ describe('provider auth probes', () => {
     expect(await checkProviderAuth(provider('ollama'), dir)).toBeUndefined()
     expect(await checkProviderAuth(provider('codex-oss'), dir)).toBeUndefined()
     expect(await checkProviderAuth(provider('custom'), dir)).toBeUndefined()
+  })
+})
+
+describe('opencode login state', () => {
+  it('reports the providers OpenCode holds credentials for', async () => {
+    const dir = await home({ '.local/share/opencode/auth.json': JSON.stringify({ 'opencode-go': { type: 'api' }, anthropic: { type: 'oauth' } }) })
+    expect(await checkProviderAuth(provider('opencode'), dir)).toMatchObject({ state: 'logged-in', detail: 'Credentials for opencode-go, anthropic' })
+  })
+
+  // OpenCode serves free models with no credentials, so an empty or missing
+  // store is never evidence of being signed out.
+  it('stays unknown without stored credentials', async () => {
+    expect((await checkProviderAuth(provider('opencode'), await home({})))?.state).toBe('unknown')
+    expect((await checkProviderAuth(provider('opencode'), await home({ '.local/share/opencode/auth.json': '{}' })))?.state).toBe('unknown')
+    expect(openCodeAuthFromFile('not json').state).toBe('unknown')
   })
 })

@@ -101,6 +101,15 @@ describe('routing explanation', () => {
     ]))
   })
 
+  // Without an affinity row OpenCode scored 0 for every task type and was only
+  // ever reached by failover.
+  it('gives OpenCode a real task affinity so Automatic can choose it', () => {
+    const { ranked, decision } = routeTask(task('quality', 'coding'), [provider('opencode', 'opencode'), provider('local', 'codex-oss')])
+    expect(ranked[0].id).toBe('opencode')
+    const candidate = decision.candidates.find((item) => item.providerId === 'opencode')!
+    expect(candidate.factors).toContainEqual({ label: 'coding affinity', points: 12 })
+  })
+
   it('credits an explicit override to the user', () => {
     const chosen = task('balanced')
     chosen.preferredProviderId = 'claude'

@@ -15,7 +15,7 @@ Blocking checks (any hit is a must-fix — these are the product's identity):
 3. **No Node in the renderer.** Flag any Node/Electron import under `src/renderer/`; renderer↔main must go through the typed preload bridge.
 
 High-value checks:
-- Control-plane translation stays correct and per-CLI (Claude/Copilot/Codex flag shapes; MCP server names added to allow-tools; Codex SSE not injected; non-simple names aliased). Prefer changes landing in the pure `controlPlaneInjection`.
+- Control-plane translation stays correct and per-CLI (Claude/Copilot/Codex flag shapes; MCP server names added to allow-tools; Codex SSE not injected; non-simple names aliased; OpenCode's `OPENCODE_CONFIG_CONTENT` stays a valid config — no pattern maps on flat-only permission keys). Prefer changes landing in the pure `controlPlaneInjection`.
 - Failover stays quota-scoped: quota/rate-limit/unavailable cools down and fails over; a normal agent failure stops the task; intentional cancellation never fails over.
 - Usage vs context stay separate streams; context occupancy stays task-scoped.
 - New pure logic (router scoring, plan parsing, stream/control-plane) has a matching unit test in `tests/`.

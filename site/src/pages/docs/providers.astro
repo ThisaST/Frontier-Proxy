@@ -13,8 +13,8 @@ import { url } from "../../lib/site";
     <li>
       <h4>Do not re-add the built-in agents</h4>
       <p class="muted">
-        Codex, Claude Code, and GitHub Copilot are already registered. Leave their executable fields as
-        <code>codex</code>, <code>claude</code>, and <code>copilot</code>, enable the ones you use, and choose
+        Codex, Claude Code, GitHub Copilot, and OpenCode are already registered. Leave their executable fields as
+        <code>codex</code>, <code>claude</code>, <code>copilot</code>, and <code>opencode</code>, enable the ones you use, and choose
         <strong>Check providers</strong>.
       </p>
     </li>
@@ -90,6 +90,19 @@ copilot login</code></pre>
     plus your selections.
   </p>
 
+  <h2>OpenCode</h2>
+  <p>
+    Install <a href="https://opencode.ai">OpenCode</a> and run <code>opencode auth login</code> for the model providers
+    you use. Frontier reuses OpenCode's own credential store; it never asks for a key.
+  </p>
+  <pre><code>curl -fsSL https://opencode.ai/install | bash
+opencode auth login</code></pre>
+  <p>
+    Frontier runs <code>opencode run --format json --dir &lt;cwd&gt;</code> with the prompt on stdin, streams tool calls,
+    per-step token usage and cost, and resumes follow-ups in the same OpenCode session. Models are OpenCode's
+    <code>provider/model</code> ids, discovered from <code>opencode models</code>.
+  </p>
+
   <h2>Open-source models</h2>
   <p>Start Ollama and pull a coding model:</p>
   <pre><code>ollama pull qwen3-coder
@@ -129,7 +142,7 @@ ollama serve</code></pre>
   <h2>Models</h2>
   <p>
     Frontier enumerates what each provider can run. Ollama and Codex + Ollama get real discovery from
-    <code>ollama list</code>; Claude, Codex, and Copilot have no headless "list models" command, so Frontier ships a
+    <code>ollama list</code>, OpenCode from <code>opencode models</code>; Claude, Codex, and Copilot have no headless "list models" command, so Frontier ships a
     curated set of sensible defaults. The provider's own configured model is always folded in.
   </p>
   <p>

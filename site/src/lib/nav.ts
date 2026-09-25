@@ -9,7 +9,7 @@ export const docsNav: NavGroup[] = [
     links: [
       { label: "Overview", href: url("docs"), blurb: "What Frontier Proxy is and how a task flows through it." },
       { label: "Install", href: url("docs/install"), blurb: "Download a build or compile from source." },
-      { label: "Provider setup", href: url("docs/providers"), blurb: "Register and sign in to Codex, Claude Code, Copilot, and Ollama." },
+      { label: "Provider setup", href: url("docs/providers"), blurb: "Register and sign in to Codex, Claude Code, Copilot, OpenCode, and Ollama." },
     ],
   },
   {

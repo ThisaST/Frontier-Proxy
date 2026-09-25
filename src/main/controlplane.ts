@@ -88,7 +88,7 @@ function enabledMcpNames(profile: ControlPlaneProfile): string[] {
   return [...new Set(configuredMcpServers(profile).map((server) => server.name.trim()))]
 }
 
-type McpCapableProvider = Extract<ProviderConfig['kind'], 'claude' | 'copilot' | 'codex' | 'codex-oss'>
+type McpCapableProvider = Extract<ProviderConfig['kind'], 'claude' | 'copilot' | 'codex' | 'codex-oss' | 'opencode'>
 
 function attachedMcpServers(kind: McpCapableProvider, profile: ControlPlaneProfile): McpServerConfig[] {
   const configured = configuredMcpServers(profile)
@@ -139,7 +139,7 @@ function mcpSessionContext(kind: McpCapableProvider, profile: ControlPlaneProfil
     'Frontier attached these MCP servers to this provider process for the current task:',
     ...serverList,
     'Use their MCP tools directly when they are relevant to the request.',
-    'These servers are injected for this task only. Do not use `codex mcp list`, `claude mcp list`, `copilot mcp list`, or another newly launched CLI process to decide whether they are available; those commands inspect persistent configuration and may not show Frontier\'s per-run injection.',
+    'These servers are injected for this task only. Do not use `codex mcp list`, `claude mcp list`, `copilot mcp list`, `opencode mcp list`, or another newly launched CLI process to decide whether they are available; those commands inspect persistent configuration and may not show Frontier\'s per-run injection.',
     'Do not install or re-register these servers. If a requested MCP tool cannot be called, report the actual tool-discovery, connection, authentication, or invocation error from this provider session.'
   ].join('\n')
 }
@@ -240,6 +240,86 @@ function codexMcpArgs(profile: ControlPlaneProfile, environment: Record<string, 
   return args
 }
 
+// OpenCode takes a whole config document through OPENCODE_CONFIG_CONTENT,
+// merged over the user's own opencode.json for this process only. Local
+// servers take one argv array; remote ones cover Streamable HTTP and SSE.
+// Header secrets use OpenCode's own `{env:VAR}` interpolation.
+function openCodeMcp(profile: ControlPlaneProfile, environment: Record<string, string>): Record<string, unknown> | undefined {
+  const servers = configuredMcpServers(profile)
+  if (!servers.length) return undefined
+  const entries: Record<string, unknown> = {}
+  for (const server of servers) {
+    if (server.transport === 'stdio') {
+      entries[server.name.trim()] = {
+        type: 'local',
+        command: [server.command?.trim() ?? '', ...(server.args ?? [])],
+        ...(server.env && Object.keys(server.env).length ? { environment: server.env } : {}),
+        enabled: true
+      }
+      continue
+    }
+    const headers = Object.fromEntries(Object.entries(environmentBackedHeaders(server, environment)).map(([header, value]) => [header, value.replace(/^\$\{(\w+)\}$/, '{env:$1}')]))
+    entries[server.name.trim()] = { type: 'remote', url: server.url?.trim() ?? '', ...(Object.keys(headers).length ? { headers } : {}), enabled: true }
+  }
+  return entries
+}
+
+// OpenCode permission keys are lowercase tool names (`bash`, `edit`,
+// `webfetch`…), and every file-writing tool shares `edit`. A Claude-style
+// `Tool(pattern)` entry becomes that tool's pattern map (`Bash(git:*)` →
+// `bash: { "git *": … }`) — a literal `Bash(rm *)` key is accepted by OpenCode
+// but matches nothing, so the rule would silently not apply. Anything else
+// (e.g. an MCP tool glob) is passed through as a flat rule.
+const OPENCODE_TOOL_KEYS: Record<string, string> = { write: 'edit', multiedit: 'edit', notebookedit: 'edit', patch: 'edit' }
+// Keys OpenCode accepts only a flat action for; a pattern map on one makes the
+// whole config invalid and the CLI refuses to start (verified, 1.18.x).
+const OPENCODE_FLAT_ONLY = new Set(['todowrite', 'question', 'webfetch', 'websearch', 'doom_loop'])
+
+function openCodePermissions(allowed: string[], disallowed: string[]): Record<string, unknown> {
+  const flat = new Map<string, 'allow' | 'deny'>()
+  const patterns = new Map<string, Map<string, 'allow' | 'deny'>>()
+  // Denies are applied after allows so a tool named in both ends up denied.
+  const rules = [...allowed.map((tool) => [tool, 'allow'] as const), ...disallowed.map((tool) => [tool, 'deny'] as const)]
+  for (const [tool, action] of rules) {
+    // OpenCode names MCP tools `<server>_<tool>` (verified), so Claude's
+    // `mcp__<server>__<tool>` / `mcp__<server>__*` would otherwise match nothing.
+    const mcp = /^mcp__(.+?)(?:__(.+))?$/.exec(tool)
+    if (mcp) { flat.set(`${mcp[1]}_${mcp[2] ?? '*'}`, action); continue }
+    const match = /^([A-Za-z_]+)(?:\((.*)\))?$/.exec(tool)
+    if (!match) { flat.set(tool, action); continue }
+    const lower = match[1].toLowerCase()
+    const key = OPENCODE_TOOL_KEYS[lower] ?? lower
+    const pattern = match[2]?.trim().replace(/:\*$/, ' *')
+    if (!pattern || pattern === '*') { flat.set(key, action); continue }
+    if (OPENCODE_FLAT_ONLY.has(key)) continue // cannot be scoped; applying it tool-wide would over-block or over-allow
+    const map = patterns.get(key) ?? new Map<string, 'allow' | 'deny'>()
+    map.delete(pattern) // re-insert so the later (deny) rule also comes later in the map
+    map.set(pattern, action)
+    patterns.set(key, map)
+  }
+  const permission: Record<string, unknown> = Object.fromEntries(flat)
+  for (const [key, map] of patterns) {
+    // OpenCode applies the last matching rule, so the tool-wide action goes
+    // first and the specific patterns — denies after allows — follow it.
+    const ordered = [...map].sort((a, b) => Number(a[1] === 'deny') - Number(b[1] === 'deny'))
+    permission[key] = Object.fromEntries([...(flat.has(key) ? [['*', flat.get(key)]] : []), ...ordered])
+  }
+  return permission
+}
+
+// The catalog's per-skill choice merged with any `Skill`/`Skill(name)` rules
+// from the shared tool lists; the user's own rules are applied last so an
+// explicit deny is never re-allowed by the catalog, and a blanket `Skill` deny
+// suppresses the catalog's allows altogether.
+function openCodeSkillPermission(user: unknown, enabled: ResolvedSkill[], disabled: ResolvedSkill[]): Record<string, string> | undefined {
+  const userMap = user && typeof user === 'object' ? { ...(user as Record<string, string>) } : {}
+  const userAll = typeof user === 'string' ? user : userMap['*']
+  delete userMap['*']
+  const catalog = [...(userAll === 'deny' ? [] : enabled.map((skill) => [skill.name, 'allow'])), ...disabled.map((skill) => [skill.name, 'deny'])]
+  const merged = { ...(userAll ? { '*': userAll } : {}), ...Object.fromEntries(catalog), ...userMap }
+  return Object.keys(merged).length ? merged : undefined
+}
+
 function trimmedList(values: string[]): string[] {
   return values.map((value) => value.trim()).filter(Boolean)
 }
@@ -316,6 +396,32 @@ export function controlPlaneInjection(provider: ProviderConfig, profile: Control
       const developerInstructions = joinPromptContext(systemPrompt, mcpSessionContext(provider.kind, profile), skillsSessionContext(provider.kind, [...nativeEnabled, ...ambientEnabled], disabled))
       if (developerInstructions) args.push('-c', `developer_instructions=${tomlString(developerInstructions)}`)
       return withEnvironment({ args })
+    }
+    case 'opencode': {
+      // OpenCode discovers every skill root Frontier scans for it and has a
+      // real per-skill permission, so like Claude the choice is enforced, not
+      // advised: disabled skills are denied (the skill tool then reports them
+      // as not found), enabled ones allowed so a `skill: ask` config cannot
+      // stall a headless run. Ambient roots join through `skills.paths`.
+      const { ambientEnabled, disabled } = skillsForKind('opencode', skills)
+      const enabled = skills.filter((skill) => skill.enabled)
+      const config: Record<string, unknown> = {}
+      const mcp = openCodeMcp(profile, environment)
+      if (mcp) config.mcp = mcp
+      const skillRoots = skillRootDirs(ambientEnabled)
+      if (skillRoots.length) config.skills = { paths: skillRoots }
+      const permission = openCodePermissions(allowed, disallowed)
+      // A skill root outside the project needs the same allow as an extra dir:
+      // headless, OpenCode auto-rejects its default external-directory prompt,
+      // so the agent could list the skill but not read its bundled files.
+      const outside = [...new Set([...addDirs, ...skillRoots])]
+      if (outside.length) permission.external_directory = Object.fromEntries(outside.flatMap((dir) => [[dir, 'allow'], [`${dir.replace(/[\\/]+$/, '')}/**`, 'allow']]))
+      const skillPermission = openCodeSkillPermission(permission.skill, enabled, disabled)
+      if (skillPermission) permission.skill = skillPermission
+      if (Object.keys(permission).length) config.permission = permission
+      if (Object.keys(config).length) environment.OPENCODE_CONFIG_CONTENT = JSON.stringify(config)
+      // No per-run system-prompt flag; fold context into the prompt, like Copilot.
+      return withEnvironment({ args: [], promptPrefix: joinPromptContext(systemPrompt, mcpSessionContext('opencode', profile)) })
     }
     default:
       // ollama / custom: no agent tool surface to configure centrally.

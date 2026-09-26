@@ -1,30 +1,53 @@
 ---
+// App-style docs shell: the brand at the top of a left rail (like the app's
+// sidebar), grouped nav with icons, and an active item picked out with the
+// amber accent + inset border used by the app's own .nav-item.active
+// (src/renderer/src/styles/base.css). Below ~900px the rail collapses into a
+// top disclosure menu instead of the old horizontal-scrolling nav row.
 import Base from "./Base.astro";
 import { docsNav, siblings } from "../lib/nav";
 import { isCurrent } from "../lib/site";
+import { docsIcon } from "../lib/icon";
 
 interface Props { title: string; description: string; eyebrow?: string }
-const { title, description, eyebrow = "Documentation" } = Astro.props;
+const { title, description, eyebrow } = Astro.props;
 const path = Astro.url.pathname;
 const { prev, next } = siblings(path);
+const pageEyebrow = eyebrow ?? `Docs · ${title}`;
 ---
 
 <Base title={title} description={description}>
   <div class="wrap docs">
-    <aside class="docs-nav">
+    <button type="button" class="docs-nav-toggle" id="docs-nav-toggle" aria-expanded="false" aria-controls="docs-nav">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12" stroke-linecap="round" /></svg>
+      Contents
+      <span class="docs-nav-toggle-caret" aria-hidden="true">⌄</span>
+    </button>
+
+    <nav class="docs-nav" id="docs-nav" aria-label="Documentation">
+      {/* No brand here — the top nav (SiteNav.astro) always shows it,
+          including in this rail's own mobile disclosure state, so a second
+          copy here was pure duplication. */}
       {docsNav.map((group) => (
         <div class="docs-nav-group">
           <p class="eyebrow">{group.title}</p>
           {group.links.map((link) => (
-            <a href={link.href} aria-current={isCurrent(link.href, path) ? "page" : undefined}>{link.label}</a>
+            <a
+              href={link.href}
+              class="docs-nav-item"
+              aria-current={isCurrent(link.href, path) ? "page" : undefined}
+            >
+              <span class="docs-nav-icon" set:html={docsIcon(link.icon)} />
+              <span class="docs-nav-label">{link.label}</span>
+            </a>
           ))}
         </div>
       ))}
-    </aside>
+    </nav>
 
     <article class="docs-body">
       <div class="docs-head">
-        <p class="eyebrow">{eyebrow}</p>
+        <p class="eyebrow">{pageEyebrow}</p>
         <h1>{title}</h1>
         <p class="lede">{description}</p>
       </div>
@@ -40,3 +63,16 @@ const { prev, next } = siblings(path);
     </article>
   </div>
 </Base>
+
+<script>
+  // Top disclosure menu for the rail below ~900px (see theme.css's
+  // `.docs-nav`/`.docs-nav-toggle` breakpoint) — a button that expands the
+  // same nav markup, rather than the old horizontal-scrolling row.
+  const toggle = document.getElementById("docs-nav-toggle");
+  const nav = document.getElementById("docs-nav");
+  toggle?.addEventListener("click", () => {
+    const open = toggle.getAttribute("aria-expanded") === "true";
+    toggle.setAttribute("aria-expanded", String(!open));
+    nav?.classList.toggle("open", !open);
+  });
+</script>

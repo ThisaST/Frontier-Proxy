@@ -1,5 +1,6 @@
 ---
 import BrandMark from "./BrandMark.astro";
+import ThemeToggle from "./ThemeToggle.astro";
 import { mainNav } from "../lib/nav";
 import { url, isCurrent, REPO_URL } from "../lib/site";
 
@@ -11,8 +12,8 @@ const path = Astro.url.pathname;
     <a class="brand" href={url("/")}>
       <BrandMark />
       <span class="brand-copy">
-        <strong>Frontier</strong>
-        <small>PROXY</small>
+        <strong>FRONTIER</strong>
+        <small>LOCAL AGENT ROUTER</small>
       </span>
     </a>
 
@@ -22,10 +23,11 @@ const path = Astro.url.pathname;
       </svg>
     </button>
 
-    <nav class="nav-links" id="nav-links">
+    <nav class="nav-links" id="nav-links" aria-label="Primary">
       {mainNav.map((link) => (
         <a href={link.href} aria-current={isCurrent(link.href, path) ? "page" : undefined}>{link.label}</a>
       ))}
+      <ThemeToggle />
       <a class="btn btn-secondary btn-sm" href={REPO_URL} rel="noopener">GitHub</a>
     </nav>
   </div>

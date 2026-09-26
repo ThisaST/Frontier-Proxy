@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import DocsFigure from "../../components/DocsFigure.astro";
 import { url } from "../../lib/site";
 ---
 
@@ -107,6 +108,12 @@ import { url } from "../../lib/site";
     files. File reads are restricted to paths the task actually touched, enforce workspace containment, cap text at
     1&nbsp;MB, and identify binaries rather than dumping them.
   </p>
+
+  <DocsFigure
+    name="tasks"
+    alt="The Tasks screen with its three panes: the work queue on the left, a streaming conversation in the centre, and the route/files/activity inspector on the right"
+    caption="Work queue, conversation, and inspector — one screen, no modal."
+  />
 
   <h2>Context window</h2>
   <p>

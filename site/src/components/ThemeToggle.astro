@@ -1,0 +1,113 @@
+---
+// System / Console / Daylight segmented control — the site's equivalent of
+// Settings → Appearance in the app (src/renderer/index.html's #appearance-theme,
+// src/renderer/src/theme.ts). Same localStorage key (`fp-theme`), same
+// radiogroup pattern (roving tabindex + arrow keys, ui/segmented.ts), same
+// before-paint resolution (public/theme-init.js). The site has no separate
+// "reduce effects" switch — `data-effects` here follows prefers-reduced-motion
+// only, computed by theme-init.js and kept in sync on change below.
+---
+
+<div class="theme-toggle segmented" id="site-theme-toggle" role="radiogroup" aria-label="Theme">
+  <button type="button" data-theme-choice="system" role="radio" aria-checked="false">System</button>
+  <button type="button" data-theme-choice="console" role="radio" aria-checked="false">Console</button>
+  <button type="button" data-theme-choice="daylight" role="radio" aria-checked="false">Daylight</button>
+</div>
+
+<script>
+  const THEME_KEY = "fp-theme";
+
+  function readTheme(): string {
+    try {
+      const stored = localStorage.getItem(THEME_KEY);
+      return stored === "console" || stored === "daylight" ? stored : "system";
+    } catch {
+      return "system";
+    }
+  }
+
+  function writeTheme(value: string): void {
+    try {
+      localStorage.setItem(THEME_KEY, value);
+    } catch {
+      /* private mode / disabled storage */
+    }
+  }
+
+  function prefersDark(): boolean {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+
+  function prefersReducedMotion(): boolean {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function applyTheme(): void {
+    const theme = readTheme();
+    const resolved = theme === "system" ? (prefersDark() ? "console" : "daylight") : theme;
+    document.documentElement.setAttribute("data-theme", resolved);
+    document.documentElement.setAttribute("data-effects", prefersReducedMotion() ? "off" : "on");
+    syncGroup(theme);
+  }
+
+  const group = document.getElementById("site-theme-toggle");
+  const options = () => [...(group?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])];
+
+  function syncGroup(theme: string): void {
+    for (const el of options()) {
+      const checked = el.dataset.themeChoice === theme;
+      el.setAttribute("aria-checked", String(checked));
+      el.classList.toggle("active", checked);
+      el.tabIndex = checked ? 0 : -1;
+    }
+  }
+
+  function select(el: HTMLButtonElement): void {
+    const theme = el.dataset.themeChoice ?? "system";
+    writeTheme(theme);
+    applyTheme();
+  }
+
+  if (group) {
+    for (const el of options()) {
+      el.addEventListener("click", () => select(el));
+    }
+    // Roving tabindex + arrow-key navigation — same pattern as the app's
+    // ui/segmented.ts initRadioGroup, reimplemented here since the site has
+    // no shared module to import from.
+    group.addEventListener("keydown", (event) => {
+      const list = options();
+      const current = list.indexOf(document.activeElement as HTMLButtonElement);
+      if (current < 0) return;
+      const move = (delta: number): void => {
+        const next = list[(current + delta + list.length) % list.length];
+        next.focus();
+        select(next);
+      };
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); move(1); }
+      else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+      else if (event.key === "Home") { event.preventDefault(); list[0].focus(); select(list[0]); }
+      else if (event.key === "End") { event.preventDefault(); list[list.length - 1].focus(); select(list[list.length - 1]); }
+    });
+  }
+
+  applyTheme();
+
+  if (typeof window.matchMedia === "function") {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (readTheme() === "system") applyTheme(); });
+    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyTheme);
+  }
+</script>
+
+<style>
+  /* Compact enough to sit on one line next to the rest of the nav at 1280,
+     and to fit the mobile disclosure menu at 390 — the app's own segmented
+     control (Settings → Appearance) has more room to breathe than a topbar. */
+  .theme-toggle { flex: 0 0 auto; }
+  .theme-toggle button {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    padding: 7px 9px;
+    font-size: 10px;
+  }
+</style>

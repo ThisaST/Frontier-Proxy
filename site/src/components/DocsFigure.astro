@@ -1,0 +1,25 @@
+---
+// A bezel-panel figure wrapping a theme-aware app Screenshot, for embedding
+// real UI inside docs prose (CLAUDE.md "Show the real new UI" → docs pages).
+import Screenshot from "./Screenshot.astro";
+import type { ScreenName } from "../lib/screens";
+
+interface Props { name: ScreenName; alt: string; caption: string }
+const { name, alt, caption } = Astro.props;
+---
+
+<figure class="docs-figure panel">
+  <Screenshot name={name} alt={alt} />
+  <figcaption>{caption}</figcaption>
+</figure>
+
+<style>
+  .docs-figure { margin: 0 0 26px; overflow: hidden; }
+  .docs-figure :global(.theme-shot) { display: block; }
+  .docs-figure figcaption { padding: 12px 16px; border-top: 1px solid var(--bezel); color: var(--fg-muted); font-size: 12.5px; }
+  /* .panel's corner ticks sit 1px outside the border box (theme.css); this
+     figure clips overflow to round the screenshot's corners, which would
+     otherwise clip the ticks too. Flush them to the edge instead. */
+  .docs-figure::before { top: 0; left: 0; }
+  .docs-figure::after { top: 0; right: 0; }
+</style>

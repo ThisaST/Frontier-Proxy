@@ -2,15 +2,71 @@
 import Base from "../layouts/Base.astro";
 import DownloadTable from "../components/DownloadTable.astro";
 import Callout from "../components/Callout.astro";
+import Screenshot from "../components/Screenshot.astro";
 import { url, REPO_URL } from "../lib/site";
 import { version } from "../lib/release";
 
-const providers = [
-  { name: "Codex CLI", detail: "codex exec · workspace-write", state: "online" },
-  { name: "Claude Code", detail: "print mode · acceptEdits", state: "busy" },
-  { name: "GitHub Copilot", detail: "copilot -s · non-interactive", state: "online" },
-  { name: "OpenCode", detail: "opencode run · json events", state: "online" },
-  { name: "Ollama", detail: "local models · qwen3-coder", state: "grey" },
+const tour = [
+  {
+    id: "home",
+    label: "Home",
+    screen: "home" as const,
+    alt: "The Home screen's composer with a live route preview showing the chosen agent, model, and tier before the task is sent",
+    heading: "Composer-first",
+    bullets: [
+      "Describe a task and watch a live route preview — agent · model · tier — before anything runs.",
+      "A small radar sweep plays while the route is being scored.",
+      "The project switcher scopes Home, Tasks, Review, and Workspaces to one repository at a time.",
+    ],
+  },
+  {
+    id: "tasks",
+    label: "Tasks",
+    screen: "tasks" as const,
+    alt: "The Tasks screen split into three panes: the work queue, a streaming conversation, and the route inspector",
+    heading: "Three panes, not a modal",
+    bullets: [
+      "Work queue, conversation, and a collapsible route/files/activity inspector — one screen, nothing to double-click open.",
+      "The route inspector shows Jev's reasoning: task-type probabilities, complexity mapped to a tier, and the best-fit call.",
+      "Changed files open in an overlay with syntax highlighting and a real Git diff.",
+    ],
+  },
+  {
+    id: "routing",
+    label: "Routing",
+    screen: "routing" as const,
+    alt: "The Routing screen showing the Jev advisor's Off, Shadow, and Active modes, a write-only credential field, and the request payload preview",
+    heading: "An optional second opinion",
+    bullets: [
+      "Off, Shadow, or Active — off by default, and Shadow changes nothing about what runs.",
+      "A write-only key field plus Test connection; the exact request payload is previewable before you ever send one.",
+      "The model catalog and a calibration view of how confidence tracked real outcomes.",
+    ],
+  },
+  {
+    id: "agents",
+    label: "Agents",
+    screen: "agent-drawer" as const,
+    alt: "The Agents table with login state and plan windows per CLI, and a detail drawer open on one row showing its full edit form",
+    heading: "Every CLI, one table",
+    bullets: [
+      "Status lamp, login state, models by tier, and today's plan windows for every configured agent.",
+      "A detail drawer per row holds the full edit form instead of a separate settings page.",
+      "Ready means found, not signed in — the drawer is where you fix a logged-out CLI.",
+    ],
+  },
+  {
+    id: "review",
+    label: "Review",
+    screen: "review" as const,
+    alt: "The Review screen listing frontier/* branches per repository with diffs, checks, and Merge/Delete actions behind a confirmation",
+    heading: "Review before you merge",
+    bullets: [
+      "Every frontier/* branch a delegated, benched, or workspace run left behind, listed per repository.",
+      "Each branch carries the verification report from the project's own checks — never a green tick it didn't earn.",
+      "Merge and delete both sit behind an explicit confirmation dialog.",
+    ],
+  },
 ];
 
 const features = [
@@ -105,57 +161,19 @@ const steps = [
         </ul>
       </div>
 
-      <!-- Static representation of the app's own surface, in the app's own styling. -->
-      <div class="mock panel" aria-hidden="true">
-        <div class="mock-rail">
-          <p class="eyebrow" style="margin-bottom:9px">Agents</p>
-          {providers.map((p) => (
-            <div class="mock-provider">
-              <span class={`dot ${p.state === "online" ? "" : p.state === "busy" ? "yellow" : "grey"}`}></span>
-              <span>
-                <b>{p.name}</b>
-                <small>{p.detail}</small>
-              </span>
-            </div>
-          ))}
-          <div class="mock-privacy">
-            <span class="dot"></span>
-            <span><b>Local-first</b><small>Agent sessions never leave this machine</small></span>
-          </div>
+      <!-- The real Tasks screen, framed as an app window: a bezel with corner
+           ticks and a titlebar, not a hand-built HTML mock-up. -->
+      <div class="app-frame panel">
+        <div class="app-frame-titlebar">
+          <span class="app-frame-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="app-frame-title readout">Frontier Proxy — Tasks</span>
         </div>
-
-        <div class="mock-main">
-          <div class="mock-head">
-            <span>Work queue</span>
-            <span class="pill">3 running</span>
-          </div>
-          <div class="mock-task">
-            <span class="dot yellow"></span>
-            <div>
-              <b>Add pagination to the invoices table</b>
-              <div class="mock-tags"><span class="tag">coding</span><span class="tag">claude-opus-5</span><span class="tag green">orchestrated</span></div>
-            </div>
-          </div>
-          <div class="mock-task">
-            <span class="dot yellow"></span>
-            <div>
-              <b>Why does the CSV import drop the last row?</b>
-              <div class="mock-tags"><span class="tag">debugging</span><span class="tag">gpt-5-codex</span></div>
-            </div>
-          </div>
-          <div class="mock-task">
-            <span class="dot"></span>
-            <div>
-              <b>Review the auth middleware refactor</b>
-              <div class="mock-tags"><span class="tag">review</span><span class="tag">copilot</span><span class="tag blue">3 files</span></div>
-            </div>
-          </div>
-          <div class="mock-activity">
-            <p class="eyebrow" style="margin-bottom:8px">Live activity</p>
-            <div><span class="mock-glyph">⏺</span> Edit <code>src/invoices/table.tsx</code></div>
-            <div><span class="mock-glyph">⏺</span> Bash <code>pnpm test invoices</code></div>
-            <div><span class="mock-glyph blue">✻</span> Thinking about pagination state…</div>
-          </div>
+        <div class="app-frame-screen screen">
+          <Screenshot
+            name="tasks"
+            alt="The Frontier Proxy desktop app's Tasks screen: a work queue on the left, a streaming conversation in the centre, and a route inspector open on the right showing the agent, model, and Jev's reasoning"
+            eager
+          />
         </div>
       </div>
     </div>
@@ -234,65 +252,95 @@ const steps = [
     </div>
   </section>
 
-  <!-- ---------- Interface ---------- -->
-  <section class="section" id="interface">
+  <!-- ---------- Inside the app ---------- -->
+  <section class="section" id="tour">
     <div class="wrap">
       <div class="section-head">
-        <p class="eyebrow">Interface</p>
+        <p class="eyebrow">Inside the app</p>
         <h2>An instrument panel, not a chat window.</h2>
         <p>Five screens, one console. See the <a href={url("docs/workspace")}>full walkthrough</a> in the docs.</p>
       </div>
 
-      <div class="grid grid-3 iface-grid">
-        <div class="card">
-          <div class="iface-mock" aria-hidden="true">
-            <div class="iface-row"><span class="iface-field">Fix the flaky auth test…</span><span class="iface-radar"></span></div>
-            <div class="iface-row iface-readout"><span class="readout">claude-opus-5</span><span class="gauge-seg"><span class="lit"></span><span class="lit"></span><span class="lit cyan"></span><span></span><span></span></span></div>
-          </div>
-          <h3>Home</h3>
-          <p class="muted" style="font-size:13.5px">Composer-first. Describe a task and watch a live route preview — agent, model, a radar sweep while it's scored — before anything runs.</p>
+      <div class="tour">
+        <div class="segmented tour-tabs" id="tour-tabs" role="radiogroup" aria-label="App screen">
+          {tour.map((t, i) => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={i === 0 ? "true" : "false"}
+              tabindex={i === 0 ? 0 : -1}
+              data-tour-tab={t.id}
+              id={`tour-tab-${t.id}`}
+              aria-controls={`tour-panel-${t.id}`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        <div class="card">
-          <div class="iface-mock" aria-hidden="true">
-            <div class="iface-switcher"><span class="lamp phosphor"></span><span>frontier-proxy</span><span class="iface-caret">⌄</span></div>
-            <div class="iface-recents"><span class="tag">proxy-app</span><span class="tag">site-redesign</span><span class="tag">infra</span></div>
-          </div>
-          <h3>Project switcher</h3>
-          <p class="muted" style="font-size:13.5px">Scope Home, the Tasks queue, Review, and Workspaces to one repository at a time, and pre-fill new tasks with its working directory.</p>
-        </div>
-
-        <div class="card">
-          <div class="iface-mock iface-panes" aria-hidden="true">
-            <div class="iface-pane"><span class="lamp caution"></span><span class="lamp"></span><span class="lamp phosphor"></span></div>
-            <div class="iface-pane iface-pane-main"><span></span><span></span><span class="short"></span></div>
-            <div class="iface-pane"><span class="tag amber">route</span><span class="tag">files</span></div>
-          </div>
-          <h3>Tasks</h3>
-          <p class="muted" style="font-size:13.5px">Three panes: the work queue, the conversation, and a collapsible route/files/activity inspector. No modal, nothing to double-click open.</p>
-        </div>
-
-        <div class="card">
-          <div class="iface-mock" aria-hidden="true">
-            <div class="iface-segmented"><span class="muted">Off</span><span class="active">Shadow</span><span class="muted">Active</span></div>
-            <div class="iface-bars"><span style="width:70%"></span><span style="width:40%"></span><span style="width:20%"></span></div>
-          </div>
-          <h3>Routing</h3>
-          <p class="muted" style="font-size:13.5px">The Jev advisor console: mode, credentials, the exact request payload, the model catalog, and a calibration view of how confidence tracked outcomes.</p>
-        </div>
-
-        <div class="card">
-          <div class="iface-mock iface-table" aria-hidden="true">
-            <div><span class="lamp phosphor"></span><span>Claude Code</span><span class="readout" style="margin-left:auto;font-size:10px">62%</span></div>
-            <div><span class="lamp caution"></span><span>Codex CLI</span><span class="readout" style="margin-left:auto;font-size:10px">88%</span></div>
-            <div><span class="lamp"></span><span>Ollama</span><span class="readout" style="margin-left:auto;font-size:10px">—</span></div>
-          </div>
-          <h3>Agents</h3>
-          <p class="muted" style="font-size:13.5px">Every configured CLI as a dense table — status, capacity, today's usage — with a detail drawer per row for the full edit form.</p>
+        <div class="tour-panels">
+          {tour.map((t, i) => (
+            <div
+              class="tour-panel panel"
+              id={`tour-panel-${t.id}`}
+              data-tour-panel={t.id}
+              role="region"
+              aria-labelledby={`tour-tab-${t.id}`}
+              hidden={i !== 0}
+            >
+              <div class="tour-shot screen">
+                <Screenshot name={t.screen} alt={t.alt} />
+              </div>
+              <div class="tour-copy">
+                <h3>{t.heading}</h3>
+                <ul class="ticks">
+                  {t.bullets.map((b) => <li>{b}</li>)}
+                </ul>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   </section>
+
+  <script>
+    // Tab switching for the "Inside the app" tour — the same roving-tabindex
+    // radiogroup pattern as the theme toggle (ThemeToggle.astro) and the
+    // app's own ui/segmented.ts, reimplemented inline per-component since the
+    // site shares no JS module between them.
+    const group = document.getElementById("tour-tabs");
+    const tabs = () => [...(group?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])];
+    const panels = () => [...document.querySelectorAll<HTMLElement>("[data-tour-panel]")];
+
+    function select(tab: HTMLButtonElement): void {
+      for (const el of tabs()) {
+        const checked = el === tab;
+        el.setAttribute("aria-checked", String(checked));
+        el.tabIndex = checked ? 0 : -1;
+      }
+      const id = tab.dataset.tourTab;
+      for (const panel of panels()) panel.hidden = panel.dataset.tourPanel !== id;
+    }
+
+    if (group) {
+      for (const tab of tabs()) tab.addEventListener("click", () => select(tab));
+      group.addEventListener("keydown", (event) => {
+        const list = tabs();
+        const current = list.indexOf(document.activeElement as HTMLButtonElement);
+        if (current < 0) return;
+        const move = (delta: number): void => {
+          const next = list[(current + delta + list.length) % list.length];
+          next.focus();
+          select(next);
+        };
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); move(1); }
+        else if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); move(-1); }
+        else if (event.key === "Home") { event.preventDefault(); list[0].focus(); select(list[0]); }
+        else if (event.key === "End") { event.preventDefault(); list[list.length - 1].focus(); select(list[list.length - 1]); }
+      });
+    }
+  </script>
 
   <!-- ---------- Features ---------- -->
   <section class="section" id="features">
@@ -484,33 +532,20 @@ const steps = [
   .hero-trust { list-style: none; display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 0; margin: 0; }
   .hero-trust li { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12.5px; }
 
-  /* ---- App mock: the three-pane Tasks screen, in the app's own bezel style ---- */
-  .mock {
-    display: grid; grid-template-columns: 168px minmax(0, 1fr);
-    overflow: hidden; font-size: 11px; line-height: 1.4;
-    box-shadow: var(--e-2-shadow);
+  /* ---- App frame: the real Tasks screenshot, framed as an app window ---- */
+  .app-frame { overflow: hidden; box-shadow: var(--e-2-shadow); padding: 0; }
+  /* Same corner-tick-vs-overflow-clip fix as DocsFigure.astro. */
+  .app-frame::before { top: 0; left: 0; }
+  .app-frame::after { top: 0; right: 0; }
+  .app-frame-titlebar {
+    display: flex; align-items: center; gap: 10px; padding: 9px 13px;
+    background: var(--surface-2); border-bottom: 1px solid var(--bezel);
   }
-  .mock-rail { background: var(--surface-1); border-right: 1px solid var(--bezel); padding: 16px 13px; display: flex; flex-direction: column; }
-  .mock-provider { display: grid; grid-template-columns: 8px 1fr; align-items: center; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--bezel); }
-  .mock-provider b, .mock-privacy b { display: block; font-weight: 500; font-size: 11px; }
-  .mock-provider small, .mock-privacy small { display: block; color: var(--fg-muted); font-size: 9px; margin-top: 2px; }
-  .mock-privacy {
-    margin-top: auto; display: grid; grid-template-columns: 8px 1fr; gap: 9px; align-items: center;
-    padding: 11px 10px; border-radius: var(--r-md);
-    background: rgb(255 176 0 / .05); border: 1px solid rgb(255 176 0 / .14);
-  }
-
-  .mock-main { padding: 15px 16px; display: grid; gap: 7px; align-content: start; }
-  .mock-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 11px; border-bottom: 1px solid var(--bezel); color: var(--fg-muted); }
-  .mock-task { display: grid; grid-template-columns: 8px 1fr; gap: 10px; align-items: start; padding: 10px 11px; border: 1px solid var(--bezel); border-radius: var(--r-md); }
-  .mock-task .dot { margin-top: 4px; }
-  .mock-task b { font-weight: 500; font-size: 11.5px; }
-  .mock-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-  .mock-tags .tag { font-size: 8.5px; padding: 2px 5px; }
-  .mock-activity { margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--bezel); display: grid; gap: 6px; color: var(--fg-muted); font-size: 10.5px; }
-  .mock-activity code { font-size: 10px; padding: 0 4px; }
-  .mock-glyph { color: var(--amber); margin-right: 5px; }
-  .mock-glyph.blue { color: var(--cyan); }
+  .app-frame-dots { display: flex; gap: 6px; }
+  .app-frame-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--bezel-strong); }
+  .app-frame-title { margin-left: 4px; font-size: 11px; }
+  .app-frame-screen { border: 0; border-radius: 0; }
+  .app-frame-screen :global(img) { display: block; width: 100%; height: auto; }
 
   /* ---- Step flow ---- */
   .steps.flow { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 26px; }
@@ -519,39 +554,31 @@ const steps = [
 
   .closing { border-top: 1px solid var(--bezel); }
 
-  /* ---- Interface section: small abstract sketches, not screenshots ---- */
-  .iface-mock {
-    height: 86px; margin-bottom: 16px; padding: 10px; border-radius: var(--r-md);
-    background: var(--surface-1); border: 1px solid var(--bezel); display: grid; gap: 8px; align-content: center;
-  }
-  .iface-row { display: flex; align-items: center; gap: 8px; }
-  .iface-field { flex: 1; height: 20px; border-radius: var(--r-sm); background: var(--surface-3); border: 1px solid var(--bezel); }
-  .iface-radar { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--amber); background: radial-gradient(circle at 50% 50%, var(--amber) 0 2px, transparent 3px); opacity: .8; flex: 0 0 auto; }
-  .iface-readout { justify-content: space-between; }
-  .iface-switcher { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--surface-3); border: 1px solid var(--bezel); font-size: 11px; }
-  .iface-caret { margin-left: auto; color: var(--fg-muted); }
-  .iface-recents { display: flex; gap: 6px; flex-wrap: wrap; }
-  .iface-panes { grid-template-columns: 22px 1fr 40px; display: grid; gap: 6px; height: 86px; align-content: stretch; padding: 8px; }
-  .iface-pane { border: 1px solid var(--bezel); border-radius: var(--r-sm); background: var(--surface-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 4px; }
-  .iface-pane-main { justify-content: flex-start; padding: 8px 6px; gap: 6px; }
-  .iface-pane-main span { display: block; height: 6px; border-radius: 2px; background: var(--surface-3); width: 100%; }
-  .iface-pane-main span.short { width: 60%; }
-  .iface-segmented { display: flex; gap: 4px; font-family: var(--font-display); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
-  .iface-segmented span { flex: 1; text-align: center; padding: 6px 4px; border-radius: var(--r-sm); border: 1px solid var(--bezel); color: var(--fg-faint); }
-  .iface-segmented span.active { color: var(--on-amber); background: var(--amber-fill); border-color: var(--amber-fill); font-weight: 700; }
-  .iface-bars { display: grid; gap: 6px; }
-  .iface-bars span { display: block; height: 6px; border-radius: 2px; background: var(--cyan); box-shadow: var(--glow-cyan); }
-  .iface-table { display: grid; gap: 8px; }
-  .iface-table > div { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  /* ---- Inside the app: segmented tour, real screenshots ---- */
+  .tour { display: grid; gap: 22px; }
+  .tour-tabs { align-self: start; }
+  .tour-panel { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0; overflow: hidden; }
+  .tour-panel[hidden] { display: none; }
+  .tour-panel::before { top: 0; left: 0; }
+  .tour-panel::after { top: 0; right: 0; }
+  .tour-shot { border: 0; border-radius: 0; border-right: 1px solid var(--bezel); }
+  .tour-shot :global(img) { display: block; width: 100%; height: auto; }
+  .tour-copy { padding: 24px 26px; align-self: center; }
+  .tour-copy h3 { margin-bottom: 12px; }
+  .tour-copy .ticks { margin-bottom: 0; }
+  .tour-copy .ticks li { font-size: 13.5px; }
 
   @media (max-width: 940px) {
     .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
     .hero { padding-top: 44px; }
-    .mock { font-size: 10.5px; }
+    .tour-panel { grid-template-columns: minmax(0, 1fr); }
+    .tour-shot { border-right: 0; border-bottom: 1px solid var(--bezel); }
   }
-  @media (max-width: 560px) {
-    .mock { grid-template-columns: minmax(0, 1fr); }
-    .mock-rail { border-right: 0; border-bottom: 1px solid var(--bezel); }
-    .mock-privacy { margin-top: 12px; }
+  @media (max-width: 480px) {
+    /* Five tabs at 360px don't fit the segmented control's own width — scroll
+       inside it rather than letting the page itself scroll horizontally. */
+    .tour-tabs { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tour-tabs button { flex: 0 0 auto; }
+    .tour-copy { padding: 18px 16px; }
   }
 </style>

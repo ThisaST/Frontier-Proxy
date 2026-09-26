@@ -5,9 +5,8 @@
 // (src/renderer/src/styles/base.css). Below ~900px the rail collapses into a
 // top disclosure menu instead of the old horizontal-scrolling nav row.
 import Base from "./Base.astro";
-import BrandMark from "../components/BrandMark.astro";
 import { docsNav, siblings } from "../lib/nav";
-import { isCurrent, url } from "../lib/site";
+import { isCurrent } from "../lib/site";
 import { docsIcon } from "../lib/icon";
 
 interface Props { title: string; description: string; eyebrow?: string }
@@ -26,14 +25,9 @@ const pageEyebrow = eyebrow ?? `Docs · ${title}`;
     </button>
 
     <nav class="docs-nav" id="docs-nav" aria-label="Documentation">
-      <a class="docs-nav-brand" href={url("/")}>
-        <BrandMark size={24} />
-        <span class="brand-copy">
-          <strong>FRONTIER</strong>
-          <small>LOCAL AGENT ROUTER</small>
-        </span>
-      </a>
-
+      {/* No brand here — the top nav (SiteNav.astro) always shows it,
+          including in this rail's own mobile disclosure state, so a second
+          copy here was pure duplication. */}
       {docsNav.map((group) => (
         <div class="docs-nav-group">
           <p class="eyebrow">{group.title}</p>

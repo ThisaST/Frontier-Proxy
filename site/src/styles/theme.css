@@ -304,6 +304,20 @@ hr { border: 0; border-top: 1px solid var(--bezel); margin: 34px 0; }
 .tag.blue, .tag.cyan { color: var(--cyan); border-color: rgb(55 226 213 / .3); }
 .tag.amber { color: var(--amber); border-color: rgb(255 176 0 / .3); }
 
+/* ---------- Segmented control (theme toggle, tour tabs) — ported from the
+   app's src/renderer/src/styles/components.css. The app keys its active
+   state off a JS-toggled `.active` class; the site's two segmented controls
+   (ThemeToggle.astro, index.astro's tour tabs) only ever set `aria-checked`,
+   so this is keyed off that instead — one state, not two kept in sync. ---------- */
+.segmented { display: flex; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); overflow: hidden; }
+.segmented button {
+  border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--fg-muted);
+  font: 500 11px var(--font-display); letter-spacing: .04em; cursor: pointer; white-space: nowrap;
+}
+.segmented button:hover { color: var(--fg); }
+.segmented button[aria-checked="true"] { background: var(--surface-3); color: var(--amber); }
+.segmented button:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+
 /* ---------- Bezel panels: corner ticks + inset hairline (signature motif) ---------- */
 .panel, .card {
   position: relative;
@@ -462,10 +476,6 @@ tbody tr:hover td { background: var(--surface-2); }
   position: sticky; top: calc(var(--nav-h) + 26px); display: grid; gap: 20px;
   padding: 16px 14px; border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1);
 }
-.docs-nav-brand { display: flex; align-items: center; gap: 9px; color: var(--fg); padding: 0 2px 14px; border-bottom: 1px solid var(--bezel); margin-bottom: 2px; }
-.docs-nav-brand:hover { text-decoration: none; }
-.docs-nav-brand .brand-copy strong { display: block; font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: .01em; color: var(--fg); }
-.docs-nav-brand .brand-copy small { display: block; color: var(--fg-faint); font-size: 7px; font-weight: 700; letter-spacing: .18em; margin-top: 1px; }
 .docs-nav-group { display: grid; gap: 2px; }
 .docs-nav-group .eyebrow { margin: 4px 0 4px 11px; }
 /* Mirrors the app's own .nav-item / .nav-icon / .nav-item.active (base.css) so

@@ -100,8 +100,14 @@
 </script>
 
 <style>
+  /* Compact enough to sit on one line next to the rest of the nav at 1280,
+     and to fit the mobile disclosure menu at 390 — the app's own segmented
+     control (Settings → Appearance) has more room to breathe than a topbar. */
+  .theme-toggle { flex: 0 0 auto; }
   .theme-toggle button {
     font-family: var(--font-display);
     text-transform: uppercase;
+    padding: 7px 9px;
+    font-size: 10px;
   }
 </style>

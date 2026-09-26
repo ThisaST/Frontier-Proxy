@@ -12,7 +12,7 @@ import { countdown, formatCost, formatNumber, timeAgo } from '../ui/format'
 import { providerCapacity, providerName, providerQuota, trackedTokens, type SnapshotProvider } from '../providers-view-model'
 import { taskElapsed, taskKindLabel, taskStatusIndicator } from '../task-helpers'
 import { createTaskForm } from '../task-form'
-import { currentProject, onProjectChange, openProjectSwitcher, projectMatches } from '../project'
+import { chooseProjectInteractively, currentProject, onProjectChange, projectMatches } from '../project'
 import { snapshot } from '../state'
 import { reviewRepos, reviewLoaded } from './review'
 import { openTask } from './tasks'
@@ -265,7 +265,7 @@ export function initHomeView(): void {
   form.init()
   byId('home-view-tasks').addEventListener('click', () => switchView('tasks'))
   byId('home-view-review').addEventListener('click', () => switchView('review'))
-  byId('home-project-field').addEventListener('click', () => openProjectSwitcher())
+  byId('home-project-field').addEventListener('click', () => void chooseProjectInteractively())
   byId('home-start-task').addEventListener('click', () => void submitHomeTask())
 
   const prompt = byId<HTMLTextAreaElement>('home-prompt')

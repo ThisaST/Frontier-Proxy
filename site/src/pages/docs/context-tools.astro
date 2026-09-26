@@ -84,6 +84,20 @@ import Callout from "../../components/Callout.astro";
     </li>
   </ul>
 
+  <h3>OpenCode</h3>
+  <p>
+    OpenCode has no per-run flags for this, so the profile arrives as an inline config document in
+    <code>OPENCODE_CONFIG_CONTENT</code>, merged over your own <code>opencode.json</code> for that process only. MCP
+    servers become <code>mcp</code> entries (<code>local</code> or <code>remote</code>), with header secrets passed
+    through OpenCode's <code>&#123;env:VAR&#125;</code> interpolation; allowed/disallowed tools become
+    <code>permission</code> rules; extra directories become <code>external_directory</code> allows. The shared system
+    prompt is folded into the stdin prompt, like Copilot.
+  </p>
+  <p>
+    Skills are enforced, not advised: OpenCode scans the same skill roots, a root it does not scan joins through
+    <code>skills.paths</code>, and a disabled skill is denied through <code>permission.skill</code>.
+  </p>
+
   <h3>Shape of the injected config</h3>
   <p>
     Claude and Copilot receive MCP JSON shaped as

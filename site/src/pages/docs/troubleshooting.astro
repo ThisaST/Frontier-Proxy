@@ -72,6 +72,10 @@ command -v copilot</code></pre>
       <strong>Copilot and Ollama show nothing.</strong> Correct — they stream no JSON to report from.
     </li>
     <li>
+      <strong>OpenCode shows tokens and cost but no plan window.</strong> Correct — it reports usage per step but no
+      rate-limit window, and its context meter is an estimate against the configured window (200k by default).
+    </li>
+    <li>
       <strong>A window vanished.</strong> Windows past their reset time are dropped rather than held at a stale
       percentage.
     </li>

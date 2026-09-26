@@ -5,6 +5,7 @@ import { byId, element, field, textArea, textInput } from '../ui/dom'
 import { errorMessage, reportError, showToast } from '../ui/feedback'
 import { linesToRecord, recordToLines, splitArguments, textLines } from '../ui/format'
 import { snapshot, setSnapshot } from '../state'
+import { SKILL_CAPABLE_KINDS } from './skills'
 
 let controlPlaneDraft: ControlPlaneProfile | undefined
 
@@ -157,7 +158,7 @@ function renderMcpServers(): void {
 function renderPreviewProviderOptions(): void {
   const select = byId<HTMLSelectElement>('cp-preview-provider')
   const current = select.value
-  const capable = snapshot.providers.filter((provider) => ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind))
+  const capable = snapshot.providers.filter((provider) => (SKILL_CAPABLE_KINDS as readonly string[]).includes(provider.kind))
   select.replaceChildren(new Option('Select agent…', ''), ...capable.map((provider) => new Option(provider.name, provider.id)))
   if (capable.some((provider) => provider.id === current)) select.value = current
 }

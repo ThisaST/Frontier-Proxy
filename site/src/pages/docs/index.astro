@@ -17,8 +17,8 @@ const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/do
   <h2>What it is</h2>
   <p>
     Frontier Proxy is an Electron desktop app that sits in front of the coding agents you already use —
-    <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>GitHub Copilot CLI</strong>, and
-    <strong>Ollama</strong>-backed models. You describe a task once; Frontier decides which agent should take it,
+    <strong>Codex CLI</strong>, <strong>Claude Code</strong>, <strong>GitHub Copilot CLI</strong>,
+    <strong>OpenCode</strong>, and <strong>Ollama</strong>-backed models. You describe a task once; Frontier decides which agent should take it,
     runs that agent locally, streams the result back, and keeps the conversation, file changes, and usage in one place.
   </p>
 
@@ -26,7 +26,7 @@ const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/do
     <p>
       Frontier does not call model APIs on an agent's behalf and holds no model-execution keys of its own.
       Authentication is delegated entirely to each CLI's own login session — <code>codex</code>,
-      <code>claude login</code>, <code>copilot login</code>, or a local <code>ollama</code>. When Frontier runs a
+      <code>claude login</code>, <code>copilot login</code>, <code>opencode auth login</code>, or a local <code>ollama</code>. When Frontier runs a
       provider it spawns that CLI in non-interactive mode and the CLI reuses the session already on disk. If an agent
       cannot authenticate, the fix is to log in with that agent's own CLI.
     </p>

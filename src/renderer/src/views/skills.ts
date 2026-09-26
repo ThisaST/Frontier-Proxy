@@ -7,8 +7,8 @@ import { snapshot, setSnapshot } from '../state'
 // Kinds whose CLI can be handed a skill selection at all (ollama/custom never
 // see the control plane, so they never see skills either). Exported for the
 // new-task dialog's own skills selector.
-export const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss'] as const
-export const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama' }
+export const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss', 'opencode'] as const
+export const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama', opencode: 'OpenCode' }
 
 function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
 function writeStorage(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
@@ -34,10 +34,13 @@ export function skillBadges(sources: SkillCatalog['skills'][number]['sources']):
   const badges = element('div', 'skill-badges')
   for (const kind of configuredSkillKinds()) {
     const native = nativeFor.has(kind as typeof SKILL_CAPABLE_KINDS[number])
-    // Native = enforced via the CLI's own flag (Claude's Skill(...)). Everything
+    // Native = enforced via the CLI's own flag (Claude's Skill(...)). OpenCode
+    // is enforced either way: a root it does not scan joins through its config
+    // (`skills.paths`) and the per-skill permission still applies. Everything
     // else is only ever a prompt-injected suggestion — no flag can stop the CLI
     // from discovering the skill itself, so this must never read as a guarantee.
-    badges.append(element('span', `skill-badge ${native ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : 'prompt-injected · best effort'}`))
+    const viaConfig = !native && kind === 'opencode'
+    badges.append(element('span', `skill-badge ${native || viaConfig ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : viaConfig ? 'added via config' : 'prompt-injected · best effort'}`))
   }
   return badges
 }

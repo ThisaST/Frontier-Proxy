@@ -234,3 +234,95 @@ describe('skills injection', () => {
     expect(controlPlaneInjection(provider('claude'), empty, []).args).toEqual([])
   })
 })
+
+describe('OpenCode control plane', () => {
+  function config(injection: ReturnType<typeof controlPlaneInjection>): Record<string, any> {
+    return JSON.parse(injection.env?.OPENCODE_CONFIG_CONTENT ?? '{}')
+  }
+
+  it('delivers the profile as an inline config document instead of flags', () => {
+    const injection = controlPlaneInjection(provider('opencode'), profile)
+    expect(injection.args).toEqual([])
+    expect(config(injection)).toEqual({
+      mcp: {
+        files: { type: 'local', command: ['npx', '-y', 'mcp-files'], enabled: true },
+        remote: { type: 'remote', url: 'https://mcp.example/api', enabled: true }
+      },
+      permission: {
+        edit: 'allow', read: 'allow', bash: { 'rm *': 'deny' },
+        external_directory: { 'C:/docs': 'allow', 'C:/docs/**': 'allow' }
+      }
+    })
+    // No system-prompt flag exists, so shared context rides on the prompt.
+    expect(injection.promptPrefix).toContain('Prefer pnpm.')
+    expect(injection.promptPrefix).toContain('"files" (stdio)')
+  })
+
+  // A literal `Bash(rm *)` key is accepted by OpenCode but matches nothing, and a
+  // pattern map on a flat-only key (webfetch) stops the CLI from starting.
+  it('translates Claude-style tool patterns into OpenCode pattern maps', () => {
+    const tools: ControlPlaneProfile = {
+      ...profile, systemPrompt: '', addDirs: [], mcpServers: [],
+      allowedTools: ['Bash', 'Bash(git:*)', 'Write', 'WebFetch(domain:example.com)', 'mcp__files__*'],
+      disallowedTools: ['Bash(rm *)', 'Bash(git:*)', 'WebSearch', 'mcp__github__delete_repo']
+    }
+    expect(config(controlPlaneInjection(provider('opencode'), tools)).permission).toEqual({
+      bash: { '*': 'allow', 'rm *': 'deny', 'git *': 'deny' },
+      edit: 'allow',
+      'files_*': 'allow',
+      github_delete_repo: 'deny',
+      websearch: 'deny'
+    })
+  })
+
+  // OpenCode names MCP tools `<server>_<tool>` (verified live); Claude's
+  // `mcp__<server>__…` form matched nothing there.
+  it('renames Claude-style MCP tool rules to OpenCode tool names', () => {
+    const tools: ControlPlaneProfile = { ...profile, systemPrompt: '', addDirs: [], mcpServers: [], allowedTools: ['mcp__files'], disallowedTools: ['mcp__github__delete_repo'] }
+    expect(config(controlPlaneInjection(provider('opencode'), tools)).permission).toEqual({ 'files_*': 'allow', github_delete_repo: 'deny' })
+  })
+
+  // A user's own Skill(...) rule must survive the catalog's per-skill map.
+  it('keeps explicit Skill rules over the catalog selection', () => {
+    const on = skill('on-skill', { nativeFor: ['opencode'] })
+    const off = skill('off-skill', { nativeFor: ['opencode'], enabled: false })
+    const base = { ...profile, systemPrompt: '', addDirs: [], mcpServers: [], allowedTools: [] }
+    expect(config(controlPlaneInjection(provider('opencode'), { ...base, disallowedTools: ['Skill(on-skill)'] }, [on, off])).permission)
+      .toEqual({ skill: { 'on-skill': 'deny', 'off-skill': 'deny' } })
+    expect(config(controlPlaneInjection(provider('opencode'), { ...base, disallowedTools: ['Skill'] }, [on, off])).permission)
+      .toEqual({ skill: { '*': 'deny', 'off-skill': 'deny' } })
+  })
+
+  // The secret must reach OpenCode through its own {env:VAR} interpolation,
+  // never inline in the config document.
+  it('keeps remote MCP header secrets in the environment', () => {
+    const withAuth: ControlPlaneProfile = { ...profile, mcpServers: [{ id: 'h', name: 'gh', enabled: true, transport: 'http', url: 'https://mcp.example', headers: { Authorization: 'Bearer s3cret' } }] }
+    const injection = controlPlaneInjection(provider('opencode'), withAuth)
+    const header = config(injection).mcp.gh.headers.Authorization as string
+    expect(header).toMatch(/^\{env:FRONTIER_MCP_HEADER_[0-9A-F]+\}$/)
+    expect(injection.env?.[header.slice(5, -1)]).toBe('Bearer s3cret')
+    expect(injection.env?.OPENCODE_CONFIG_CONTENT).not.toContain('s3cret')
+  })
+
+  // Verified against the real CLI: a denied skill is reported as not found.
+  it('enforces skill selection through permissions and adds unscanned roots', () => {
+    const native = skill('native-skill', { nativeFor: ['opencode'] })
+    const ambient = skill('ambient-skill', { nativeFor: ['copilot'] })
+    const off = skill('off-skill', { nativeFor: ['opencode'], enabled: false })
+    const injection = controlPlaneInjection(provider('opencode'), { ...profile, mcpServers: [], addDirs: [], allowedTools: [], disallowedTools: [] }, [native, ambient, off])
+    expect(config(injection)).toEqual({
+      skills: { paths: ['/skills/ambient-skill'] },
+      permission: {
+        // Headless, the external-directory prompt is auto-rejected, so the root must be allowed to read its files.
+        external_directory: { '/skills/ambient-skill': 'allow', '/skills/ambient-skill/**': 'allow' },
+        skill: { 'native-skill': 'allow', 'ambient-skill': 'allow', 'off-skill': 'deny' }
+      }
+    })
+    expect(injection.promptPrefix).not.toContain('skills catalog')
+  })
+
+  it('sets nothing for an empty profile', () => {
+    const empty: ControlPlaneProfile = { systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], strictMcp: false, mcpServers: [] }
+    expect(controlPlaneInjection(provider('opencode'), empty, [])).toEqual({ args: [], promptPrefix: undefined })
+  })
+})

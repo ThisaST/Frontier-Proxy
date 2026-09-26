@@ -6,12 +6,12 @@ Guidance for working in this repository.
 
 Frontier Proxy is a **local-first desktop orchestrator** (Electron) that routes coding
 tasks to **CLI agents already installed and authenticated on the user's machine** —
-Codex CLI, Claude Code, GitHub Copilot CLI, and Ollama-backed models.
+Codex CLI, Claude Code, GitHub Copilot CLI, OpenCode, and Ollama-backed models.
 
 **Core principle — no API keys, ever.** The app does **not** call model APIs and does
 **not** hold API keys of its own. Authentication is entirely delegated to each CLI's own
-login/subscription session (`codex` login, `claude` login, `copilot login`, local
-`ollama`). When Frontier runs a provider it spawns that CLI in non-interactive mode and
+login/subscription session (`codex` login, `claude` login, `copilot login`,
+`opencode auth login`, local `ollama`). When Frontier runs a provider it spawns that CLI in non-interactive mode and
 the CLI reuses its existing on-disk session.
 
 Do **not** add `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / token entry fields to providers.
@@ -75,6 +75,20 @@ unit-tested function (`tests/controlplane.test.ts`). Per CLI:
   override parser cannot address quoted TOML key segments. Enabled servers use Codex's
   per-server `default_tools_approval_mode = "approve"` so MCP calls work headlessly.
 
+- **OpenCode**: no per-run flags, so the profile is an inline config document in the
+  `OPENCODE_CONFIG_CONTENT` env var (merged over the user's `opencode.json` for that process
+  only): `mcp` entries (`local`/`remote`, header secrets via OpenCode's `{env:VAR}`),
+  allowed/disallowed tools → `permission` allow/deny on OpenCode's lowercase tool keys, with
+  Claude-style `Tool(pattern)` turned into that tool's pattern map (`Bash(git:*)` →
+  `bash: { "git *": … }`; a literal `Bash(rm *)` key is accepted but matches nothing) and
+  patterns on flat-only keys (`webfetch`, `websearch`, …) dropped, because a pattern map there
+  makes OpenCode refuse to start. OpenCode names MCP tools `<server>_<tool>` (verified), so
+  `mcp__<server>__<tool>` → `<server>_<tool>` and `mcp__<server>__*` → `<server>_*`. Global
+  skills follow `$XDG_CONFIG_HOME`. Extra dirs **and** ambient skill roots →
+  `permission.external_directory` allows — headless, OpenCode auto-rejects its default
+  external-directory prompt. The shared prompt goes through
+  `promptPrefix`, like Copilot. The Context & Tools preview shows this document after the args.
+
 `buildProviderCommand(provider, cwd, prompt, profile?)` splices the injected args in
 before the provider's own `extra` args. A provider can opt out with
 `useControlPlane: false`. The UI previews the exact flags live (unsaved draft included)
@@ -103,6 +117,13 @@ badge and a live "how it's working" feed like Claude Code.
 - **Codex** (`parseCodexLine`): best-effort — `command_execution` / `file_change` /
   `mcp_tool_call` / `reasoning` become activity; `agent_message` is text. Untested
   live (Codex not installed here).
+- **OpenCode** (`parseOpenCodeLine`, unit-tested): `opencode run --format json` events. `text`
+  parts are whole (not deltas) and joined as paragraphs; `tool_use` parts become activity with
+  the tool id capitalised (`write`→Write, `edit`→Edit, so `FILE_TOOL_ACTIONS` works);
+  `step_finish` carries per-step tokens (+cache) and `cost` → `onUsage`, and its input is the
+  context occupancy, paired with the provider's `contextWindow` (default 200k) and labelled
+  estimated; `sessionID` → `onSessionId`, resumed with
+  `--session`. The stream never names the model, so `task.model` is the configured one.
 - **Copilot / Ollama / custom**: raw text passthrough; `task.model` falls back to the
   provider's configured model.
 
@@ -141,13 +162,15 @@ Roots scanned, and which CLIs find each one unaided (`nativeFor`):
 
 | root | scope | nativeFor |
 |---|---|---|
-| `~/.claude/skills` | personal | claude |
+| `~/.claude/skills` | personal | claude, opencode |
 | `~/.copilot/skills` | personal | copilot |
-| `~/.agents/skills` | personal | copilot, codex, codex-oss |
+| `~/.agents/skills` | personal | copilot, codex, codex-oss, opencode |
 | `~/.codex/skills` | personal | codex, codex-oss |
-| `<cwd>/.claude/skills` | project | claude, copilot |
+| `~/.config/opencode/skills` | personal | opencode |
+| `<cwd>/.claude/skills` | project | claude, copilot, opencode |
 | `<cwd>/.github/skills` | project | copilot |
-| `<dir>/.agents/skills`, cwd → repo root | project | copilot, codex, codex-oss |
+| `<dir>/.agents/skills`, cwd → repo root | project | copilot, codex, codex-oss, opencode |
+| `<cwd>/.opencode/skills` | project | opencode |
 
 `.agents/skills` walks upward from cwd, stopping at the first `.git`. Roots are de-duped
 by path (a non-git cwd under `$HOME` otherwise re-adds `~/.agents/skills` as project scope).
@@ -157,7 +180,7 @@ name**, not the path: every CLI addresses a skill by name, so copies in several 
 into one entry carrying every `source`, and its `nativeFor` is the union.
 
 **Translation is tiered** (`controlPlaneInjection(provider, profile, skills)`), because only
-Claude has a verified per-run lever:
+Claude and OpenCode have a verified per-run lever:
 
 - **Claude** — native, and the only CLI where disabling is actually enforced. Both directions
   are emitted, and each does a different job (verified against the real CLI):
@@ -167,6 +190,12 @@ Claude has a verified per-run lever:
   - `--disallowedTools Skill(<name>)` **blocks invocation**. Forcing the call under this flag
     fails with a permission error; the identical prompt without it succeeds. This is what
     makes a disabled skill actually disabled, so never drop the deny side as redundant.
+- **OpenCode** — enforced too (verified against the real CLI): enabled skills get
+  `permission.skill.<name> = "allow"`, disabled ones `"deny"` — the skill tool then reports a
+  denied skill as *not found*. Roots OpenCode doesn't scan join through `skills.paths`, so an
+  ambient skill is still native to it; nothing is listed in the prompt. The catalog map is
+  merged with the user's own `Skill`/`Skill(name)` tool rules, which are applied last: an
+  explicit deny is never re-allowed by the catalog, and a blanket `Skill` deny drops its allows.
 - **Copilot / Codex** — no per-run skill flag exists, so `Skill(...)` is **never** emitted into
   their args. They get the enabled skills' name, description, and absolute `SKILL.md` path
   through the existing prompt seams (`promptPrefix` / `developer_instructions`), plus a
@@ -484,7 +513,9 @@ a user-picked model.
 
 `checkProvider` only runs `<exe> --version`, which is why a provider can show **Ready** and
 still fail every task. `checkProviderAuth` additionally reads each CLI's own session state
-from disk, **read-only** — never a login command: Copilot's `~/.copilot/config.json`
+from disk, **read-only** — never a login command: OpenCode's
+`$XDG_DATA_HOME/opencode/auth.json` (default `~/.local/share`; it serves free models without
+credentials, so an empty store is `unknown`, never logged-out), Copilot's `~/.copilot/config.json`
 (`loggedInUsers` empty with a `lastLoggedInUser` is the documented expired session), Claude's
 `~/.claude/.credentials.json` or the `oauthAccount` record in `~/.claude.json` (macOS keeps
 the secret in the keychain), Codex's `~/.codex/auth.json`. It reports `logged-out` **only on
@@ -497,6 +528,7 @@ Every task is a conversation (`task.turns: ConversationTurn[]`), not a one-shot.
 initial prompt seeds a `user` turn; each run appends an `assistant` turn
 (`startAssistantTurn`/`finalizeAssistantTurn`). `engine.continueTask(taskId, message)`
 appends a follow-up `user` turn and runs again **in-context**:
+- **OpenCode** — resumes via `--session <sessionId>` (from its events' `sessionID`), verified.
 - **Claude** — resumes the CLI session via `--resume <sessionId>` (session id captured
   from the `system/init` event's `session_id` → `task.sessionId`/`sessionProviderId`,
   verified working). Only the new message is sent; the CLI keeps the history.
@@ -632,7 +664,8 @@ the current day's usage, up to 30 completed days of `history`, the reported wind
 trend rather than only today. Reported tokens are also attributed per model
 (`UsageDay.models`), because a CLI can switch models mid-plan.
 
-**Cost is Claude-only.** Nothing else reports a figure, so `UsageDay.costReported` records
+**Cost comes only from Claude and OpenCode** (per `step_finish`; free models report 0, which
+leaves it "not reported"). Nothing else reports a figure, so `UsageDay.costReported` records
 whether any cost was ever reported and the UI shows "not reported" instead of `$0.00` — a
 Codex-heavy day must not read as free.
 Context occupancy is deliberately task-scoped (`task.contextTokens/contextWindow`), shown on
@@ -681,6 +714,8 @@ provider can run and `checkProviders` stores the result on `runtime.models`:
   `gpt-5-codex`/`o4-mini` and every task using them died on a 400 ("not supported when using
   Codex with a ChatGPT account"). `KNOWN_MODELS.codex` survives only as the last-resort set
   for a CLI too old to have `debug models`.
+- **OpenCode**: real discovery — `opencode models` prints one `provider/model` id per line
+  (`parseOpenCodeModels`, unit-tested), the only form its `--model` accepts.
 - **Claude / Copilot**: a **curated** `KNOWN_MODELS` set — these CLIs have no headless
   "list models" command, so we ship sensible defaults.
 - The provider's own configured `model` is always folded in and the set de-duplicated.
@@ -713,6 +748,10 @@ first without making it the only option.
 - **codex-oss**: adds `--oss --local-provider ollama`
 - **claude**: `claude -p --output-format stream-json --permission-mode acceptEdits …`
 - **copilot**: `copilot -s --no-ask-user --allow-tool=<safe set> …` (non-interactive silent mode)
+- **opencode**: `opencode run --format json --dir <cwd> [--session <id>] [--model <provider/model>]`
+  — `--dir` is required: without it OpenCode takes the project from the inherited `$PWD`
+  instead of the spawn cwd and misses the project's skills/config. No `--auto`: headless
+  permissions follow the user's own OpenCode config.
 - **ollama**: `ollama run <model>` (no agent tools; review/planning/docs/general only)
 - **custom**: user-defined argv; supports `{prompt}` `{cwd}` `{model}` placeholders
 

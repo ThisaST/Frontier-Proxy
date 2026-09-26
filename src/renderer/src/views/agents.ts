@@ -11,6 +11,7 @@ import { activeCooldown, providerCapacity, providerLimitReached, providerQuota, 
 import { sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../../shared/sessions'
 import { providerLampTone } from './home'
 import { snapshot } from '../state'
+import { SKILL_CAPABLE_KINDS } from './skills'
 
 const TIER_LABEL: Record<ModelTier, string> = { local: 'Local', fast: 'Fast', standard: 'Standard', frontier: 'Frontier' }
 const TIER_TONE: Record<ModelTier, Tone> = { local: 'muted', fast: 'cyan', standard: 'phosphor', frontier: 'amber' }
@@ -61,7 +62,7 @@ function providerFormSection(provider: SnapshotProvider): HTMLElement {
     form.append(field('GitHub MCP toolsets', copilotToolsets, true), field('Individual GitHub MCP tools', copilotTools, true), allToolsRow, help)
   }
 
-  const cpCapable = ['claude', 'copilot', 'codex', 'codex-oss'].includes(provider.kind)
+  const cpCapable = (SKILL_CAPABLE_KINDS as readonly string[]).includes(provider.kind)
   let cpToggle: HTMLInputElement | undefined
   if (cpCapable) {
     cpToggle = document.createElement('input'); cpToggle.type = 'checkbox'; cpToggle.checked = provider.useControlPlane !== false

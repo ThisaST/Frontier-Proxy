@@ -86,15 +86,39 @@ export function renderProjectChipInto(containerId: string): void {
 }
 
 // Bring the sidebar's project switcher forward — used by any other trigger
-// (Home's composer project field) that wants "clicking it opens the
-// switcher" without a second, independent menu implementation.
+// (Home's composer project field, the ⌘K command) that wants "clicking it
+// opens the switcher" without a second, independent menu implementation.
+// Opens `openProjectMenu()` directly rather than a synthetic `.click()` on
+// the trigger: a synthetic click ran synchronously inside the *original*
+// click's dispatch, so that same click went on to bubble to `document` and
+// its outside-click listener (below) saw an open menu that wasn't its own
+// and closed it in the same tick — the menu appeared to open and instantly
+// close. `openProjectMenu` itself defers past the current event for the
+// same reason (see there).
 export function openProjectSwitcher(): void {
-  byId<HTMLButtonElement>('project-switcher-trigger').click()
+  openProjectMenu()
+}
+
+// A fresh install has no known projects, so the switcher menu would only
+// ever offer "All projects" (already selected) and "Add project…" — a
+// pointless extra click. Skip straight to the OS folder picker in that case;
+// once at least one project is known, behave like the plain switcher.
+export async function chooseProjectInteractively(): Promise<void> {
+  if (knownProjects().length) { openProjectSwitcher(); return }
+  try {
+    const directory = await window.frontier.chooseDirectory(currentProject)
+    if (directory) setCurrentProject(directory)
+  } catch { /* the folder picker surfaces its own failures elsewhere */ }
 }
 
 // ---- Sidebar switcher: trigger + menu, keyboard-accessible ----
 
 let menuIndex = 0
+// The element focused just before the menu opened (the Home chip, a palette
+// invocation, or the trigger itself for a direct click) — Esc and any other
+// close-with-focus-return restores focus there instead of always landing on
+// the trigger.
+let menuOpener: HTMLElement | undefined
 
 type ProjectMenuOption = { cwd?: string; label: string; action?: 'add' }
 
@@ -164,15 +188,41 @@ function closeProjectMenu(returnFocus = true): void {
   const trigger = byId<HTMLButtonElement>('project-switcher-trigger')
   trigger.setAttribute('aria-expanded', 'false')
   trigger.removeAttribute('aria-activedescendant')
-  if (returnFocus) trigger.focus()
+  if (returnFocus) (menuOpener ?? trigger).focus()
+  menuOpener = undefined
+}
+
+// Anchors the menu to the trigger with `position: fixed` (set in CSS) rather
+// than relying on `.project-switcher`'s local stacking context: with the
+// sidebar collapsed to its icon rail the trigger sits inside `.sidebar`'s own
+// `overflow-y: auto`, which clipped an absolutely-positioned menu the same
+// way it once clipped the plain-CSS tooltip (see styles/components.css).
+// Clamped so a menu near the right edge never runs off-screen.
+function positionProjectMenu(): void {
+  const trigger = byId<HTMLButtonElement>('project-switcher-trigger')
+  const menu = byId('project-switcher-menu')
+  const rect = trigger.getBoundingClientRect()
+  const width = Math.min(320, window.innerWidth * 0.82)
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8)
+  menu.style.left = `${Math.round(left)}px`
+  menu.style.top = `${Math.round(rect.bottom + 6)}px`
 }
 
 function openProjectMenu(): void {
-  menuIndex = Math.max(0, projectMenuOptions().findIndex((option) => optionSelected(option)))
   const menu = byId('project-switcher-menu')
-  menu.hidden = false
-  byId('project-switcher-trigger').setAttribute('aria-expanded', 'true')
-  renderProjectMenu()
+  const trigger = byId<HTMLButtonElement>('project-switcher-trigger')
+  // Defer past the click that requested this open (see `openProjectSwitcher`)
+  // so the outside-click listener below never observes an in-flight click
+  // whose target is neither the trigger nor the menu.
+  setTimeout(() => {
+    menuIndex = Math.max(0, projectMenuOptions().findIndex((option) => optionSelected(option)))
+    menuOpener = document.activeElement instanceof HTMLElement && document.activeElement !== trigger ? document.activeElement : undefined
+    menu.hidden = false
+    trigger.setAttribute('aria-expanded', 'true')
+    renderProjectMenu()
+    positionProjectMenu()
+    trigger.focus()
+  }, 0)
 }
 
 export function initProjectSwitcher(): void {

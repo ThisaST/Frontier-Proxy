@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import DocsFigure from "../../components/DocsFigure.astro";
 import { url } from "../../lib/site";
 ---
 
@@ -37,6 +38,12 @@ import { url } from "../../lib/site";
       <p class="muted">Use <strong>Add custom CLI</strong> for any other locally installed agent executable.</p>
     </li>
   </ol>
+
+  <DocsFigure
+    name="agents"
+    alt="The Agents screen listing every configured CLI as a table with a status lamp, login state, models by tier, and today's plan-window usage"
+    caption="The Agents table: login state, models by tier, and plan windows for every configured CLI."
+  />
 
   <Callout tone="warn" title="Ready means found, not signed in">
     <p>

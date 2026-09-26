@@ -223,7 +223,11 @@ function renderCalibration(): void {
 export function initRoutingView(): void {
   const view = byId('routing-view')
   const grid = element('div', 'routing-grid')
-  grid.append(buildAdvisorCard(), buildSentCard(), buildCatalogCard(), buildPolicyCard(), buildInsightsCard())
+  // Advisor and policies are the two half-width cards, so they sit side by
+  // side on row 1 — otherwise a lone half-width card ends up next to an
+  // empty column. Everything after them is wide (`routing-card-wide`) and
+  // spans both columns regardless of DOM order.
+  grid.append(buildAdvisorCard(), buildPolicyCard(), buildSentCard(), buildCatalogCard(), buildInsightsCard())
   view.replaceChildren(grid)
 
   const selectAdvisorMode = async (button: HTMLElement): Promise<void> => {

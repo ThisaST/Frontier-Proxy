@@ -1,7 +1,11 @@
 /* ---------- Routing (Jev advisor console) ---------- */
 #routing-view.active { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
-.routing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+/* `stretch` (the grid default) rather than `start`: row 1 holds two
+   half-width cards (advisor, policies) whose content heights rarely match,
+   and stretching lets the shorter one's border/background reach the taller
+   one's height instead of leaving a visual gap beside it. */
+.routing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .routing-card { padding: 18px; display: grid; gap: 12px; }
 .routing-card-wide { grid-column: 1 / -1; }
 .routing-card h2 { font-size: 16px; }

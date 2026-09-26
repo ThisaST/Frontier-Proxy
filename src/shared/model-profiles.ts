@@ -64,6 +64,14 @@ const REGEX_TIERS: Array<[RegExp, ModelTier]> = [
 
 const LOCAL_KINDS: ProviderKind[] = ['ollama', 'codex-oss']
 
+// OpenCode addresses every model as `<provider>/<model>` (`opencode models`'s
+// only output form), including local inference runtimes it can drive the same
+// way as a cloud one — `ollama/qwen3-coder`, `lmstudio/qwen3-coder`. A
+// `provider/` segment naming one of these means the model runs locally
+// regardless of what the model half looks like, same as an Ollama-backed
+// provider kind. Exported so `src/main/router.ts` never re-derives the rule.
+export const LOCAL_RUNTIME_PREFIXES: ReadonlySet<string> = new Set(['ollama', 'lmstudio', 'llama.cpp', 'llamacpp'])
+
 // Tier order, low to high — shared by `desiredTier`'s own shift/band logic
 // below and by `src/main/router.ts`'s tier-distance scoring, so the two can
 // never disagree about which tier is "one up" or "one down".
@@ -89,15 +97,50 @@ export function desiredTier(complexity: number, mode: RoutingMode): DesiredTier 
   return { tier: shifted, frontierAlsoFits: false }
 }
 
-export function profileFor(modelId: string): ModelProfile | undefined {
-  return PROFILES[modelId.trim()]
+// Every form of an id worth trying against the curated catalog: the id
+// itself, the segment after OpenCode's `provider/` prefix (an id this catalog
+// already knows, e.g. `claude-sonnet-4-5`, addressed as
+// `anthropic/claude-sonnet-4-5`), and each of those with '.'/'-' swapped
+// around a single version number — Copilot spells the same Claude model
+// `claude-sonnet-4.5` where the base catalog spells it `claude-sonnet-4-5`,
+// and OpenCode's provider catalog may use either. Order matters: the exact id
+// is always tried first.
+function profileLookupCandidates(id: string): string[] {
+  const bases = id.includes('/') ? [id, id.slice(id.lastIndexOf('/') + 1)] : [id]
+  const variants = new Set<string>()
+  for (const base of bases) {
+    variants.add(base)
+    variants.add(base.replace(/(\d)-(\d)/, '$1.$2'))
+    variants.add(base.replace(/(\d)\.(\d)/, '$1-$2'))
+  }
+  return [...variants]
 }
 
-// A provider's kind decides local-ness outright — any model run through Ollama
-// (directly, or via Codex+Ollama) is local regardless of what the id looks
-// like, since there is no cloud tier to speak of.
+export function profileFor(modelId: string): ModelProfile | undefined {
+  const trimmed = modelId.trim()
+  for (const candidate of profileLookupCandidates(trimmed)) {
+    const hit = PROFILES[candidate]
+    if (hit) return hit
+  }
+  return undefined
+}
+
+// Whether this model id, as this provider kind would run it, runs on the
+// user's own machine. A provider's kind decides local-ness outright for
+// Ollama (directly, or via Codex+Ollama) — there is no cloud tier to speak of.
+// OpenCode instead names the runtime in the id itself (`ollama/qwen3-coder`),
+// so a `provider/` prefix naming a local runtime is local too, whatever the
+// model half looks like.
+export function isLocalModel(modelId: string | undefined, providerKind?: ProviderKind): boolean {
+  if (providerKind && LOCAL_KINDS.includes(providerKind)) return true
+  const trimmed = modelId?.trim()
+  const slash = trimmed?.indexOf('/') ?? -1
+  if (!trimmed || slash <= 0) return false
+  return LOCAL_RUNTIME_PREFIXES.has(trimmed.slice(0, slash).toLowerCase())
+}
+
 export function tierFor(modelId: string | undefined, providerKind?: ProviderKind): ModelTier {
-  if (providerKind && LOCAL_KINDS.includes(providerKind)) return 'local'
+  if (isLocalModel(modelId, providerKind)) return 'local'
   const trimmed = modelId?.trim()
   if (!trimmed) return 'standard'
   const known = profileFor(trimmed)
@@ -117,7 +160,9 @@ export function describeCandidate(provider: { name: string; kind: ProviderKind }
     ? ' Runs locally through Ollama; no file-editing tools, review/planning/docs/general only.'
     : provider.kind === 'codex-oss'
       ? ' Runs locally through Codex + Ollama; has file-editing tools.'
-      : ''
+      : provider.kind === 'opencode' && tier === 'local'
+        ? ' Runs locally through OpenCode; has file-editing tools, same as any other OpenCode model.'
+        : ''
   const summary = profile ? `Best for ${profile.strengths}.` : `A ${tier}-tier model.`
   return `${provider.name} running ${modelId} (${tier} tier). ${summary}${toolNote}`
 }

@@ -429,6 +429,15 @@ a user-picked model.
   described by `src/shared/model-profiles.ts`'s `describeCandidate` (the one place that
   says what a model is good at: tier + strengths, honest about what it *can't* do — an
   Ollama provider has no file tools). `target` is omitted below two candidates.
+- **OpenCode's `provider/model` ids** — `profileFor`/`tierFor` (`model-profiles.ts`) also
+  try the segment after OpenCode's `provider/` prefix against the curated catalog (and a
+  `.`/`-` version swap either way), so `anthropic/claude-sonnet-4-5` still gets a real
+  profile instead of a generic tier sentence. A prefix naming a **local runtime**
+  (`LOCAL_RUNTIME_PREFIXES`: `ollama`, `lmstudio`, `llama.cpp`/`llamacpp`) makes `isLocalModel`
+  — and so `tierFor` — call it `local` regardless of the model name, same as an
+  Ollama-backed provider kind; `src/main/router.ts`'s mode policy and read-only bonus both
+  route through that one helper so OpenCode-with-a-local-model gets the same local treatment
+  an Ollama or Codex+Ollama provider does, without OpenCode itself being a local *kind*.
 - **Modes** — `AdvisorMode`: `off` (default; routing scores exactly as without this
   feature), `shadow` (records what Jev *would* have chosen in `decision.advisor`, next to
   the real route, without changing it), `active` (its answers become real factors and can

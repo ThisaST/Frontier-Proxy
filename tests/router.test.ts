@@ -31,6 +31,24 @@ describe('provider routing', () => {
     expect(ranked[0].id).toBe('codex')
   })
 
+  // OpenCode names its own model `provider/model`; only a local-runtime prefix
+  // (e.g. `ollama/...`) makes it "local" for the saver/quality mode policy —
+  // it isn't a kind Frontier can tell apart from a cloud OpenCode run any
+  // other way.
+  it('treats an OpenCode provider running a local-runtime model as local for the mode policy', () => {
+    const opencodeLocal = provider('opencode-local', 'opencode'); opencodeLocal.model = 'ollama/qwen3-coder'
+    const codex = provider('codex', 'codex')
+    const ranked = rankProviders(task('saver'), [codex, opencodeLocal])
+    expect(ranked[0].id).toBe('opencode-local')
+  })
+
+  it('does not treat an OpenCode provider running a cloud model as local', () => {
+    const opencodeCloud = provider('opencode-cloud', 'opencode'); opencodeCloud.model = 'anthropic/claude-sonnet-4-5'
+    const { decision } = routeTask(task('saver'), [opencodeCloud])
+    const modePolicy = decision.candidates[0].factors?.find((f) => f.label.includes('Token saver'))
+    expect(modePolicy?.points).toBe(-12) // the non-local saver penalty, not the local bonus
+  })
+
   it('honors an available provider override', () => {
     const value = task('quality')
     value.preferredProviderId = 'claude'
@@ -372,6 +390,16 @@ describe('Jev advisor routing', () => {
     const { decision } = routeTask(value, [local, cloud], { advisorMode: 'active' })
     expect(decision.candidates.find((c) => c.providerId === 'local')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(true)
     expect(decision.candidates.find((c) => c.providerId === 'cloud')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(false)
+  })
+
+  it('gives the read-only bonus to an OpenCode provider running a local-runtime model, not one running a cloud model', () => {
+    const opencodeLocal = withModels('opencode-local', 'opencode', ['ollama/qwen3-coder'], 'ollama/qwen3-coder')
+    const opencodeCloud = withModels('opencode-cloud', 'opencode', ['anthropic/claude-sonnet-4-5'], 'anthropic/claude-sonnet-4-5')
+    const value = task('balanced', 'review')
+    value.advice = jevAdvice({ editsFiles: 0.05 })
+    const { decision } = routeTask(value, [opencodeLocal, opencodeCloud], { advisorMode: 'active' })
+    expect(decision.candidates.find((c) => c.providerId === 'opencode-local')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(true)
+    expect(decision.candidates.find((c) => c.providerId === 'opencode-cloud')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(false)
   })
 
   it('never gives the read-only bonus when edits_files is high', () => {

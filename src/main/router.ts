@@ -1,7 +1,7 @@
 import type { AdvisorMode, ModelTier, OutcomeStats, ProviderConfig, ProviderRuntime, ProxyTask, RoutingAdvice, RoutingCandidate, RoutingDecision, RoutingFactor, RoutingMode, TaskType } from '../shared/types'
 import { activeSessions, sessionBlocked } from '../shared/sessions'
 import { efficiencyBaselines, efficiencyFactors, type EfficiencyBaselines } from './evidence'
-import { desiredTier, TIER_ORDER, tierFor, type DesiredTier } from '../shared/model-profiles'
+import { desiredTier, isLocalModel, TIER_ORDER, tierFor, type DesiredTier } from '../shared/model-profiles'
 
 export interface RoutableProvider extends ProviderConfig {
   runtime: ProviderRuntime
@@ -19,6 +19,15 @@ const affinity: Record<TaskType, Partial<Record<ProviderConfig['kind'], number>>
 }
 
 const MODE_LABEL: Record<ProxyTask['mode'], string> = { balanced: 'Balanced', quality: 'Quality first', saver: 'Token saver' }
+
+// Whether this provider will actually run its work locally: either its kind
+// is inherently local (Ollama-backed), or — OpenCode's case — the specific
+// model it's configured to run is itself a local-runtime id
+// (`ollama/qwen3-coder`). Feeds both the saver/quality mode policy and the
+// read-only bonus below, so the two can never disagree about what "local" means.
+function runsLocally(provider: Pick<ProviderConfig, 'kind' | 'model'>): boolean {
+  return isLocalModel(provider.model, provider.kind)
+}
 
 function isCoolingDown(runtime: ProviderRuntime, now: number): boolean {
   return Boolean(runtime.cooldownUntil && Date.parse(runtime.cooldownUntil) > now)
@@ -177,7 +186,7 @@ function jevBestFitFactor(provider: RoutableProvider, advice: RoutingAdvice): Ro
 
 function readOnlyFactor(provider: RoutableProvider, advice: RoutingAdvice): RoutingFactor | undefined {
   if (advice.editsFiles === undefined || advice.editsFiles >= READ_ONLY_THRESHOLD) return undefined
-  if (provider.kind !== 'ollama' && provider.kind !== 'codex-oss') return undefined
+  if (!runsLocally(provider)) return undefined
   return { label: 'Read-only task → local OK', points: READ_ONLY_LOCAL_BONUS }
 }
 
@@ -241,7 +250,7 @@ function scoreFactors(task: ProxyTask, provider: RoutableProvider, learnFromOutc
   const affinityPoints = affinity[task.type][provider.kind] ?? 0
   if (affinityPoints) factors.push({ label: `${task.type} affinity`, points: affinityPoints })
 
-  const isLocal = provider.kind === 'ollama' || provider.kind === 'codex-oss'
+  const isLocal = runsLocally(provider)
   const modePoints = task.mode === 'saver' ? (isLocal ? 55 : -12) : task.mode === 'quality' ? (isLocal ? -20 : 18) : isLocal ? 10 : 0
   if (modePoints) factors.push({ label: `${MODE_LABEL[task.mode]} policy`, points: modePoints })
   if (task.preferredProviderId === provider.id) factors.push({ label: 'Chosen by you', points: 1_000 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeCandidate, desiredTier, profileFor, tierFor } from '../src/shared/model-profiles'
+import { describeCandidate, desiredTier, isLocalModel, profileFor, tierFor } from '../src/shared/model-profiles'
 
 describe('model tiers', () => {
   it('classifies known Claude ids by name', () => {
@@ -36,6 +36,49 @@ describe('model tiers', () => {
     for (const id of ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-opus-4-8', 'claude-sonnet-4-5', 'gpt-5-codex', 'gpt-5', 'claude-sonnet-4.5', 'claude-sonnet-4', 'gpt-5-mini', 'o3']) {
       expect(profileFor(id), id).toBeDefined()
     }
+  })
+})
+
+describe('OpenCode provider/model ids', () => {
+  it('resolves a curated profile through the provider/ prefix', () => {
+    expect(profileFor('anthropic/claude-sonnet-4-5')).toBe(profileFor('claude-sonnet-4-5'))
+    expect(profileFor('openai/gpt-5-mini')).toBe(profileFor('gpt-5-mini'))
+  })
+
+  it('resolves a dotted version through the provider/ prefix against a dashed-only catalog entry', () => {
+    expect(profileFor('anthropic/claude-opus-4.8')).toBe(profileFor('claude-opus-4-8'))
+  })
+
+  it('leaves an unprefixed id resolving exactly as before', () => {
+    expect(profileFor('claude-sonnet-4-5')).toBeDefined()
+    expect(tierFor('claude-sonnet-4-5', 'claude')).toBe('standard')
+  })
+
+  it('treats a local-runtime prefix as local regardless of the model name', () => {
+    expect(isLocalModel('ollama/qwen3-coder', 'opencode')).toBe(true)
+    expect(isLocalModel('lmstudio/qwen3-coder', 'opencode')).toBe(true)
+    expect(isLocalModel('llama.cpp/qwen3-coder', 'opencode')).toBe(true)
+    expect(isLocalModel('llamacpp/qwen3-coder', 'opencode')).toBe(true)
+    expect(tierFor('ollama/qwen3-coder', 'opencode')).toBe('local')
+  })
+
+  it('leaves a non-local prefix classified by the model name', () => {
+    expect(isLocalModel('anthropic/claude-sonnet-4-5', 'opencode')).toBe(false)
+    expect(tierFor('anthropic/claude-sonnet-4-5', 'opencode')).toBe('standard')
+    expect(tierFor('openai/gpt-5-mini', 'opencode')).toBe('fast')
+  })
+
+  it('still treats Ollama/Codex-OSS as local regardless of model id', () => {
+    expect(isLocalModel('claude-opus-5', 'ollama')).toBe(true)
+    expect(isLocalModel('gpt-5', 'codex-oss')).toBe(true)
+    expect(isLocalModel(undefined, 'ollama')).toBe(true)
+  })
+
+  it('describes a local OpenCode model as a full agent, not a tool-less one', () => {
+    const description = describeCandidate({ name: 'OpenCode', kind: 'opencode' }, 'ollama/qwen3-coder')
+    expect(description).toContain('local tier')
+    expect(description).not.toContain('no file-editing tools')
+    expect(description).toContain('has file-editing tools')
   })
 })
 

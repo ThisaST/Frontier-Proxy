@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import DocsFigure from "../../components/DocsFigure.astro";
 import { url } from "../../lib/site";
 ---
 
@@ -93,6 +94,12 @@ import { url } from "../../lib/site";
     <em>before</em> launch, so a doomed run never starts.
   </p>
 
+  <DocsFigure
+    name="tasks"
+    alt="The Tasks screen's route inspector, open on the right pane, showing which agent and model a task ran on and why"
+    caption="The Tasks screen's route inspector — every factor on this page, attached to an actual task."
+  />
+
   <Callout title="Follow-ups follow you, not the router">
     <p>
       Once a conversation has an agent, later messages stay pinned to it — even if that CLI has no resumable session —
@@ -184,6 +191,12 @@ import { url } from "../../lib/site";
     agent, instead of every subtask inheriting one provider default regardless of its own complexity. A subtask that
     got no advice, or any failure of the extra call, simply keeps today's default behaviour.
   </p>
+
+  <DocsFigure
+    name="routing"
+    alt="The Routing screen showing the Jev advisor's Off/Shadow/Active mode selector, a write-only key field with Test connection, and the request payload preview"
+    caption="The Routing screen: mode, credentials, the exact request payload, and the model catalog."
+  />
 
   <h3>The calibration view</h3>
   <p>

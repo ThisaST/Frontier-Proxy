@@ -27,10 +27,14 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://frontier.th
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical.href} />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- Sets data-theme/data-effects before first paint, like the app's own
+         public/theme-init.js — see ThemeToggle.astro for the live control. -->
+    <script is:inline src={`${url("/")}theme-init.js`}></script>
   </head>
   <body>
+    <a href="#main" class="skip-link">Skip to content</a>
     <SiteNav />
-    <main>
+    <main id="main">
       <slot />
     </main>
     <SiteFooter />

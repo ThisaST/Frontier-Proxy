@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import DocsFigure from "../../components/DocsFigure.astro";
 import { url } from "../../lib/site";
 ---
 
@@ -88,6 +89,12 @@ import { url } from "../../lib/site";
     them per repository with each branch's commit subject, distance from HEAD, and per-file <code>+/-</code> counts
     measured from the merge base — then offers a diff view, <strong>Merge</strong>, and <strong>Delete</strong>.
   </p>
+
+  <DocsFigure
+    name="review"
+    alt="The Review screen listing frontier/* branches per repository with commit subject, distance from HEAD, per-file change counts, and Merge/Delete actions"
+    caption="The Review inbox: every frontier/* branch, its checks, and a confirmation before Merge or Delete."
+  />
 
   <h3>Safety rules</h3>
   <div class="table-wrap">

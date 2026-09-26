@@ -1,0 +1,58 @@
+---
+// Theme-aware app screenshot: renders both the -console and -daylight capture
+// and shows only the one matching the page's current data-theme, in CSS —
+// so the Console/Daylight toggle swaps the image instantly with no JS and no
+// re-fetch (both are already downloaded; only the non-matching one stays
+// hidden, and lazy-loaded for anything but the hero per CLAUDE.md's
+// performance goal). Uses astro:assets so both get resized/re-encoded to
+// AVIF/WebP at build time — see site/src/lib/screens.ts for the source map.
+import { Picture } from "astro:assets";
+import { screens, type ScreenName } from "../lib/screens";
+
+interface Props {
+  name: ScreenName;
+  alt: string;
+  eager?: boolean;
+  class?: string;
+}
+
+const { name, alt, eager = false, class: className } = Astro.props;
+const widths = [640, 960, 1440, 1920];
+const shot = screens[name];
+---
+
+<span class:list={["theme-shot-pair", className]}>
+  <Picture
+    src={shot.console}
+    alt={alt}
+    widths={widths}
+    sizes="(min-width: 940px) 60vw, 100vw"
+    formats={["avif", "webp"]}
+    fallbackFormat="png"
+    loading={eager ? "eager" : "lazy"}
+    fetchpriority={eager ? "high" : "auto"}
+    decoding={eager ? "sync" : "async"}
+    class="theme-shot"
+    data-shot-theme="console"
+  />
+  <Picture
+    src={shot.daylight}
+    alt={alt}
+    widths={widths}
+    sizes="(min-width: 940px) 60vw, 100vw"
+    formats={["avif", "webp"]}
+    fallbackFormat="png"
+    loading="lazy"
+    class="theme-shot"
+    data-shot-theme="daylight"
+  />
+</span>
+
+<style>
+  .theme-shot-pair { display: contents; }
+  .theme-shot { display: block; width: 100%; height: auto; }
+  /* data-theme is resolved (console|daylight) before first paint by
+     theme-init.js, so this never flashes the wrong shot. */
+  :root[data-theme='console'] .theme-shot[data-shot-theme='daylight'] { display: none; }
+  :root[data-theme='daylight'] .theme-shot[data-shot-theme='console'] { display: none; }
+</style>

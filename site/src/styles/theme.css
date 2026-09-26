@@ -17,7 +17,7 @@
   --bezel-strong: #37423c;
   --fg: #e6e3d8;
   --fg-muted: #8e978f;
-  --fg-faint: #616b64;
+  --fg-faint: #7c857f;
   --amber: #ffb000;
   --amber-fill: #ffb000;
   --on-amber: #1a1300;
@@ -48,8 +48,8 @@
   --bezel: #c9c1ae;
   --bezel-strong: #a89f89;
   --fg: #1c1f1d;
-  --fg-muted: #5e625b;
-  --fg-faint: #72756c;
+  --fg-muted: #4c5049;
+  --fg-faint: #62665f;
   --amber: #8f5a00;
   --amber-fill: #c98a00;
   --on-amber: #1a1300;
@@ -71,6 +71,18 @@
   --on-scrim: #ffffff;
 }
 
+/* Effects are switched off entirely with `data-effects="off"` (set by
+   theme-init.js/ThemeToggle from `prefers-reduced-motion`, mirroring the
+   app's tokens.css). Everything that glows, sweeps, blinks, or scans reads
+   this token rather than reimplementing the check. */
+:root[data-effects='off'] {
+  --glow-amber: none;
+  --glow-cyan: none;
+  --glow-phosphor: none;
+  --glow-alarm: none;
+  --glow-caution: none;
+}
+
 /* System theme follows prefers-color-scheme when no explicit choice is
    stored — the site has no settings screen, so it always follows the OS. */
 @media (prefers-color-scheme: light) {
@@ -83,8 +95,8 @@
     --bezel: #c9c1ae;
     --bezel-strong: #a89f89;
     --fg: #1c1f1d;
-    --fg-muted: #5e625b;
-    --fg-faint: #72756c;
+    --fg-muted: #4c5049;
+    --fg-faint: #62665f;
     --amber: #8f5a00;
     --amber-fill: #c98a00;
     --on-amber: #1a1300;
@@ -173,6 +185,12 @@ hr { border: 0; border-top: 1px solid var(--bezel); margin: 34px 0; }
 ::selection { background: rgb(255 176 0 / .28); }
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: var(--r-sm); }
 
+/* First focusable element in the document; invisible until it has keyboard
+   focus, per the standard "skip to content" pattern (copied from the app's
+   base.css so both surfaces behave identically). */
+.skip-link { position: fixed; top: -60px; left: var(--s-3); z-index: 100; padding: 10px 16px; border-radius: var(--r-md); background: var(--amber-fill); color: var(--on-amber); font: 700 12px var(--font-body); text-decoration: none; transition: top var(--t-fast) var(--ease); }
+.skip-link:focus-visible { top: var(--s-3); }
+
 .eyebrow {
   color: var(--fg-faint);
   font-family: var(--font-display);
@@ -207,9 +225,7 @@ hr { border: 0; border-top: 1px solid var(--bezel); margin: 34px 0; }
 .lamp.cyan { background: var(--cyan); box-shadow: var(--glow-cyan); }
 .lamp.caution { background: var(--caution); box-shadow: var(--glow-caution); }
 .lamp.alarm { background: var(--alarm); box-shadow: var(--glow-alarm); }
-@media (prefers-reduced-motion: no-preference) {
-  .lamp.blink { animation: lamp-blink 1.2s ease infinite; }
-}
+:root[data-effects='on'] .lamp.blink { animation: lamp-blink 1.2s ease infinite; }
 @keyframes lamp-blink { 50% { opacity: .3; } }
 
 /* Legacy alias so existing markup (.dot) keeps working while pages migrate
@@ -333,7 +349,7 @@ a.card .card-more { color: var(--amber); font-size: 12px; font-weight: 600; }
   position: absolute; inset: 0; pointer-events: none;
   background-image: repeating-linear-gradient(0deg, var(--scanline) 0px, var(--scanline) 1px, transparent 1px, transparent 3px);
 }
-@media (prefers-reduced-motion: reduce) { .screen::before { display: none; } }
+:root[data-effects='off'] .screen::before { display: none; }
 
 /* ---------- Segmented gauge ---------- */
 .gauge-seg { display: inline-flex; gap: 2px; align-items: center; }
@@ -423,9 +439,7 @@ tbody tr:hover td { background: var(--surface-2); }
 .radar::after {
   content: ""; position: absolute; inset: 40%; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .radar.sweep::before { animation: radar-sweep 2.4s linear infinite; }
-}
+:root[data-effects='on'] .radar.sweep::before { animation: radar-sweep 2.4s linear infinite; }
 @keyframes radar-sweep { to { transform: rotate(360deg); } }
 
 /* ---------- Sections ---------- */
@@ -442,20 +456,46 @@ tbody tr:hover td { background: var(--surface-2); }
 .footer-col a:hover { color: var(--fg); }
 .footer-note { color: var(--fg-faint); font-size: 11px; margin: 28px 0 0; }
 
-/* ---------- Docs shell ---------- */
-.docs { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 48px; align-items: start; padding: 38px 0 60px; }
-.docs-nav { position: sticky; top: calc(var(--nav-h) + 26px); display: grid; gap: 22px; }
-.docs-nav-group { display: grid; gap: 2px; }
-.docs-nav a {
-  color: var(--fg-muted); font-size: 13px; padding: 7px 11px; border-radius: var(--r-md); display: block;
+/* ---------- Docs shell: an app-style left rail, not a plain nav list ---------- */
+.docs { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 48px; align-items: start; padding: 38px 0 60px; }
+.docs-nav {
+  position: sticky; top: calc(var(--nav-h) + 26px); display: grid; gap: 20px;
+  padding: 16px 14px; border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1);
 }
-.docs-nav a:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
-.docs-nav a[aria-current="page"] { background: var(--surface-3); color: var(--amber); box-shadow: inset 2px 0 var(--amber); }
+.docs-nav-brand { display: flex; align-items: center; gap: 9px; color: var(--fg); padding: 0 2px 14px; border-bottom: 1px solid var(--bezel); margin-bottom: 2px; }
+.docs-nav-brand:hover { text-decoration: none; }
+.docs-nav-brand .brand-copy strong { display: block; font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: .01em; color: var(--fg); }
+.docs-nav-brand .brand-copy small { display: block; color: var(--fg-faint); font-size: 7px; font-weight: 700; letter-spacing: .18em; margin-top: 1px; }
+.docs-nav-group { display: grid; gap: 2px; }
+.docs-nav-group .eyebrow { margin: 4px 0 4px 11px; }
+/* Mirrors the app's own .nav-item / .nav-icon / .nav-item.active (base.css) so
+   the docs rail reads as the same instrument, not a different nav pattern. */
+.docs-nav-item {
+  position: relative; display: flex; align-items: center; gap: 10px; min-width: 0;
+  padding: 8px 11px; border-radius: var(--r-md); color: var(--fg-muted); font-size: 13px;
+}
+.docs-nav-item:hover { background: var(--surface-2); color: var(--fg); text-decoration: none; }
+.docs-nav-item[aria-current="page"] { background: var(--surface-2); color: var(--fg); box-shadow: inset 2px 0 0 var(--amber), inset 0 0 0 1px var(--bezel); }
+.docs-nav-item[aria-current="page"] .docs-nav-icon { color: var(--amber); }
+.docs-nav-icon { flex: 0 0 auto; display: flex; color: var(--fg-muted); }
+.docs-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-display); font-weight: 500; letter-spacing: .02em; }
+.docs-nav-toggle {
+  display: none; width: 100%; align-items: center; gap: 9px; margin-bottom: 18px;
+  padding: 11px 14px; border: 1px solid var(--bezel); border-radius: var(--r-md);
+  background: var(--surface-2); color: var(--fg); font: 600 13px var(--font-display); text-transform: uppercase; letter-spacing: .04em;
+}
+.docs-nav-toggle-caret { margin-left: auto; transition: transform var(--t-fast) var(--ease); }
+.docs-nav-toggle[aria-expanded="true"] .docs-nav-toggle-caret { transform: rotate(180deg); }
+
 .docs-body { min-width: 0; max-width: 780px; }
 .docs-body h2 { margin: 44px 0 14px; }
 .docs-body h3 { margin: 30px 0 10px; }
 .docs-body > p, .docs-body li { color: var(--fg-muted); }
+/* Long-form prose reads best around 70ch; tables, figures, and callouts keep
+   the full column width. */
+.docs-body > p, .docs-body > ul, .docs-body > ol { max-width: 70ch; }
 .docs-head { border-bottom: 1px solid var(--bezel); padding-bottom: 26px; margin-bottom: 8px; }
+.docs-head .eyebrow { color: var(--amber); }
 .docs-head h1 { font-size: clamp(28px, 4vw, 38px); }
 .docs-head p { margin: 12px 0 0; }
 .docs-foot { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; border-top: 1px solid var(--bezel); margin-top: 52px; padding-top: 22px; }
@@ -467,15 +507,12 @@ tbody tr:hover td { background: var(--surface-2); }
 .nowrap { white-space: nowrap; }
 
 @media (max-width: 900px) {
-  .docs { grid-template-columns: minmax(0, 1fr); gap: 26px; }
-  .docs-nav {
-    position: static; grid-auto-flow: column; grid-auto-columns: max-content;
-    overflow-x: auto; gap: 8px; padding-bottom: 10px;
-    border-bottom: 1px solid var(--bezel);
-  }
-  .docs-nav-group { grid-auto-flow: column; grid-auto-columns: max-content; }
-  .docs-nav .eyebrow { display: none; }
-  .docs-nav a { white-space: nowrap; }
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 22px; }
+  .docs-nav-toggle { display: flex; }
+  /* Collapsed into a disclosure: hidden until the toggle button opens it,
+     rather than the old horizontal-scrolling nav row. */
+  .docs-nav { display: none; position: static; }
+  .docs-nav.open { display: grid; }
 }
 
 @media (max-width: 720px) {

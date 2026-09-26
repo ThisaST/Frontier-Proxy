@@ -1,20 +1,99 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Frontier Proxy — amber radar scope on smoked glass</title>
+
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#171c18"/>
-      <stop offset="1" stop-color="#080a09"/>
+    <!-- Body surface: "smoked glass" vertical gradient, per docs/design-phosphor-console.md §2 -->
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1D2421"/>
+      <stop offset="1" stop-color="#0B0D0C"/>
     </linearGradient>
-    <radialGradient id="glow">
-      <stop offset="0" stop-color="#a9ef72" stop-opacity=".22"/>
-      <stop offset="1" stop-color="#a9ef72" stop-opacity="0"/>
+
+    <!-- Faint top highlight sheen, clipped to the rounded body below -->
+    <linearGradient id="highlightGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Sweep wedge: amber fading from centre outward -->
+    <radialGradient id="sweepGrad" gradientUnits="userSpaceOnUse" cx="512" cy="512" r="290">
+      <stop offset="0" stop-color="#FFB000" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FFB000" stop-opacity="0"/>
     </radialGradient>
+
+    <!-- Drop shadow under the body, so the icon reads as a raised tile (Big Sur grid) -->
+    <filter id="bodyShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="24" result="blur"/>
+      <feOffset in="blur" dx="0" dy="12" result="offsetBlur"/>
+      <feColorMatrix in="offsetBlur" type="matrix"
+        values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.35 0" result="shadow"/>
+      <feMerge>
+        <feMergeNode in="shadow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Soft amber glow, used for the centre dot -->
+    <filter id="glowAmber" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="16" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Small cyan glow, used for the routed-target blip -->
+    <filter id="glowCyan" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Body outline, reused to clip the surface fill/highlight to the rounded corners -->
+    <clipPath id="bodyClip">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
   </defs>
-  <rect x="28" y="28" width="968" height="968" rx="220" fill="url(#bg)"/>
-  <circle cx="512" cy="512" r="390" fill="url(#glow)"/>
-  <g transform="translate(512 512) rotate(-9)" fill="none" stroke="#a9ef72" stroke-width="42">
-    <ellipse rx="155" ry="342"/>
-    <ellipse rx="155" ry="342" transform="rotate(60)"/>
-    <ellipse rx="155" ry="342" transform="rotate(120)"/>
+
+  <!-- 1. Body: rounded square on the Big Sur grid, with drop shadow so it doesn't
+       read oversized in the Dock the way the old full-bleed icon did. -->
+  <rect x="100" y="100" width="824" height="824" rx="185"
+        fill="url(#bodyGrad)" stroke="#37423C" stroke-width="2" filter="url(#bodyShadow)"/>
+
+  <!-- Top highlight sheen, clipped to the body's rounded corners -->
+  <g clip-path="url(#bodyClip)">
+    <rect x="100" y="100" width="824" height="220" fill="url(#highlightGrad)"/>
   </g>
-  <circle cx="512" cy="512" r="64" fill="#a9ef72"/>
+
+  <!-- 2. Corner ticks — the Phosphor Console signature bezel motif, kept subtle -->
+  <g fill="none" stroke="#4A5750" stroke-width="10" stroke-linecap="square" opacity="0.55">
+    <path d="M 242 170 L 170 170 L 170 242"/>
+    <path d="M 782 170 L 854 170 L 854 242"/>
+    <path d="M 170 782 L 170 854 L 242 854"/>
+    <path d="M 854 782 L 854 854 L 782 854"/>
+  </g>
+
+  <!-- 3. Radar scope, centred at (512, 512) -->
+
+  <!-- Sweep wedge, ~60° from 12 o'clock to 2 o'clock -->
+  <path d="M 512 512 L 512 222 A 290 290 0 0 1 763.10 367.00 Z" fill="url(#sweepGrad)"/>
+
+  <!-- Outer + inner rings -->
+  <circle cx="512" cy="512" r="290" fill="none" stroke="#FFB000" stroke-width="28" opacity="0.55"/>
+  <circle cx="512" cy="512" r="160" fill="none" stroke="#FFB000" stroke-width="28" opacity="0.8"/>
+
+  <!-- N/E/S/W tick marks just outside the outer ring -->
+  <g stroke="#FFB000" stroke-width="14" stroke-linecap="round" opacity="0.8">
+    <line x1="512" y1="208" x2="512" y2="178"/>
+    <line x1="816" y1="512" x2="846" y2="512"/>
+    <line x1="512" y1="816" x2="512" y2="846"/>
+    <line x1="208" y1="512" x2="178" y2="512"/>
+  </g>
+
+  <!-- Cyan blip on the outer ring, inside the sweep: the routed target -->
+  <circle cx="657.00" cy="260.90" r="26" fill="#37E2D5" filter="url(#glowCyan)"/>
+
+  <!-- Centre dot with amber glow -->
+  <circle cx="512" cy="512" r="48" fill="#FFB000" filter="url(#glowAmber)"/>
 </svg>

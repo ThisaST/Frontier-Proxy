@@ -8,6 +8,31 @@ import { url } from "../../lib/site";
   title="Task workspace"
   description="Conversations, the live work log, file changes, the context meter, and what each CLI actually reports about your plan usage."
 >
+  <h2>The interface at a glance</h2>
+  <p>
+    <strong>Home</strong> is composer-first: describe a task and a live route preview shows which agent and model it
+    would take, with a small radar sweep while it's being scored, before you send anything. Below the composer sit
+    Running now, Needs your review, and your Agents at a glance — all scoped to whichever project you have selected.
+  </p>
+  <ul class="ticks">
+    <li>
+      <strong>The project switcher</strong> in the sidebar scopes Home, the Tasks queue, Review, and Workspaces to one
+      repository at a time (or "All projects"), and pre-fills the working directory for new tasks and the ⌘N dialog.
+    </li>
+    <li>
+      <strong>Tasks</strong> is the three-pane screen described below: work queue, conversation, route inspector.
+    </li>
+    <li>
+      <strong>Routing</strong> is the Jev advisor console — mode (Off/Shadow/Active), credentials, the exact request
+      payload preview, the model catalog, and the calibration view. See <a href={url("docs/routing")}>routing &amp;
+      the Jev advisor</a>.
+    </li>
+    <li>
+      <strong>Agents</strong> lists every configured CLI as a dense table — status lamp, capacity, today's usage —
+      with a detail drawer per row holding the full edit form instead of a separate settings page per provider.
+    </li>
+  </ul>
+
   <h2>Every task is a conversation</h2>
   <p>
     Tasks are multi-turn, not one-shot. The initial prompt seeds a user turn and each run appends an assistant turn.
@@ -66,17 +91,21 @@ import { url } from "../../lib/site";
     shown in its own panel.
   </p>
 
-  <h2>The task workspace</h2>
+  <h2>Three panes, not a modal</h2>
   <p>
-    <strong>Open details</strong> — or double-click a task — opens a dedicated view with a large conversation pane, the
-    provider route and work log, a task context meter, and a <strong>Files &amp; changes</strong> tab with
-    syntax-highlighted source and Git working-tree diffs.
+    The Tasks screen is one view split into three panes: the <strong>work queue</strong> on the left (grouped into
+    Running, Needs review, Done, and Failed/cancelled, filterable and scoped to the current project), the
+    <strong>conversation</strong> in the centre — the primary surface, with the composer at the bottom — and a
+    collapsible <strong>route/files/activity inspector</strong> on the right showing the route receipt, the live
+    activity feed, and the files an agent touched. Selecting a task never leaves the screen or opens a dialog.
   </p>
   <p>
-    The file tree comes from <code>git ls-files --cached --others --exclude-standard</code> when the directory is a
-    repository, so it respects your project's own <code>.gitignore</code>. Folders start collapsed except the branches
-    holding this task's changed files. File reads are restricted to paths that task actually touched, enforce workspace
-    containment, cap text at 1 MB, and identify binaries rather than dumping them.
+    Opening a changed file from the inspector's "Files changed" section raises a <strong>file-viewer overlay</strong>
+    with syntax-highlighted source and a Git working-tree diff, rather than a separate tab. The file tree comes from
+    <code>git ls-files --cached --others --exclude-standard</code> when the directory is a repository, so it respects
+    your project's own <code>.gitignore</code>; folders start collapsed except the branches holding this task's changed
+    files. File reads are restricted to paths the task actually touched, enforce workspace containment, cap text at
+    1&nbsp;MB, and identify binaries rather than dumping them.
   </p>
 
   <h2>Context window</h2>

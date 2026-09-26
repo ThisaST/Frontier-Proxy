@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { outcomeFactor, rankProviders, routeTask, type RoutableProvider } from '../src/main/router'
-import type { ProviderKind, ProxyTask, TaskType } from '../src/shared/types'
+import { outcomeFactor, pickModel, rankProviders, routeTask, type RoutableProvider } from '../src/main/router'
+import type { ProviderKind, ProxyTask, RoutingAdvice, TaskType } from '../src/shared/types'
 
 function provider(id: string, kind: ProviderKind, tasks = 0, available = true): RoutableProvider {
   return {
@@ -29,6 +29,24 @@ describe('provider routing', () => {
   it('prefers frontier providers in quality mode', () => {
     const ranked = rankProviders(task('quality'), [provider('local', 'codex-oss'), provider('codex', 'codex')])
     expect(ranked[0].id).toBe('codex')
+  })
+
+  // OpenCode names its own model `provider/model`; only a local-runtime prefix
+  // (e.g. `ollama/...`) makes it "local" for the saver/quality mode policy —
+  // it isn't a kind Frontier can tell apart from a cloud OpenCode run any
+  // other way.
+  it('treats an OpenCode provider running a local-runtime model as local for the mode policy', () => {
+    const opencodeLocal = provider('opencode-local', 'opencode'); opencodeLocal.model = 'ollama/qwen3-coder'
+    const codex = provider('codex', 'codex')
+    const ranked = rankProviders(task('saver'), [codex, opencodeLocal])
+    expect(ranked[0].id).toBe('opencode-local')
+  })
+
+  it('does not treat an OpenCode provider running a cloud model as local', () => {
+    const opencodeCloud = provider('opencode-cloud', 'opencode'); opencodeCloud.model = 'anthropic/claude-sonnet-4-5'
+    const { decision } = routeTask(task('saver'), [opencodeCloud])
+    const modePolicy = decision.candidates[0].factors?.find((f) => f.label.includes('Token saver'))
+    expect(modePolicy?.points).toBe(-12) // the non-local saver penalty, not the local bonus
   })
 
   it('honors an available provider override', () => {
@@ -212,5 +230,374 @@ describe('outcome-aware routing', () => {
     const value = withOutcomes('claude', { review: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } })
     const coding = routeTask(task('balanced', 'coding'), [value]).decision.candidates[0]
     expect(coding.factors?.some((factor) => factor.label.includes('outcomes'))).toBe(false)
+  })
+})
+
+// --- Jev-advised routing ---
+// Jev advises, the router decides: these factors only ever apply when the
+// mode is active AND the task's advice actually came from Jev, and they stay
+// inside a fixed band next to every other factor.
+
+function jevAdvice(overrides: Partial<RoutingAdvice> = {}): RoutingAdvice {
+  return { source: 'jev', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding', ...overrides }
+}
+
+function withModels(id: string, kind: ProviderKind, models: string[], model?: string): RoutableProvider {
+  const value = provider(id, kind)
+  value.runtime.models = models
+  value.model = model
+  return value
+}
+
+describe('Jev advisor routing', () => {
+  it('scores identically to no-advice routing when the advisor is off', () => {
+    const providers = [provider('claude', 'claude'), provider('codex', 'codex')]
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.8, complexityConfidence: 0.9, target: { choice: 'claude::claude-opus-5', probabilities: { 'claude::claude-opus-5': 0.9 }, confidence: 0.9 } })
+    const withoutAdviceAtAll = routeTask(task('balanced', 'coding'), providers)
+    const withAdviceButOff = routeTask(value, providers, { advisorMode: 'off' })
+    expect(withAdviceButOff.decision.candidates.map((c) => c.score)).toEqual(withoutAdviceAtAll.decision.candidates.map((c) => c.score))
+    expect(withAdviceButOff.decision.advisor).toBeUndefined()
+  })
+
+  it('scores identically to no-advice routing in shadow mode — it never changes the real ranking', () => {
+    const providers = [provider('claude', 'claude'), provider('codex', 'codex')]
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.8, complexityConfidence: 0.9, target: { choice: 'claude::claude-opus-5', probabilities: { 'claude::claude-opus-5': 0.9 }, confidence: 0.9 } })
+    const withoutAdvice = routeTask(task('balanced', 'coding'), providers, { advisorMode: 'shadow' })
+    const shadow = routeTask(value, providers, { advisorMode: 'shadow' })
+    expect(shadow.decision.candidates.map((c) => c.score)).toEqual(withoutAdvice.decision.candidates.map((c) => c.score))
+    expect(shadow.decision.chosenProviderId).toBe(withoutAdvice.decision.chosenProviderId)
+    expect(shadow.decision.advisor?.mode).toBe('shadow')
+    expect(shadow.decision.advisor?.applied).toBe(false)
+  })
+
+  it('records what shadow mode would have chosen without changing the actual route', () => {
+    const local = withModels('local', 'codex-oss', ['qwen3-coder'])
+    const cloud = withModels('cloud', 'claude', ['claude-opus-5'])
+    // A modest, non-advisor edge for "cloud" (priority, affinity) is enough to
+    // win the real ranking. Jev's advice — a trivial task it is very sure
+    // "local" is the right target for — outweighs that edge only in the
+    // shadow calculation, never in `ranked` itself.
+    cloud.priority = 95
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({
+      complexity: 0, complexityConfidence: 0.95,
+      target: { choice: 'local::qwen3-coder', probabilities: { 'local::qwen3-coder': 0.95, 'cloud::claude-opus-5': 0.05 }, confidence: 0.95 }
+    })
+    const withoutAdvice = routeTask(task('balanced', 'coding'), [local, cloud])
+    expect(withoutAdvice.ranked[0].id).toBe('cloud')
+
+    const { ranked, decision } = routeTask(value, [local, cloud], { advisorMode: 'shadow' })
+    expect(ranked[0].id).toBe('cloud')
+    expect(decision.advisor?.wouldChooseProviderId).toBe('local')
+    expect(decision.advisor?.note).toBe('Would route differently.')
+  })
+
+  it('never applies advisor factors when the task advice is only heuristic', () => {
+    const providers = [provider('claude', 'claude'), provider('codex', 'codex')]
+    const value = task('balanced', 'coding')
+    value.advice = { source: 'heuristic', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding' }
+    const { decision } = routeTask(value, providers, { advisorMode: 'active' })
+    expect(decision.advisor?.applied).toBe(false)
+    expect(decision.candidates.every((candidate) => !candidate.factors?.some((factor) => factor.label.startsWith('Jev')))).toBe(true)
+  })
+
+  it('gives a frontier-tier provider a tier-fit bonus for high complexity, and a local provider a penalty', () => {
+    const frontierProvider = withModels('frontier', 'claude', ['claude-opus-5'])
+    const localProvider = withModels('local', 'codex-oss', ['qwen3-coder'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.8, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [frontierProvider, localProvider], { advisorMode: 'active' })
+    const frontierFactor = decision.candidates.find((c) => c.providerId === 'frontier')?.factors?.find((f) => f.label.includes('tier'))
+    const localFactor = decision.candidates.find((c) => c.providerId === 'local')?.factors?.find((f) => f.label.includes('tier'))
+    expect(frontierFactor?.points).toBe(20)
+    expect(localFactor?.points).toBeLessThan(frontierFactor!.points)
+  })
+
+  // Regression: tier fit must score a provider on the *closest* model it
+  // owns, not its best one — otherwise Claude (which owns both opus and
+  // haiku) would score zero on a trivial task just because it also has opus,
+  // even though it would actually run haiku for it (pickModel's own rule).
+  it('scores tier fit on the closest model a provider owns, not its best one', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5', 'claude-haiku-4-5'])
+    const frontierOnly = withModels('frontier-only', 'codex', ['gpt-5'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 0.3, complexityConfidence: 0.9 }) // desired tier: fast
+    const { decision } = routeTask(value, [claude, frontierOnly], { advisorMode: 'active' })
+    const claudeTier = decision.candidates.find((c) => c.providerId === 'claude')?.factors?.find((f) => f.label.includes('tier'))?.points ?? 0
+    const frontierOnlyTier = decision.candidates.find((c) => c.providerId === 'frontier-only')?.factors?.find((f) => f.label.includes('tier'))?.points ?? 0
+    expect(claudeTier).toBe(20)
+    expect(frontierOnlyTier).toBeLessThan(20)
+  })
+
+  it('ignores the tier-fit signal when complexity confidence is below the threshold', () => {
+    const frontierProvider = withModels('frontier', 'claude', ['claude-opus-5'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.8, complexityConfidence: 0.2 })
+    const { decision } = routeTask(value, [frontierProvider], { advisorMode: 'active', advisorMinConfidence: 0.5 })
+    expect(decision.candidates[0].factors?.some((f) => f.label.includes('tier'))).toBe(false)
+  })
+
+  it('shifts the desired tier down for saver mode and up for quality mode', () => {
+    const fastProvider = withModels('fast', 'claude', ['claude-haiku-4-5'])
+    const standardProvider = withModels('standard', 'claude', ['claude-sonnet-5'])
+    const frontierProvider = withModels('frontier', 'claude', ['claude-opus-5'])
+    const advice = jevAdvice({ complexity: 1.0, complexityConfidence: 0.9 }) // desired tier is "standard" at complexity 1.0, balanced mode
+    const providers = [fastProvider, standardProvider, frontierProvider]
+
+    const tierPoints = (mode: ProxyTask['mode'], providerId: string): number => {
+      const { decision } = routeTask({ ...task(mode, 'coding'), advice }, providers, { advisorMode: 'active' })
+      // A tier that lands exactly on 0 net points is omitted from the factor
+      // list (like every other zero-point factor in this router), so absence
+      // here means "no signal", not "undefined".
+      return decision.candidates.find((c) => c.providerId === providerId)?.factors?.find((f) => f.label.includes('tier'))?.points ?? 0
+    }
+
+    // Balanced wants "standard"; saver shifts the desire down to "fast";
+    // quality shifts it up to "frontier".
+    expect(tierPoints('balanced', 'standard')).toBe(20)
+    expect(tierPoints('saver', 'fast')).toBe(20)
+    expect(tierPoints('saver', 'frontier')).toBeLessThan(tierPoints('balanced', 'frontier'))
+    expect(tierPoints('quality', 'frontier')).toBe(20)
+    expect(tierPoints('quality', 'fast')).toBeLessThan(tierPoints('balanced', 'fast'))
+  })
+
+  it('sums target probability across a provider\'s own options into one bounded "best fit" factor', () => {
+    const claude = withModels('claude', 'claude', ['claude-sonnet-5', 'claude-opus-5'])
+    const codex = withModels('codex', 'codex', ['gpt-5-codex'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({
+      target: {
+        choice: 'claude::claude-opus-5',
+        probabilities: { 'claude::claude-sonnet-5': 0.3, 'claude::claude-opus-5': 0.5, 'codex::gpt-5-codex': 0.2 },
+        confidence: 0.9
+      }
+    })
+    const { decision } = routeTask(value, [claude, codex], { advisorMode: 'active' })
+    const claudeFactor = decision.candidates.find((c) => c.providerId === 'claude')?.factors?.find((f) => f.label.includes('best fit'))
+    const codexFactor = decision.candidates.find((c) => c.providerId === 'codex')?.factors?.find((f) => f.label.includes('best fit'))
+    expect(claudeFactor?.points).toBeGreaterThan(0)
+    expect(claudeFactor?.points).toBeGreaterThan(codexFactor?.points ?? 0)
+    expect(claudeFactor?.points).toBeLessThanOrEqual(15)
+  })
+
+  it('gives a small read-only bonus to local providers only, when edits_files is low', () => {
+    const local = withModels('local', 'ollama', ['qwen3-coder'])
+    const cloud = withModels('cloud', 'claude', ['claude-sonnet-5'])
+    const value = task('balanced', 'review')
+    value.advice = jevAdvice({ editsFiles: 0.05 })
+    const { decision } = routeTask(value, [local, cloud], { advisorMode: 'active' })
+    expect(decision.candidates.find((c) => c.providerId === 'local')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(true)
+    expect(decision.candidates.find((c) => c.providerId === 'cloud')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(false)
+  })
+
+  it('gives the read-only bonus to an OpenCode provider running a local-runtime model, not one running a cloud model', () => {
+    const opencodeLocal = withModels('opencode-local', 'opencode', ['ollama/qwen3-coder'], 'ollama/qwen3-coder')
+    const opencodeCloud = withModels('opencode-cloud', 'opencode', ['anthropic/claude-sonnet-4-5'], 'anthropic/claude-sonnet-4-5')
+    const value = task('balanced', 'review')
+    value.advice = jevAdvice({ editsFiles: 0.05 })
+    const { decision } = routeTask(value, [opencodeLocal, opencodeCloud], { advisorMode: 'active' })
+    expect(decision.candidates.find((c) => c.providerId === 'opencode-local')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(true)
+    expect(decision.candidates.find((c) => c.providerId === 'opencode-cloud')?.factors?.some((f) => f.label === 'Read-only task → local OK')).toBe(false)
+  })
+
+  it('never gives the read-only bonus when edits_files is high', () => {
+    const local = withModels('local', 'ollama', ['qwen3-coder'])
+    const value = task('balanced', 'review')
+    value.advice = jevAdvice({ editsFiles: 0.9 })
+    const { decision } = routeTask(value, [local], { advisorMode: 'active' })
+    expect(decision.candidates[0].factors?.some((f) => f.label.includes('Read-only'))).toBe(false)
+  })
+
+  it('never lets an advisor factor overrule an explicit pick', () => {
+    const preferred = withModels('local', 'codex-oss', ['qwen3-coder'])
+    const other = withModels('cloud', 'claude', ['claude-opus-5'])
+    const value = task('balanced', 'coding')
+    value.preferredProviderId = 'cloud'
+    value.advice = jevAdvice({ complexity: 0.1, complexityConfidence: 0.99 }) // strongly favours the local/fast tier
+    const { ranked } = routeTask(value, [preferred, other], { advisorMode: 'active' })
+    expect(ranked[0].id).toBe('cloud')
+  })
+
+  it('leaves an ineligible provider ineligible regardless of advice', () => {
+    const off = provider('off', 'codex'); off.enabled = false
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.99 })
+    const { ranked, decision } = routeTask(value, [off], { advisorMode: 'active' })
+    expect(ranked).toEqual([])
+    expect(decision.candidates[0].eligible).toBe(false)
+  })
+
+  it('bounds the tier-fit factor within the documented band regardless of tier distance', () => {
+    const local = withModels('local', 'codex-oss', ['qwen3-coder'])
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.99 }) // desires frontier, provider is local — max distance
+    const { decision } = routeTask(value, [local], { advisorMode: 'active' })
+    const tierFactor = decision.candidates[0].factors?.find((f) => f.label.includes('tier'))
+    expect(Math.abs(tierFactor?.points ?? 0)).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('advisor route notes', () => {
+  it('says no key is stored when the fallback advice carries no error', () => {
+    const value = task('balanced', 'coding')
+    value.advice = { source: 'heuristic', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding' }
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active' })
+    expect(decision.advisor?.note).toBe('No Jev key stored; using the heuristic.')
+  })
+
+  it('keeps the "Jev unavailable" wording when the fallback advice carries an error', () => {
+    const value = task('balanced', 'coding')
+    value.advice = { source: 'heuristic', at: new Date().toISOString(), taskType: 'coding', heuristicTaskType: 'coding', error: 'Jev rejected the API key.' }
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active' })
+    expect(decision.advisor?.note).toBe('Jev unavailable: Jev rejected the API key.')
+  })
+
+  it('says Jev was not confident enough when both complexity and target confidence are below the threshold', () => {
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({
+      complexity: 2.0, complexityConfidence: 0.2,
+      target: { choice: 'claude::claude-sonnet-5', probabilities: { 'claude::claude-sonnet-5': 0.4 }, confidence: 0.2 }
+    })
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active', advisorMinConfidence: 0.5 })
+    expect(decision.advisor?.note).toBe('Jev was not confident enough to change this route.')
+  })
+
+  it('gives no low-confidence note when either signal clears the threshold', () => {
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.0, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [provider('claude', 'claude')], { advisorMode: 'active', advisorMinConfidence: 0.5 })
+    expect(decision.advisor?.note).toBeUndefined()
+  })
+})
+
+describe('pickModel', () => {
+  it('returns undefined when there is no jev-sourced advice', () => {
+    expect(pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, ['claude-opus-5', 'claude-sonnet-5'], undefined, 'balanced')).toBeUndefined()
+    expect(pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, ['claude-opus-5'], { source: 'heuristic', at: '', taskType: 'coding', heuristicTaskType: 'coding' }, 'balanced')).toBeUndefined()
+  })
+
+  it('returns undefined when complexity is missing', () => {
+    expect(pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, ['claude-opus-5'], jevAdvice(), 'balanced')).toBeUndefined()
+  })
+
+  it('picks the model on this provider whose tier is closest to the desired one', () => {
+    const advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const picked = pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, ['claude-sonnet-5', 'claude-opus-5', 'claude-haiku-4-5'], advice, 'balanced')
+    expect(picked).toBe('claude-opus-5')
+  })
+
+  it('never crosses providers — it only ever picks from the models it was given', () => {
+    const advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    // Only Codex models are offered even though the advice would want "frontier";
+    // pickModel must not reach for a Claude id it was never given.
+    const picked = pickModel({ id: 'codex', kind: 'codex', model: 'gpt-5-codex' }, ['gpt-5-codex', 'gpt-5-mini'], advice, 'balanced')
+    expect(['gpt-5-codex', 'gpt-5-mini']).toContain(picked)
+  })
+
+  it('shifts its pick down for saver mode and up for quality mode', () => {
+    const advice = jevAdvice({ complexity: 1.0, complexityConfidence: 0.9 })
+    const models = ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']
+    const saverPick = pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, models, advice, 'saver')
+    const qualityPick = pickModel({ id: 'claude', kind: 'claude', model: 'claude-sonnet-5' }, models, advice, 'quality')
+    expect(saverPick).toBe('claude-haiku-4-5')
+    expect(qualityPick).toBe('claude-opus-5')
+  })
+
+  // --- Per-model outcome tie-break ---
+  // 'model-a'/'model-b' are unrecognized ids: tierFor falls back to 'standard'
+  // for both, so at complexity 1.0 (desired tier 'standard') they land at the
+  // identical tier distance — a genuine tie for the loop above to break.
+  describe('tie-break on model-level outcomes', () => {
+    const tiedAdvice = jevAdvice({ complexity: 1.0, complexityConfidence: 0.9 })
+    const tiedProvider = { id: 'claude', kind: 'claude' as const, model: 'model-a' }
+    const tiedModels = ['model-a', 'model-b']
+
+    it('prefers the tied model with the better recorded outcomes, given enough runs', () => {
+      const modelOutcomes = {
+        'model-a': { coding: { runs: 5, completed: 5, merged: 4, discarded: 0, verified: 4, verifyFailed: 0 } },
+        'model-b': { coding: { runs: 5, completed: 2, merged: 0, discarded: 4, verified: 0, verifyFailed: 4 } }
+      }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: true })
+      expect(picked).toBe('model-a')
+    })
+
+    it('ignores a tied model\'s outcomes below the sample-size gate, keeping the first tied model', () => {
+      const modelOutcomes = { 'model-b': { coding: { runs: 2, completed: 2, merged: 2, discarded: 0, verified: 2, verifyFailed: 0 } } }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: true })
+      expect(picked).toBe('model-a')
+    })
+
+    it('never breaks a tie on outcomes when learnFromOutcomes is off', () => {
+      const modelOutcomes = { 'model-b': { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } } }
+      const picked = pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced', { taskType: 'coding', modelOutcomes, learnFromOutcomes: false })
+      expect(picked).toBe('model-a')
+    })
+
+    it('leaves 4-arg calls (no outcome options) working exactly as before', () => {
+      expect(pickModel(tiedProvider, tiedModels, tiedAdvice, 'balanced')).toBe('model-a')
+    })
+  })
+})
+
+// --- Per-model outcomes as a routing factor ---
+// Same learned signal as provider-level outcomes, but keyed on the model
+// pickModel would actually run — replacing the provider-wide figure rather
+// than stacking with it.
+describe('per-model outcome routing factor', () => {
+  it('replaces the provider-level outcome factor with a model-specific one for the model advice would pick', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } }
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 5, completed: 1, merged: 0, discarded: 5, verified: 0, verifyFailed: 5 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const outcomeFactors = (decision.candidates[0].factors ?? []).filter((f) => f.label.includes('outcomes'))
+    expect(outcomeFactors).toHaveLength(1)
+    expect(outcomeFactors[0].label).toContain('claude-opus-5')
+    // The model-specific record is bad even though the provider-wide one is
+    // great — the replacement must reflect the specific record, not blend it.
+    expect(outcomeFactors[0].points).toBeLessThan(0)
+  })
+
+  it('falls back to the provider-level factor when the picked model has no outcomes of its own', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const outcomeFactors = (decision.candidates[0].factors ?? []).filter((f) => f.label.includes('outcomes'))
+    expect(outcomeFactors).toHaveLength(1)
+    expect(outcomeFactors[0].label).not.toContain('claude-opus-5')
+  })
+
+  it('bounds the model-level factor within the same ±14 band as the provider-level one', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 100, completed: 100, merged: 100, discarded: 0, verified: 100, verifyFailed: 0 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    const factor = (decision.candidates[0].factors ?? []).find((f) => f.label.includes('outcomes'))
+    expect(factor?.points).toBeLessThanOrEqual(14)
+  })
+
+  it('stays silent below the sample size, same gate as the provider-level factor', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 2, completed: 2, merged: 2, discarded: 0, verified: 2, verifyFailed: 0 } } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active' })
+    expect((decision.candidates[0].factors ?? []).some((f) => f.label.includes('outcomes'))).toBe(false)
+  })
+
+  it('disables both the model-level factor and its tie-break together when learnFromOutcomes is off', () => {
+    const claude = withModels('claude', 'claude', ['claude-opus-5'])
+    claude.runtime.modelOutcomes = { 'claude-opus-5': { coding: { runs: 10, completed: 10, merged: 10, discarded: 0, verified: 10, verifyFailed: 0 } } }
+    claude.runtime.outcomes = { coding: { runs: 10, completed: 0, merged: 0, discarded: 10, verified: 0, verifyFailed: 10 } }
+    const value = task('balanced', 'coding')
+    value.advice = jevAdvice({ complexity: 2.9, complexityConfidence: 0.9 })
+    const { decision } = routeTask(value, [claude], { advisorMode: 'active', learnFromOutcomes: false })
+    expect((decision.candidates[0].factors ?? []).some((f) => f.label.includes('outcomes'))).toBe(false)
   })
 })

@@ -4,8 +4,20 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { mergeSessionWindows, OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
+import { AdvisorKeyManager, JevClient } from '../src/main/advisor'
 import { freshDefaults } from '../src/shared/defaults'
-import type { ProviderConfig, ProxyTask } from '../src/shared/types'
+import type { AppSnapshot, ProviderConfig, ProxyTask } from '../src/shared/types'
+
+// Poll the engine snapshot until the task reaches a terminal state.
+async function waitForTask(engine: OrchestrationEngine, taskId: string, timeoutMs = 8_000): Promise<AppSnapshot['tasks'][number]> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const task = engine.snapshot().tasks.find((item) => item.id === taskId)
+    if (task && (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')) return task
+    if (Date.now() > deadline) throw new Error(`Task ${taskId} did not settle; last status: ${task?.status}`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
 
 describe('provider session windows', () => {
   it('retains different limits and updates only the matching window', () => {
@@ -152,5 +164,368 @@ describe('skill selection', () => {
 
     const snapshot = await engine.updateSettings({ skills: { disabledIds: ['skill-a', 'skill-a', 'skill-b'] } })
     expect(snapshot.settings.skills.disabledIds).toEqual(['skill-a', 'skill-b'])
+  })
+})
+
+function trivialCipher() {
+  return { encrypt: (value: string) => Buffer.from(value).toString('base64'), decrypt: (value: string) => Buffer.from(value, 'base64').toString('utf8') }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => { resolve = r })
+  return { promise, resolve }
+}
+
+function fakeJevResponse(answers: Record<string, unknown>): Response {
+  return {
+    ok: true, status: 200, headers: new Headers(),
+    text: async () => '',
+    json: async () => ({ model: 'jev-1.13.0', usage: { input_tokens: 10, output_tokens: 0 }, answers })
+  } as unknown as Response
+}
+
+describe('Jev routing advisor', () => {
+  it('never blocks the queue: a task still completes on the heuristic fallback when the advisor call hangs', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    // JsonStore.load() always re-merges the built-in default providers by id
+    // (see tests/e2e.test.ts's makeEngine), so any actually-installed CLI on
+    // this machine (codex, claude, …) would otherwise outrank the fake one below.
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // A fetch that only ever settles when its AbortSignal fires — like a real
+    // network call that hangs until something else cancels it. Only
+    // JevClient's own per-attempt timeout can end this.
+    const hangingFetch = ((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+    })) as unknown as typeof fetch
+    const jevClient = new JevClient({ fetch: hangingFetch, timeoutMs: 30, retryDelayCapMs: 5 })
+
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient)
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    // Heuristic advice is set synchronously at creation, before Jev is ever asked.
+    expect(created.advice?.source).toBe('heuristic')
+
+    const finished = await waitForTask(engine, created.id)
+    expect(finished.status).toBe('completed')
+    // The advisor call timed out (bounded, never indefinite) and the task
+    // routed and ran on the heuristic fallback regardless.
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toContain('Jev did not respond in time.')
+  })
+
+  it('never asks Jev, and never blocks, when the advisor is off', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-off-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    let called = false
+    const fetchSpy = (async () => { called = true; throw new Error('should never be called') }) as unknown as typeof fetch
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchSpy }))
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    const finished = await waitForTask(engine, created.id)
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toBeUndefined()
+    expect(called).toBe(false)
+  })
+
+  it('bounds pending time by its own overall deadline, and ignores a Jev answer that arrives after it', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-deadline-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      provider('first', 1, ['-e', 'process.stdout.write("ok")'])
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // The fetch itself never settles until the test resolves it — a generous
+    // per-attempt client timeout proves it is the engine's own overall
+    // deadline (well below it), not JevClient's, that ends the wait.
+    const gate = deferred<Response>()
+    const fetchMock = (async () => gate.promise) as unknown as typeof fetch
+    const jevClient = new JevClient({ fetch: fetchMock, timeoutMs: 60_000 })
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient, 40)
+    await engine.initialize()
+
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
+    expect(created.type).toBe('coding')
+
+    const finished = await waitForTask(engine, created.id, 3_000)
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('heuristic')
+    expect(finished.advice?.error).toBe('Jev did not answer in time')
+    expect(finished.type).toBe('coding')
+
+    // The real answer finally lands, long after the deadline already applied
+    // the heuristic and let the task run to completion. It must be ignored —
+    // never overwriting the advice or the type of a task that already moved on.
+    gate.resolve(fakeJevResponse({
+      task_type: { type: 'choice', choice: 'review', probabilities: { review: 0.95 }, confidence: 0.95 },
+      complexity: { type: 'score', score: 1, probabilities: {}, confidence: 0.9 },
+      edits_files: { type: 'noul', noul: 0.5 },
+      long_context: { type: 'noul', noul: 0.5 },
+      split_worthy: { type: 'noul', noul: 0.1 }
+    }))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const after = engine.snapshot().tasks.find((item) => item.id === created.id)
+    expect(after?.advice?.source).toBe('heuristic')
+    expect(after?.type).toBe('coding')
+  })
+
+  it('does not push orchestration subtasks or synthesis onto a frontier model just because the parent task rated architectural', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-advisor-orchestrate-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    // Echoes the resolved {model} argument back as its entire output, so a
+    // wrongly-applied advisor pick would visibly diverge from the configured
+    // default rather than being invisible in a passthrough "ok".
+    const echoModelScript = 'process.stdout.write(process.argv[1] || "")'
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      {
+        id: 'first', name: 'First Provider', kind: 'custom' as const, enabled: true, executable: process.execPath,
+        args: ['-e', echoModelScript, '{model}'], model: 'claude-haiku-4-5', priority: 1, maxConcurrent: 1,
+        capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general'] as ProxyTask['type'][]
+      }
+    ]
+    settings.advisor = { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    // A confident, architectural-complexity answer — exactly the case that
+    // would push every subtask onto a frontier model if advice leaked into
+    // subtask/synthesis routing.
+    const fetchMock = (async () => fakeJevResponse({
+      task_type: { type: 'choice', choice: 'coding', probabilities: { coding: 0.95 }, confidence: 0.95 },
+      complexity: { type: 'score', score: 2.9, probabilities: {}, confidence: 0.95 },
+      edits_files: { type: 'noul', noul: 0.9 },
+      long_context: { type: 'noul', noul: 0.8 },
+      split_worthy: { type: 'noul', noul: 0.1 }
+    })) as unknown as typeof fetch
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }))
+    await engine.initialize()
+    // Give the fake provider a second, larger model via the live runtime
+    // reference (real discovery for a 'custom' kind only ever finds its own
+    // configured default), so pickModel has an actual choice to get wrong.
+    const runtime = engine.providerRuntime('first')
+    if (runtime) runtime.models = ['claude-haiku-4-5', 'claude-opus-5']
+
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.status).toBe('completed')
+    expect(finished.advice?.source).toBe('jev')
+    expect(finished.advice?.complexity).toBe(2.9)
+    // The planner stage (the parent route) DID use the advice and picked the
+    // frontier-tier model for its own run.
+    expect(finished.routedModel).toEqual({ providerId: 'first', model: 'claude-opus-5', reason: expect.any(String) })
+    // Every subtask, and the synthesis step, ran on the provider's own
+    // default model — not the advice-suggested frontier one.
+    expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-haiku-4-5')).toBe(true)
+    expect(finished.output.trim()).toBe('claude-haiku-4-5')
+  })
+})
+
+// The prompt sent over stdin distinguishes the planner call (buildPlannerPrompt's
+// fixed wording) from every other stage on the same fake CLI, so one script can
+// stand in for the planner, every subtask, and the synthesizer.
+const PLANNER_MARKER = 'independent subtasks'
+function planningOrEchoScript(plan: Array<{ title: string; prompt: string; type: string }>): string {
+  return [
+    'const chunks = []',
+    'process.stdin.on("data", (d) => chunks.push(d))',
+    'process.stdin.on("end", () => {',
+    '  const input = Buffer.concat(chunks).toString("utf8")',
+    `  if (input.includes(${JSON.stringify(PLANNER_MARKER)})) process.stdout.write(${JSON.stringify(JSON.stringify(plan))})`,
+    '  else process.stdout.write(process.argv[1] || "")',
+    '})'
+  ].join('\n')
+}
+
+describe('per-subtask Jev advice', () => {
+  const plan = [
+    { title: 'Small tweak', prompt: 'Fix the typo', type: 'coding' },
+    { title: 'Big rewrite', prompt: 'Rearchitect the module', type: 'coding' }
+  ]
+
+  async function subtaskEngine(advisorMode: 'active' | 'shadow' | 'off', fetchMock: typeof fetch, advisorDeadlineMs = 3_000): Promise<{ engine: OrchestrationEngine; directory: string }> {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-subtask-advice-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      {
+        id: 'first', name: 'First Provider', kind: 'custom' as const, enabled: true, executable: process.execPath,
+        args: ['-e', planningOrEchoScript(plan), '{model}'], model: 'claude-sonnet-5', priority: 1, maxConcurrent: 1,
+        capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general'] as ProxyTask['type'][]
+      }
+    ]
+    settings.advisor = { mode: advisorMode, model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    await advisorKeys.setKey('sk-test-token')
+
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }), advisorDeadlineMs)
+    await engine.initialize()
+    const runtime = engine.providerRuntime('first')
+    if (runtime) runtime.models = ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']
+    return { engine, directory }
+  }
+
+  // First call answers the parent's own 5-question advice; every call after
+  // that answers the per-subtask questions.
+  function twoStageFetch(): typeof fetch {
+    let calls = 0
+    return (async () => {
+      calls += 1
+      if (calls === 1) {
+        return fakeJevResponse({
+          task_type: { type: 'choice', choice: 'coding', probabilities: { coding: 0.95 }, confidence: 0.95 },
+          complexity: { type: 'score', score: 1.5, probabilities: {}, confidence: 0.9 },
+          edits_files: { type: 'noul', noul: 0.9 },
+          long_context: { type: 'noul', noul: 0.5 },
+          split_worthy: { type: 'noul', noul: 0.9 }
+        })
+      }
+      return fakeJevResponse({
+        complexity_1: { type: 'score', score: 0.2, probabilities: {}, confidence: 0.9 },
+        target_1: { type: 'choice', choice: 'first::claude-haiku-4-5', probabilities: { 'first::claude-haiku-4-5': 0.9 }, confidence: 0.9 },
+        complexity_2: { type: 'score', score: 2.9, probabilities: {}, confidence: 0.9 },
+        target_2: { type: 'choice', choice: 'first::claude-opus-5', probabilities: { 'first::claude-opus-5': 0.9 }, confidence: 0.9 }
+      })
+    }) as unknown as typeof fetch
+  }
+
+  it('runs subtasks of different complexity on different-tier models of the same provider', async () => {
+    const { engine, directory } = await subtaskEngine('active', twoStageFetch())
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.status).toBe('completed')
+    const small = finished.subtasks?.find((subtask) => subtask.title === 'Small tweak')
+    const big = finished.subtasks?.find((subtask) => subtask.title === 'Big rewrite')
+    expect(small?.advice).toMatchObject({ source: 'jev', complexity: 0.2 })
+    expect(big?.advice).toMatchObject({ source: 'jev', complexity: 2.9 })
+    // Neither pick matches the provider's own configured default
+    // ('claude-sonnet-5'), so this can only be the per-subtask advice at work.
+    expect(small?.output.trim()).toBe('claude-haiku-4-5')
+    expect(big?.output.trim()).toBe('claude-opus-5')
+    // Synthesis stays advice-free — it ran on the provider's own default.
+    expect(finished.output.trim()).toBe('claude-sonnet-5')
+  })
+
+  it('leaves subtasks on provider defaults when the subtask-advice call does not answer within the deadline', async () => {
+    const gate = new Promise<Response>(() => { /* never settles */ })
+    const hangingFetch = (async () => gate) as unknown as typeof fetch
+    const { engine, directory } = await subtaskEngine('active', hangingFetch, 40)
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const started = Date.now()
+    const finished = await waitForTask(engine, created.id, 5_000)
+    // The planner's own advisor call already used a real (settled) fetch by
+    // the time this task is queued in these tests; only requestSubtaskAdvice
+    // is left hanging, and it must still resolve within its own deadline.
+    expect(Date.now() - started).toBeLessThan(4_000)
+    expect(finished.status).toBe('completed')
+    expect(finished.subtasks?.every((subtask) => !subtask.advice)).toBe(true)
+    expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-sonnet-5')).toBe(true)
+  })
+
+  it('shadow mode leaves every subtask on provider defaults, recording only what it would have picked', async () => {
+    const { engine, directory } = await subtaskEngine('shadow', twoStageFetch())
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.status).toBe('completed')
+    expect(finished.subtasks?.every((subtask) => !subtask.advice)).toBe(true)
+    expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-sonnet-5')).toBe(true)
+    // Still recorded what it WOULD have picked, without changing anything.
+    const small = finished.subtasks?.find((subtask) => subtask.title === 'Small tweak')
+    expect(small?.routing?.advisor?.mode).toBe('shadow')
+  })
+
+  it('off mode never makes the extra per-subtask call and changes nothing', async () => {
+    let called = false
+    const fetchSpy = (async () => { called = true; throw new Error('should never be called') }) as unknown as typeof fetch
+    const { engine, directory } = await subtaskEngine('off', fetchSpy)
+    const created = await engine.createTask({ prompt: 'Build a small feature', cwd: directory, mode: 'balanced', orchestrate: true })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.status).toBe('completed')
+    expect(finished.subtasks?.every((subtask) => !subtask.advice && !subtask.routing)).toBe(true)
+    expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-sonnet-5')).toBe(true)
+    expect(called).toBe(false)
+  })
+})
+
+describe('previewAdvisor policy', () => {
+  it('threads the preview policy into the pseudo task, flipping local vs hosted ranking between saver and quality', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-preview-policy-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    const capabilities: ProxyTask['type'][] = ['coding', 'debugging', 'review', 'planning', 'documentation', 'general']
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      { id: 'local', name: 'Local Model', kind: 'ollama' as const, enabled: true, executable: process.execPath, model: 'llama3', priority: 0, maxConcurrent: 1, capabilities },
+      { id: 'hosted', name: 'Hosted Agent', kind: 'claude' as const, enabled: true, executable: process.execPath, model: 'claude-opus-5', priority: 0, maxConcurrent: 1, capabilities }
+    ]
+    await store.save({ settings, tasks: [] })
+    const engine = new OrchestrationEngine(store)
+    await engine.initialize()
+    // The real `checkProvider` probe (`<exe> list`/`--version`) has nothing to
+    // do with the policy this test is about; force both candidates available
+    // through the live runtime reference `previewAdvisor` itself reads.
+    for (const id of ['local', 'hosted']) {
+      const runtime = engine.providerRuntime(id)
+      if (runtime) runtime.available = true
+    }
+
+    const saver = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory, policy: 'saver' })
+    expect(saver.decision.mode).toBe('saver')
+    expect(saver.decision.chosenProviderId).toBe('local')
+
+    const quality = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory, policy: 'quality' })
+    expect(quality.decision.mode).toBe('quality')
+    expect(quality.decision.chosenProviderId).toBe('hosted')
+
+    // Omitting the policy still defaults to 'balanced', matching the New Task
+    // dialog's own default, rather than inheriting whatever was last passed.
+    const balanced = await engine.previewAdvisor({ prompt: 'Fix a small typo in the README', cwd: directory })
+    expect(balanced.decision.mode).toBe('balanced')
   })
 })

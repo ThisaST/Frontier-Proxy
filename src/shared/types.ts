@@ -3,6 +3,109 @@ export type RoutingMode = 'balanced' | 'quality' | 'saver'
 export type TaskType = 'coding' | 'debugging' | 'review' | 'planning' | 'documentation' | 'general'
 export type TaskStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 
+// ---- Jev routing advisor (auxiliary service, ADR 0002) ----
+// Off by default. Shadow records what Jev would have chosen next to the real
+// route without changing it; Active lets its answers become bounded routing
+// factors and, when confident, the advised model. Never a model-execution key:
+// Jev classifies the task, it never runs an agent.
+export type AdvisorMode = 'off' | 'shadow' | 'active'
+export type ModelTier = 'local' | 'fast' | 'standard' | 'frontier'
+
+export interface RoutingAdvisorSettings {
+  mode: AdvisorMode
+  // 'jev-latest' or a pinned version string.
+  model: string
+  // Below this, a Jev answer is ignored in favour of the heuristic/no signal.
+  minConfidence: number
+  // Repo language mix, file count, manifests, and top-level folder names — never
+  // file contents. On by default; the Routing screen can turn it off.
+  shareRepoFacts: boolean
+  // Off by default: without this, every keystroke in the composer would send a
+  // draft prompt to TypeSafe. On submit, Jev is always called at most once.
+  previewWhileTyping: boolean
+}
+
+// One Jev question, in the exact shape TypeSafe's API expects.
+export interface JevQuestion {
+  type: 'choice' | 'score' | 'noul'
+  instructions: string | Record<string, unknown>
+  // choice: option -> description (or null). score: ordered level descriptions
+  // (2-10 levels). noul: optional true/false descriptions.
+  criteria?: Record<string, string | null> | string[] | { true: string; false: string }
+}
+
+// The exact JSON body Frontier would send to `POST /v1/systemone` — never
+// containing the API key. Exposed to the UI so the advisor's "what is sent"
+// disclosure can never drift from the real request.
+export interface JevRequestBody {
+  state: Record<string, unknown>
+  model: string
+  questions: Record<string, JevQuestion>
+}
+
+export interface RoutingAdviceTarget {
+  choice: string
+  probabilities: Record<string, number>
+  confidence: number
+}
+
+// Jev's answers, folded into one record. `source: 'heuristic'` means either the
+// advisor is off/unreachable or its task_type answer was below minConfidence —
+// `heuristicTaskType` is always the regex classifier's own answer so the UI can
+// show what Jev's pick was measured against.
+export interface RoutingAdvice {
+  source: 'jev' | 'heuristic'
+  // Jev's own model id (e.g. "jev-1.13.0"), not the routed provider's model.
+  model?: string
+  at: string
+  latencyMs?: number
+  inputTokens?: number
+  taskType: TaskType
+  heuristicTaskType: TaskType
+  taskTypeProbs?: Record<string, number>
+  taskTypeConfidence?: number
+  // 0-3 float: trivial -> single-file -> multi-file -> architectural.
+  complexity?: number
+  complexityConfidence?: number
+  // noul answers: probability (0..1) the statement is true.
+  editsFiles?: number
+  longContext?: number
+  splitWorthy?: number
+  target?: RoutingAdviceTarget
+  // Set when Jev could not be reached/parsed; routing still proceeds on the
+  // heuristic fields above.
+  error?: string
+}
+
+// Input/output for the Routing screen's live preview and the Home composer's
+// route-preview line. Never touches task state.
+export interface AdvisorPreviewInput {
+  prompt: string
+  cwd: string
+  attachments?: string[]
+  mode?: AdvisorMode
+  // The routing policy the preview's pseudo task runs under; defaults to
+  // 'balanced' (mirrors the New Task dialog's own default) when omitted.
+  policy?: RoutingMode
+  preferredProviderId?: string
+  model?: string
+  modelProviderId?: string
+}
+
+export interface AdvisorPreviewResult {
+  request: JevRequestBody
+  heuristic: RoutingAdvice
+  decision: RoutingDecision
+  model?: string
+}
+
+export interface AdvisorTestResult {
+  ok: boolean
+  model?: string
+  latencyMs?: number
+  error?: string
+}
+
 export interface ProviderConfig {
   id: string
   name: string
@@ -178,6 +281,10 @@ export interface ProviderRuntime {
   history?: UsageDay[]
   // Per task type, how this provider's runs have actually turned out.
   outcomes?: Partial<Record<TaskType, OutcomeStats>>
+  // The same breakdown, but keyed by the model that actually ran first — so a
+  // merged/discarded branch teaches the router about "opus on coding", not
+  // only "Claude on coding". Absent for runs where no model was ever known.
+  modelOutcomes?: Record<string, Partial<Record<TaskType, OutcomeStats>>>
 }
 
 export interface TaskAttempt {
@@ -278,6 +385,16 @@ export interface RoutingDecision {
   mode: RoutingMode
   chosenProviderId?: string
   candidates: RoutingCandidate[]
+  // Present whenever the advisor is not off. In shadow mode this records what
+  // the route WOULD be with Jev's advice applied, without changing chosenProviderId.
+  advisor?: {
+    mode: AdvisorMode
+    // True only in active mode with jev-sourced advice actually scored above.
+    applied: boolean
+    wouldChooseProviderId?: string
+    wouldChooseModel?: string
+    note?: string
+  }
 }
 
 // One command run against a finished agent's worktree — the repo's own tests,
@@ -338,6 +455,15 @@ export interface SubTask {
   filesTouched?: number
   // The repo's own checks, run in this lane's worktree before it was torn down.
   verification?: VerificationReport
+  // This subtask's own Jev advice from the one extra per-subtask advisor call
+  // (active mode only) — a plan of mixed-complexity subtasks can route, and
+  // pick a model, apart instead of all inheriting the parent's single rating.
+  advice?: RoutingAdvice
+  // What routing this subtask's own advice would produce, recorded whenever
+  // the advisor is not off (same shape/mechanism as task.routing) — in active
+  // mode this mirrors the real dispatch; in shadow mode `routing.advisor`
+  // records what it WOULD have picked without changing anything.
+  routing?: RoutingDecision
 }
 
 export interface ProxyTask {
@@ -395,6 +521,12 @@ export interface ProxyTask {
   // Absolute resolved skill selection for this task. undefined means "inherit
   // the global disabled-set default" rather than "no skills enabled".
   skillIds?: string[]
+  // Jev's (or the heuristic's) read on this task, computed once at creation.
+  // Continuations, bench lanes, and workspace turns never get one.
+  advice?: RoutingAdvice
+  // The model the advisor picked for the provider that actually ran, and why —
+  // only ever set in active mode, and only for the agent it was computed for.
+  routedModel?: { providerId: string; model: string; reason: string }
 }
 
 // A file a Frontier task branch would bring into the checkout, measured from
@@ -503,6 +635,7 @@ export interface AppSettings {
   // Let a provider's recent outcomes influence routing. Off means the router
   // scores exactly as it did before outcome tracking existed.
   learnFromOutcomes: boolean
+  advisor: RoutingAdvisorSettings
 }
 
 export interface AppSnapshot {
@@ -511,6 +644,9 @@ export interface AppSnapshot {
   settings: AppSettings
   mcpAuth: McpAuthStatus[]
   workspaces: WorkspaceView[]
+  // The API key itself never appears here, in state.json, or in logs — only
+  // whether one is stored and the outcome of the last call.
+  advisor: { hasKey: boolean; lastError?: string; lastCheckedAt?: string }
 }
 
 export interface CreateTaskInput {
@@ -688,12 +824,16 @@ export interface FrontierApi {
   updateProvider(patch: ProviderPatch): Promise<AppSnapshot>
   addCustomProvider(): Promise<AppSnapshot>
   removeProvider(providerId: string): Promise<AppSnapshot>
-  updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes'>>): Promise<AppSnapshot>
+  updateSettings(changes: Partial<Pick<AppSettings, 'maxParallelTasks' | 'quotaCooldownMinutes' | 'memory' | 'skills' | 'verification' | 'notifications' | 'learnFromOutcomes' | 'advisor'>>): Promise<AppSnapshot>
   updateControlPlane(profile: ControlPlaneProfile): Promise<AppSnapshot>
   previewControlPlane(providerId: string, profile?: ControlPlaneProfile, options?: { cwd?: string; skillIds?: string[] }): Promise<string[]>
   listSkills(cwd: string, refresh?: boolean): Promise<SkillCatalog>
   authenticateMcpServer(serverId: string): Promise<AppSnapshot>
   disconnectMcpServer(serverId: string): Promise<AppSnapshot>
+  setAdvisorKey(key: string): Promise<AppSnapshot>
+  clearAdvisorKey(): Promise<AppSnapshot>
+  testAdvisor(): Promise<AdvisorTestResult>
+  previewAdvisor(input: AdvisorPreviewInput): Promise<AdvisorPreviewResult>
   chooseDirectory(currentPath?: string): Promise<string | null>
   createWorkspace(name: string, cwd: string): Promise<AppSnapshot>
   updateWorkspace(workspaceId: string, name: string): Promise<AppSnapshot>

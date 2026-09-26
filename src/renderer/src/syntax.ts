@@ -35,6 +35,14 @@ export function highlightSourceLine(source: string, language: string): string {
   return hljs.highlight(source, { language, ignoreIllegals: true }).value || '&nbsp;'
 }
 
+// Whole-block highlighting (e.g. a pretty-printed JSON request body), as
+// opposed to `highlightSourceLine`'s per-line use in the diff/source viewer.
+export function highlightBlock(source: string, language: string): string {
+  if (!source) return ''
+  if (!hljs.getLanguage(language)) return escapeHtml(source)
+  return hljs.highlight(source, { language, ignoreIllegals: true }).value
+}
+
 export type DiffLineKind = 'context' | 'addition' | 'deletion' | 'hunk' | 'header'
 
 export interface DiffLine {

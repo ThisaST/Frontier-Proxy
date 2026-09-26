@@ -5,68 +5,144 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*" />
     <title>Frontier Proxy</title>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
+    <a href="#main" class="skip-link">Skip to content</a>
     <div class="shell">
       <aside class="sidebar" aria-label="Application navigation">
-        <div class="brand">
-          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-          <div class="brand-copy"><strong>Frontier</strong><small>LOCAL AGENT ROUTER</small></div>
+        <div class="brand" title="Frontier Proxy · v0.7.1">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <circle cx="16" cy="16" r="13" fill="none" stroke="var(--bezel-strong)" stroke-width="1.5" />
+            <circle cx="16" cy="16" r="8" fill="none" stroke="var(--amber)" stroke-width="1.5" opacity=".55" />
+            <path d="M16 16 L16 4 A12 12 0 0 1 26.9 11 Z" fill="var(--amber)" opacity=".85" />
+            <circle cx="16" cy="16" r="2" fill="var(--amber)" />
+          </svg>
+          <div class="brand-copy"><strong>FRONTIER</strong><small>LOCAL AGENT ROUTER</small></div>
+        </div>
+
+        <div class="project-switcher">
+          <button type="button" id="project-switcher-trigger" class="project-switcher-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="project-switcher-menu">
+            <span data-icon="folder-open" aria-hidden="true"></span>
+            <span id="project-switcher-label" class="project-switcher-label">All projects</span>
+            <span class="project-switcher-caret" data-icon="chevron-down" aria-hidden="true"></span>
+          </button>
+          <div id="project-switcher-menu" class="project-switcher-menu" role="listbox" aria-label="Choose a project" hidden></div>
         </div>
 
         <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-controls="primary-navigation" aria-expanded="true" aria-label="Collapse navigation" title="Collapse navigation">
-          <span aria-hidden="true">‹</span>
+          <span data-icon="chevron-left" aria-hidden="true"></span>
         </button>
 
         <nav id="primary-navigation" aria-label="Primary navigation">
-          <button type="button" class="nav-item active" data-view="home" data-label="Home" aria-current="page" title="Home"><span class="nav-icon" aria-hidden="true">◇</span><span class="nav-label">Home</span></button>
-          <button type="button" class="nav-item" data-view="tasks" data-label="Tasks" title="Tasks"><span class="nav-icon" aria-hidden="true">⌁</span><span class="nav-label">Tasks</span></button>
-          <button type="button" class="nav-item" data-view="workspace" data-label="Workspaces" title="Workspaces"><span class="nav-icon" aria-hidden="true">▣</span><span class="nav-label">Workspaces</span></button>
-          <button type="button" class="nav-item" data-view="review" data-label="Review" title="Review"><span class="nav-icon" aria-hidden="true">⑃</span><span class="nav-label">Review</span><span id="nav-review-count" class="nav-badge" hidden>0</span></button>
-          <button type="button" class="nav-item" data-view="agents" data-label="Agents" title="Agents"><span class="nav-icon" aria-hidden="true">◫</span><span class="nav-label">Agents</span></button>
-          <button type="button" class="nav-item" data-view="control" data-label="Context & Tools" title="Context & Tools"><span class="nav-icon" aria-hidden="true">⊹</span><span class="nav-label">Context &amp; Tools</span></button>
-          <button type="button" class="nav-item" data-view="skills" data-label="Skills" title="Skills"><span class="nav-icon" aria-hidden="true">❖</span><span class="nav-label">Skills</span></button>
-          <button type="button" class="nav-item" data-view="settings" data-label="Settings" title="Settings"><span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">Settings</span></button>
+          <p class="nav-group-label">Work</p>
+          <button type="button" class="nav-item active" data-view="home" data-label="Home" aria-current="page" title="Home"><span class="nav-icon" data-icon="home" aria-hidden="true"></span><span class="nav-label">Home</span></button>
+          <button type="button" class="nav-item" data-view="tasks" data-label="Tasks" title="Tasks"><span class="nav-icon" data-icon="tasks" aria-hidden="true"></span><span class="nav-label">Tasks</span></button>
+          <button type="button" class="nav-item" data-view="workspace" data-label="Workspaces" title="Workspaces"><span class="nav-icon" data-icon="workspace" aria-hidden="true"></span><span class="nav-label">Workspaces</span></button>
+          <button type="button" class="nav-item" data-view="review" data-label="Review" title="Review"><span class="nav-icon" data-icon="review" aria-hidden="true"></span><span class="nav-label">Review</span><span id="nav-review-count" class="nav-badge" hidden>0</span></button>
+          <p class="nav-group-label">Setup</p>
+          <button type="button" class="nav-item" data-view="agents" data-label="Agents" title="Agents"><span class="nav-icon" data-icon="agents" aria-hidden="true"></span><span class="nav-label">Agents</span></button>
+          <button type="button" class="nav-item" data-view="routing" data-label="Routing" title="Routing"><span class="nav-icon" data-icon="routing" aria-hidden="true"></span><span class="nav-label">Routing</span></button>
+          <button type="button" class="nav-item" data-view="control" data-label="Context & Tools" title="Context & Tools"><span class="nav-icon" data-icon="control" aria-hidden="true"></span><span class="nav-label">Context &amp; Tools</span></button>
+          <button type="button" class="nav-item" data-view="skills" data-label="Skills" title="Skills"><span class="nav-icon" data-icon="skills" aria-hidden="true"></span><span class="nav-label">Skills</span></button>
         </nav>
 
-        <div class="provider-rail">
-          <p class="eyebrow">AVAILABLE CAPACITY</p>
-          <div id="provider-mini-list"></div>
-        </div>
+        <div class="sidebar-rail-bottom">
+          <div class="provider-rail">
+            <p class="eyebrow">CAPACITY</p>
+            <div id="provider-mini-list" class="provider-mini-list"></div>
+            <div id="provider-mini-lamps" class="provider-mini-lamps"></div>
+          </div>
 
-        <div class="privacy-note" aria-label="Local process mode. Prompts stay between this app and your installed CLIs." title="Local process mode">
-          <span class="pulse-dot" aria-hidden="true"></span>
-          <div class="privacy-copy"><strong>Local process mode</strong><small>Prompts stay between this app and your installed CLIs.</small></div>
+          <button type="button" id="advisor-status" class="advisor-status">
+            <span id="advisor-status-lamp" class="lamp lamp-phosphor" aria-hidden="true"></span>
+            <span id="advisor-status-label" class="advisor-status-label">Local</span>
+          </button>
+
+          <button type="button" class="nav-item rail-settings" data-view="settings" data-label="Settings" title="Settings"><span class="nav-icon" data-icon="settings" aria-hidden="true"></span><span class="nav-label">Settings</span></button>
         </div>
-        <div class="app-version">FRONTIER PROXY · v0.7.1</div>
       </aside>
 
-      <main>
+      <main id="main" tabindex="-1" aria-label="Main content">
         <header class="topbar">
           <div><p class="eyebrow" id="view-eyebrow">ORCHESTRATION CONSOLE</p><h1 id="view-title">Home</h1></div>
           <div class="header-actions">
-            <button id="health-check" class="secondary-button" title="Re-check which CLIs are installed">↻ Check agents</button>
-            <button id="new-task-button" class="primary-button">＋ New task</button>
+            <button id="new-task-button" class="primary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>New task</button>
           </div>
         </header>
 
-        <!-- Mission Control -->
+        <!-- Home: composer-first, with a live route preview -->
         <section id="home-view" class="view">
-          <div class="home-grid">
-            <section class="home-column">
-              <div class="section-head"><div><p class="eyebrow">CAPACITY</p><h2>Your agents right now</h2></div></div>
-              <div id="home-agents" class="home-agents"></div>
+          <div class="home-shell">
+            <section class="panel composer-panel" id="home-composer">
+              <div class="composer-panel-head">
+                <div><p class="eyebrow">START WORK</p><h2>What should an agent do?</h2></div>
+                <button type="button" id="home-project-field" class="project-field-chip"></button>
+              </div>
+
+              <div class="composer-draft home-composer-draft">
+                <div id="home-prompt-attachments" class="composer-attachments"></div>
+                <div class="composer-input-row">
+                  <button type="button" class="composer-attach" data-composer-input="home-prompt" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
+                  <textarea id="home-prompt" rows="4" placeholder="Implement the authentication flow…  Type @ to add project files or folders,  ⌘⏎ to start"></textarea>
+                  <div id="home-prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
+                </div>
+              </div>
+
+              <div class="run-mode-field">
+                <span class="field-label">How should this run?</span>
+                <div class="run-modes" id="home-run-modes" role="radiogroup" aria-label="Run mode">
+                  <button type="button" class="run-mode active" data-run-mode="single" role="radio" aria-checked="true"><strong>One agent</strong><small>Frontier picks the best available agent, and fails over if it hits a limit.</small></button>
+                  <button type="button" class="run-mode" data-run-mode="orchestrate" role="radio" aria-checked="false"><strong>Split &amp; delegate</strong><small>A planner breaks the work into subtasks, runs them in isolated branches, then reports back.</small></button>
+                  <button type="button" class="run-mode" data-run-mode="bench" role="radio" aria-checked="false"><strong>Compare agents</strong><small>Send the same prompt to several agents at once and compare their results side by side.</small></button>
+                </div>
+              </div>
+
+              <div id="home-bench-options" class="bench-options" hidden>
+                <span class="field-label">Which agents should compete? (choose two or more)</span>
+                <div id="home-bench-providers" class="bench-providers"></div>
+              </div>
+
+              <details class="composer-advanced">
+                <summary>Advanced</summary>
+                <div class="form-row" id="home-single-options">
+                  <label>Routing policy<select id="home-routing-mode"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></label>
+                  <label>Agent<select id="home-provider-override"><option value="">Automatic</option></select></label>
+                </div>
+                <label id="home-model-field">Model<select id="home-model-select"><option value="">Provider default</option></select><input id="home-model" class="task-model-custom" placeholder="Type a model id…" hidden /></label>
+                <details id="home-skills-field" class="task-skills-field">
+                  <summary id="home-skills-summary">Skills · 0 enabled</summary>
+                  <div id="home-skills-list" class="task-skills-list"></div>
+                </details>
+              </details>
+
+              <div id="home-route-preview" class="route-preview idle" role="status"><span>Type a prompt to see which agent Frontier would pick.</span></div>
+
+              <p id="home-form-error" class="form-error"></p>
+              <div class="composer-panel-actions">
+                <button type="button" id="home-start-task" class="primary-button" disabled>Start task</button>
+              </div>
             </section>
-            <section class="home-column">
-              <div class="section-head"><div><p class="eyebrow">IN FLIGHT</p><h2>Working</h2></div><button id="home-view-tasks" class="text-button">All tasks →</button></div>
-              <div id="home-active" class="home-active"></div>
-              <div class="section-head"><div><p class="eyebrow">WAITING FOR YOU</p><h2>Ready to review</h2></div><button id="home-view-review" class="text-button">Open review →</button></div>
-              <div id="home-review" class="home-review"></div>
-            </section>
+
+            <div class="home-columns">
+              <section class="home-column">
+                <div class="section-head"><div><p class="eyebrow">IN FLIGHT</p><h2>Running now</h2></div><button id="home-view-tasks" class="text-button">All tasks →</button></div>
+                <div id="home-active" class="home-active"></div>
+              </section>
+              <section class="home-column">
+                <div class="section-head"><div><p class="eyebrow">WAITING FOR YOU</p><h2>Needs your review</h2></div><button id="home-view-review" class="text-button">Open review →</button></div>
+                <div id="home-review" class="home-review"></div>
+              </section>
+              <section class="home-column">
+                <div class="section-head"><div><p class="eyebrow">CAPACITY</p><h2>Agents</h2></div></div>
+                <div id="home-agents" class="home-agents"></div>
+              </section>
+            </div>
           </div>
         </section>
 
-        <!-- Tasks: queue + one unified task surface -->
+
+        <!-- Tasks: work queue, the conversation, and a route/files/activity inspector -->
         <section id="tasks-view" class="view">
           <div class="content-grid" id="content-grid">
             <section class="panel task-panel">
@@ -74,7 +150,8 @@
                 <div><p class="eyebrow">WORK QUEUE</p><h2>Tasks</h2></div>
                 <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search…" aria-label="Search tasks" /><button id="clear-finished" class="text-button">Clear finished</button></div>
               </div>
-              <div id="task-list" class="task-list"></div>
+              <div id="tasks-project-chip" class="project-chip-row"></div>
+              <div id="task-list" class="task-list" role="group" aria-label="Tasks" tabindex="0"></div>
             </section>
             <div class="grid-gutter" id="grid-gutter" title="Drag to resize"></div>
 
@@ -86,75 +163,71 @@
                 </div>
                 <div class="surface-header-right">
                   <span id="surface-status" class="status-pill muted">Idle</span>
-                  <button id="surface-focus" class="icon-button" type="button" aria-pressed="false" title="Focus this task" aria-label="Focus this task">⤢</button>
+                  <button id="list-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse queue" aria-label="Collapse queue"><span data-icon="collapse" aria-hidden="true"></span></button>
+                  <button id="inspector-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse inspector" aria-label="Collapse inspector"><span data-icon="panel-right-close" aria-hidden="true"></span></button>
+                  <button id="surface-focus" class="icon-button" type="button" aria-pressed="false" title="Focus this task" aria-label="Focus this task"><span data-icon="expand" aria-hidden="true"></span></button>
                 </div>
               </header>
 
               <div id="surface-meta" class="surface-meta"></div>
+              <div id="surface-actions" class="surface-actions"></div>
 
-              <nav class="surface-tabs" aria-label="Task sections">
-                <button class="surface-tab active" data-surface-tab="conversation">Conversation</button>
-                <button class="surface-tab" data-surface-tab="files">Files <span id="surface-file-count">0</span></button>
-                <button class="surface-tab" data-surface-tab="route">Route</button>
-                <div id="surface-actions" class="surface-actions"></div>
-              </nav>
-
-              <div id="surface-conversation" class="surface-panel active">
-                <div id="surface-stages" class="surface-stages"></div>
-                <div id="surface-thread" class="surface-thread markdown"></div>
-                <div id="surface-composer" class="output-composer" hidden>
-                  <div class="composer-draft">
-                    <div id="composer-input-attachments" class="composer-attachments"></div>
-                    <div class="composer-input-row">
-                      <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images">＋</button>
-                      <textarea id="composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
-                      <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
-                    </div>
+              <div id="surface-stages" class="surface-stages"></div>
+              <div id="surface-thread" class="surface-thread markdown"></div>
+              <div id="surface-composer" class="output-composer" hidden>
+                <div class="composer-draft">
+                  <div id="composer-input-attachments" class="composer-attachments"></div>
+                  <div class="composer-input-row">
+                    <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
+                    <textarea id="composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
+                    <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
                   </div>
-                  <button id="composer-send" class="primary-button">Send</button>
                 </div>
-              </div>
-
-              <div id="surface-files" class="surface-panel">
-                <aside class="task-file-sidebar">
-                  <div class="task-file-sidebar-head"><p class="eyebrow" id="task-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
-                  <div id="surface-file-list" class="task-detail-file-list"></div>
-                </aside>
-                <section class="task-file-viewer">
-                  <header class="task-file-viewer-head">
-                    <div><p class="eyebrow" id="task-file-language">SOURCE</p><h3 id="task-file-title">Select a file</h3></div>
-                    <div class="task-file-mode" id="task-file-mode" hidden>
-                      <button data-file-mode="diff" class="active">Changes</button>
-                      <button data-file-mode="source">Current file</button>
-                    </div>
-                  </header>
-                  <div id="task-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the tree.</div>
-                  <div id="task-file-code" class="task-file-code"></div>
-                </section>
-              </div>
-
-              <div id="surface-route" class="surface-panel">
-                <div class="route-grid">
-                  <section class="route-card">
-                    <p class="eyebrow">WHY THIS AGENT</p>
-                    <div id="surface-receipt" class="routing-receipt"></div>
-                  </section>
-                  <section class="route-card">
-                    <p class="eyebrow">ATTEMPTS</p>
-                    <div id="surface-attempts"></div>
-                    <p class="eyebrow route-card-second">WORK LOG</p>
-                    <div id="surface-activity"></div>
-                  </section>
-                </div>
+                <button id="composer-send" class="primary-button">Send</button>
               </div>
             </section>
+
+            <div class="grid-gutter" id="inspector-gutter" title="Drag to resize"></div>
+
+            <aside class="panel inspector" id="task-inspector" aria-label="Task inspector">
+              <div class="inspector-head">
+                <p class="eyebrow">INSPECTOR</p>
+              </div>
+              <div id="inspector-body" class="inspector-body"></div>
+            </aside>
           </div>
         </section>
+
+        <dialog id="task-file-overlay" class="file-overlay" aria-label="Files & changes">
+          <div class="file-overlay-shell">
+            <header class="file-overlay-head">
+              <div><p class="eyebrow">FILES &amp; CHANGES</p><h2 id="overlay-file-task-title">Project files</h2></div>
+              <button type="button" class="icon-button" id="file-overlay-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
+            </header>
+            <div class="file-overlay-body">
+              <aside class="task-file-sidebar">
+                <div class="task-file-sidebar-head"><p class="eyebrow" id="overlay-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
+                <div id="overlay-file-list" class="task-detail-file-list"></div>
+              </aside>
+              <section class="task-file-viewer">
+                <header class="task-file-viewer-head">
+                  <div><p class="eyebrow" id="overlay-file-language">SOURCE</p><h3 id="overlay-file-title">Select a file</h3></div>
+                  <div class="task-file-mode" id="overlay-file-mode" hidden>
+                    <button data-file-mode="diff" class="active">Changes</button>
+                    <button data-file-mode="source">Current file</button>
+                  </div>
+                </header>
+                <div id="overlay-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the tree.</div>
+                <div id="overlay-file-code" class="task-file-code"></div>
+              </section>
+            </div>
+          </div>
+        </dialog>
 
         <!-- Workspaces: one long-lived conversation per repo, with named agent participants -->
         <section id="workspace-view" class="view">
           <div id="workspace-empty" class="empty-state workspace-empty-state" hidden>
-            <span class="workspace-empty-glyph" aria-hidden="true">▣</span>
+            <span class="workspace-empty-glyph" data-icon="workspace" data-icon-size="20" aria-hidden="true"></span>
             <strong>No workspaces yet</strong>
             <p>A workspace is one repo, one conversation, and the agents you invite into it.</p>
             <button type="button" id="workspace-empty-create" class="primary-button">Create a workspace</button>
@@ -164,8 +237,9 @@
             <section class="panel workspace-list-panel">
               <div class="panel-header">
                 <div><p class="eyebrow">WORKSPACES</p><h2>Workspaces</h2></div>
-                <button type="button" id="workspace-new-button" class="icon-button" aria-label="New workspace" title="New workspace">＋</button>
+                <button type="button" id="workspace-new-button" class="icon-button" aria-label="New workspace" title="New workspace"><span data-icon="plus" aria-hidden="true"></span></button>
               </div>
+              <div id="workspace-project-chip" class="project-chip-row"></div>
               <div id="workspace-list" class="workspace-list"></div>
               <div id="workspace-repo-context" class="workspace-repo-context"></div>
             </section>
@@ -179,7 +253,7 @@
                   <p id="workspace-conv-subtitle" class="surface-subtitle"></p>
                 </div>
                 <div class="workspace-conv-actions" id="workspace-conv-actions">
-                  <button type="button" id="workspace-participants-button" class="text-button">◫ Participants · <span id="workspace-participants-count">0</span></button>
+                  <button type="button" id="workspace-participants-button" class="text-button"><span data-icon="users" data-icon-size="14" aria-hidden="true"></span>Participants · <span id="workspace-participants-count">0</span></button>
                   <button type="button" id="workspace-rename-button" class="text-button">Rename</button>
                   <button type="button" id="workspace-delete-button" class="text-button">Delete</button>
                 </div>
@@ -198,22 +272,22 @@
             </section>
           </div>
 
-          <dialog id="participants-dialog">
+          <dialog id="participants-dialog" aria-labelledby="participants-dialog-title">
             <div id="participants-dialog-body">
               <div class="dialog-header">
-                <div><p class="eyebrow">PARTICIPANTS</p><h2>Participants</h2></div>
+                <div><p class="eyebrow">PARTICIPANTS</p><h2 id="participants-dialog-title">Participants</h2></div>
                 <div class="header-actions">
-                  <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant">＋</button>
-                  <button type="button" class="icon-button" id="participants-dialog-close" aria-label="Close">×</button>
+                  <button type="button" id="workspace-add-participant-button" class="icon-button" aria-label="Add participant" title="Add participant"><span data-icon="user-plus" aria-hidden="true"></span></button>
+                  <button type="button" class="icon-button" id="participants-dialog-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
                 </div>
               </div>
               <div id="workspace-roster" class="workspace-roster"></div>
             </div>
           </dialog>
 
-          <dialog id="participant-dialog">
+          <dialog id="participant-dialog" aria-labelledby="participant-dialog-title">
             <form id="participant-form">
-              <div class="dialog-header"><div><p class="eyebrow" id="participant-dialog-eyebrow">PARTICIPANT</p><h2 id="participant-dialog-title">Add participant</h2></div><button type="button" class="icon-button" id="participant-dialog-close" aria-label="Close">×</button></div>
+              <div class="dialog-header"><div><p class="eyebrow" id="participant-dialog-eyebrow">PARTICIPANT</p><h2 id="participant-dialog-title">Add participant</h2></div><button type="button" class="icon-button" id="participant-dialog-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
 
               <label>Name<input id="ws-participant-name" required placeholder="Nova" /></label>
               <label>Handle<input id="ws-participant-handle" required placeholder="nova" /><small class="field-help">Unique per workspace. Used as @handle.</small></label>
@@ -250,9 +324,9 @@
             </form>
           </dialog>
 
-          <dialog id="workspace-form-dialog">
+          <dialog id="workspace-form-dialog" aria-labelledby="workspace-form-title">
             <form id="workspace-form">
-              <div class="dialog-header"><div><p class="eyebrow">WORKSPACE</p><h2 id="workspace-form-title">New workspace</h2></div><button type="button" class="icon-button" id="workspace-form-close" aria-label="Close">×</button></div>
+              <div class="dialog-header"><div><p class="eyebrow">WORKSPACE</p><h2 id="workspace-form-title">New workspace</h2></div><button type="button" class="icon-button" id="workspace-form-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
               <label>Name<input id="ws-workspace-name" required placeholder="frontier-proxy" /></label>
               <label id="ws-workspace-cwd-field">Repository folder<div class="path-control"><input id="ws-workspace-cwd" required placeholder="/path/to/project" /><button type="button" id="ws-workspace-choose-directory" class="secondary-button">Choose folder…</button></div></label>
               <p id="ws-workspace-error" class="form-error"></p>
@@ -265,16 +339,17 @@
         <section id="review-view" class="view">
           <div class="section-intro">
             <div><p>Split &amp; delegate and Compare runs commit their work to isolated branches, leaving your checkout untouched. Review the changes here, then merge the ones you want.</p></div>
-            <button id="review-refresh" class="secondary-button">↻ Refresh</button>
+            <button id="review-refresh" class="secondary-button"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Refresh</button>
           </div>
           <div class="review-layout">
             <aside class="panel review-list-panel">
+              <div id="review-project-chip" class="project-chip-row"></div>
               <div id="review-list" class="review-list"></div>
             </aside>
             <section class="panel review-detail-panel">
               <header class="review-detail-head">
                 <div class="review-detail-heading">
-                  <h3 id="review-branch-title">Select a branch</h3>
+                  <h2 id="review-branch-title">Select a branch</h2>
                   <p id="review-branch-subtitle" class="review-detail-subtitle"></p>
                 </div>
                 <div id="review-branch-actions" class="review-branch-actions"></div>
@@ -288,30 +363,36 @@
           </div>
         </section>
 
-        <!-- Agents: installed CLIs and what they have consumed -->
+        <!-- Agents: installed CLIs, as a table, with a detail drawer per row -->
         <section id="agents-view" class="view">
           <div class="section-intro">
-            <div><p>Frontier runs the CLIs already installed and signed in on this machine. It never stores API keys.</p></div>
+            <div><p>Frontier runs the CLIs already installed and signed in on this machine. Coding agents always use their own login — Frontier never holds a key for them.</p></div>
             <div class="header-actions">
-              <div class="segmented" id="agents-segmented" role="tablist">
-                <button class="active" data-agents-tab="registry" role="tab">Registry</button>
-                <button data-agents-tab="usage" role="tab">Usage &amp; limits</button>
-              </div>
-              <button id="add-provider" class="secondary-button">＋ Add CLI</button>
+              <button id="health-check" class="secondary-button" title="Re-check which CLIs are installed"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Check agents</button>
+              <button id="add-provider" class="secondary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add CLI</button>
             </div>
           </div>
-          <div id="agents-registry" class="agents-panel active">
+          <div id="agents-setup-guide" class="setup-guide-callout">
+            <button type="button" id="agents-setup-dismiss" class="icon-button" aria-label="Dismiss getting-started guide"><span data-icon="close" aria-hidden="true"></span></button>
+            <p class="eyebrow">GETTING STARTED</p>
             <div class="setup-guide">
               <div><span>01</span><strong>Hosted coding agents</strong><p>Codex, Claude Code, GitHub Copilot, and OpenCode are included. Install and sign in to each CLI (<code>opencode auth login</code> for OpenCode), then choose Check agents.</p></div>
               <div><span>02</span><strong>Local models</strong><p>Start Ollama, pull the configured model, then enable Codex + Ollama or direct Ollama.</p></div>
               <div><span>03</span><strong>Other agent CLIs</strong><p>Choose Add CLI, enter its executable and arguments, save, and confirm its status becomes Ready.</p></div>
             </div>
-            <div id="provider-grid" class="provider-grid"></div>
           </div>
-          <div id="agents-usage" class="agents-panel">
-            <div id="usage-grid" class="usage-grid"></div>
-          </div>
+          <div id="agents-table"></div>
         </section>
+
+        <dialog id="agent-drawer" class="drawer" aria-label="Agent details">
+          <div class="drawer-shell">
+            <header class="drawer-head">
+              <div><p class="eyebrow" id="agent-drawer-kind">AGENT</p><h2 id="agent-drawer-title">Agent</h2></div>
+              <button type="button" class="icon-button" id="agent-drawer-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
+            </header>
+            <div id="agent-drawer-body" class="drawer-body"></div>
+          </div>
+        </dialog>
 
         <section id="control-view" class="view">
           <div class="section-intro">
@@ -320,31 +401,31 @@
           </div>
           <div class="control-grid">
             <section class="panel control-card">
-              <p class="eyebrow">CONTEXT</p><h3>System prompt &amp; directories</h3>
+              <p class="eyebrow">CONTEXT</p><h2>System prompt &amp; directories</h2>
               <label>Shared system prompt (appended for every agent)<textarea id="cp-system-prompt" rows="5" placeholder="You are working inside the Frontier monorepo. Prefer pnpm. Never touch generated files…"></textarea></label>
               <label>Extra context directories (one per line)<textarea id="cp-add-dirs" rows="3" placeholder="/path/to/shared-docs"></textarea></label>
             </section>
             <section class="panel control-card">
-              <p class="eyebrow">TOOL PERMISSIONS</p><h3>Allow &amp; deny</h3>
+              <p class="eyebrow">TOOL PERMISSIONS</p><h2>Allow &amp; deny</h2>
               <label>Allowed tools (one per line)<textarea id="cp-allowed" rows="4" placeholder="Bash(git *)&#10;Edit&#10;Read"></textarea></label>
               <label>Disallowed tools (one per line)<textarea id="cp-disallowed" rows="3" placeholder="Bash(rm *)&#10;WebFetch"></textarea></label>
               <label class="checkbox-row"><input type="checkbox" id="cp-strict-mcp" /> Strict MCP — use only these servers (Claude)</label>
             </section>
             <section class="panel control-card control-card-wide">
               <div class="control-card-head">
-                <div><p class="eyebrow">MCP SERVERS</p><h3>Shared servers</h3></div>
+                <div><p class="eyebrow">MCP SERVERS</p><h2>Shared servers</h2></div>
                 <div class="header-actions">
                   <button id="cp-import-mcp" class="secondary-button">Import .mcp.json</button>
-                  <button id="cp-add-server" class="secondary-button">＋ Add server</button>
+                  <button id="cp-add-server" class="secondary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add server</button>
                 </div>
               </div>
               <input id="cp-import-file" type="file" accept=".json,application/json" hidden />
               <div id="cp-server-list" class="cp-server-list"></div>
             </section>
             <section class="panel control-card control-card-wide">
-              <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h3>Launch flags per agent</h3></div>
+              <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h2>Launch flags per agent</h2></div>
                 <select id="cp-preview-provider" aria-label="Preview provider"></select></div>
-              <pre id="cp-preview" class="cp-preview">Select an agent to preview the exact flags Frontier will inject.</pre>
+              <pre id="cp-preview" class="cp-preview screen">Select an agent to preview the exact flags Frontier will inject.</pre>
             </section>
           </div>
         </section>
@@ -355,26 +436,32 @@
           </div>
           <div class="skills-workspace">
             <label>Project directory<div class="path-control"><input id="skills-cwd" placeholder="/path/to/project" /><button type="button" id="skills-choose-directory" class="secondary-button">Choose folder…</button></div></label>
-            <button id="skills-refresh" class="secondary-button">↻ Rescan</button>
+            <button id="skills-refresh" class="secondary-button"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Rescan</button>
           </div>
           <div id="skills-roots" class="skill-roots"></div>
           <div id="skills-list" class="skill-list"></div>
         </section>
 
+        <section id="routing-view" class="view"></section>
+
         <section id="settings-view" class="view">
           <div class="settings-grid">
+            <section class="panel settings-card">
+              <p class="eyebrow">APPEARANCE</p><h2>Theme &amp; effects</h2>
+              <div class="field-label">Theme</div>
+              <div class="segmented" id="appearance-theme" role="radiogroup" aria-label="Theme">
+                <button type="button" data-theme-choice="system" role="radio" aria-checked="false">System</button>
+                <button type="button" data-theme-choice="console" role="radio" aria-checked="false">Console</button>
+                <button type="button" data-theme-choice="daylight" role="radio" aria-checked="false">Daylight</button>
+              </div>
+              <div class="checkbox-row"><label class="switch small"><input type="checkbox" id="appearance-effects" /><span class="slider"></span></label><label for="appearance-effects">Reduce effects (glow, scanlines, radar sweep, blinking)</label></div>
+              <p class="field-help">Renderer-only preferences — never sent to the agents or stored outside this device. Always off under your system's reduced-motion setting.</p>
+            </section>
             <section class="panel settings-card">
               <p class="eyebrow">SCHEDULER</p><h2>Concurrency &amp; failover</h2>
               <label>Maximum parallel tasks<input id="max-parallel" type="number" min="1" max="8" /></label>
               <label>Usage-limit cooldown (minutes)<input id="cooldown-minutes" type="number" min="1" max="1440" /></label>
               <button id="save-settings" class="primary-button">Save settings</button>
-            </section>
-            <section class="panel explainer-card">
-              <p class="eyebrow">ROUTING POLICIES</p><h2>How selection works</h2>
-              <div class="policy"><strong>Balanced</strong><span>Matches task type, spreads subscription usage, then considers local models.</span></div>
-              <div class="policy"><strong>Quality first</strong><span>Prefers Codex or Claude Code and only falls back when unavailable.</span></div>
-              <div class="policy"><strong>Token saver</strong><span>Strongly favors Ollama-backed agents to preserve hosted usage.</span></div>
-              <p class="field-help">Every task records the exact scores behind its decision — open its Route tab to see them.</p>
             </section>
             <section class="panel settings-card">
               <p class="eyebrow">VERIFICATION</p><h2>Check isolated branches</h2>
@@ -386,11 +473,9 @@
               <button id="save-verification" class="primary-button">Save verification</button>
             </section>
             <section class="panel settings-card">
-              <p class="eyebrow">FEEDBACK</p><h2>Notifications &amp; learning</h2>
+              <p class="eyebrow">FEEDBACK</p><h2>Notifications</h2>
               <label class="checkbox-row"><input id="notify-enabled" type="checkbox" /><span>Notify me when a task finishes</span></label>
               <label class="checkbox-row"><input id="notify-unfocused" type="checkbox" /><span>Only when Frontier is not focused</span></label>
-              <label class="checkbox-row"><input id="learn-outcomes" type="checkbox" /><span>Let recent outcomes influence routing</span></label>
-              <p class="field-help">Outcome learning nudges the router with how each agent's recent runs of the same kind of work turned out — finished, passed the repo's checks, and above all whether you merged or discarded its branch. It is capped at ±14 points and always shown as a labelled factor on the task's Route tab.</p>
               <button id="save-feedback" class="primary-button">Save preferences</button>
             </section>
             <section class="panel settings-card memory-card">
@@ -404,15 +489,15 @@
       </main>
     </div>
 
-    <dialog id="task-dialog">
+    <dialog id="task-dialog" aria-labelledby="task-dialog-title">
       <form id="task-form" method="dialog">
-        <div class="dialog-header"><div><p class="eyebrow">NEW WORK</p><h2>New task</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close">×</button></div>
+        <div class="dialog-header"><div><p class="eyebrow">NEW WORK</p><h2 id="task-dialog-title">New task</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
 
         <div class="task-prompt-field"><span class="field-label">What should the agent do?</span>
           <div class="composer-draft dialog-composer">
             <div id="prompt-attachments" class="composer-attachments"></div>
             <div class="composer-input-row">
-              <button type="button" class="composer-attach" data-composer-input="prompt" aria-label="Attach images" title="Attach images">＋</button>
+              <button type="button" class="composer-attach" data-composer-input="prompt" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
               <textarea id="prompt" rows="6" placeholder="Implement the authentication flow…  Type @ to add project files or folders"></textarea>
               <div id="prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
             </div>
@@ -460,13 +545,13 @@
 
     <dialog id="command-palette" class="command-palette" aria-label="Command palette">
       <div class="command-palette-shell">
-        <div class="command-palette-search"><span>⌘</span><input id="command-palette-input" autocomplete="off" placeholder="Type a command or find a task…" /></div>
+        <div class="command-palette-search"><span data-icon="command" aria-hidden="true"></span><input id="command-palette-input" autocomplete="off" placeholder="Type a command or find a task…" /></div>
         <div id="command-palette-results" class="command-palette-results" role="listbox"></div>
         <div class="command-palette-hint"><span>↑↓ Navigate</span><span>↵ Select</span><span>esc Close</span></div>
       </div>
     </dialog>
 
-    <dialog id="confirm-dialog" class="confirm-dialog">
+    <dialog id="confirm-dialog" class="confirm-dialog" aria-labelledby="confirm-title">
       <div class="confirm-shell">
         <h2 id="confirm-title">Are you sure?</h2>
         <p id="confirm-body"></p>
@@ -478,6 +563,7 @@
     </dialog>
 
     <div id="toast" role="status"></div>
+    <div id="live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

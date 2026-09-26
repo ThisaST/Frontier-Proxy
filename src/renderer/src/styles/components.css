@@ -1,0 +1,360 @@
+/* ---------- Bezel panels & corner ticks (spec §4.1) ----------
+   The signature motif: a 1px bezel border, an inset top highlight (--e-1),
+   and small L-bracket corner ticks drawn as eight solid-colour background
+   layers on a single ::before (kept to panels and dialogs, not every card). */
+.panel, dialog {
+  --tick: 9px;
+  --tick-w: 1.5px;
+  position: relative;
+}
+.panel::before, dialog::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-image:
+    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
+    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
+    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
+    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0);
+  background-size:
+    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
+    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
+    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
+    var(--tick-w) var(--tick), var(--tick) var(--tick-w);
+  background-position:
+    left 0 top 0, left 0 top 0,
+    right 0 top 0, right 0 top 0,
+    left 0 bottom 0, left 0 bottom 0,
+    right 0 bottom 0, right 0 bottom 0;
+}
+
+.panel { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--e-1); overflow: hidden; min-height: 0; }
+.empty-state { color: var(--fg-muted); padding: 44px 26px; text-align: center; font-size: 12px; line-height: 1.6; }
+.empty-state strong { color: var(--fg); display: block; font: 600 17px var(--font-display); margin-bottom: 5px; }
+.detail-empty { color: var(--fg-muted); font-size: 11px; line-height: 1.5; padding: 14px 4px; margin: 0; }
+
+.status-pill { border: 1px solid currentColor; padding: 4px 8px; border-radius: 20px; font: 700 9px var(--font-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--phosphor); white-space: nowrap; }
+.status-pill.running { color: var(--amber); }
+.status-pill.failed { color: var(--alarm); }
+.status-pill.queued, .status-pill.cancelled, .status-pill.muted { color: var(--fg-muted); }
+
+/* ---------- Chip (spec §6) — a one-word coloured pill ---------- */
+.chip { display: inline-block; border: 1px solid var(--bezel); border-radius: 20px; padding: 2px 8px; font: 700 9px var(--font-mono); letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; color: var(--fg-muted); }
+.chip.tone-amber { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.chip.tone-cyan { color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.chip.tone-phosphor { color: var(--phosphor); border-color: color-mix(in srgb, var(--phosphor) 40%, transparent); }
+.chip.tone-caution { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 40%, transparent); }
+.chip.tone-alarm { color: var(--alarm); border-color: color-mix(in srgb, var(--alarm) 40%, transparent); }
+.chip.tone-muted { color: var(--fg-muted); }
+.cyan-text { color: var(--cyan); }
+
+/* ---------- Readouts (spec §4.2) ---------- */
+.readout { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(--glow-amber); }
+
+/* ---------- Chip (spec §6) — a single labelled fact in one tone ---------- */
+
+/* ---------- Project chip (spec §7) — scoping filter shown atop Tasks/Review/Workspaces ---------- */
+.project-chip-row:empty { display: none; }
+.project-chip-row { padding: 11px 14px 0; }
+.project-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--bezel)); border-radius: 20px; background: color-mix(in srgb, var(--amber) 8%, transparent); color: var(--amber); font: 600 10px var(--font-body); }
+.project-chip:hover { background: color-mix(in srgb, var(--amber) 16%, transparent); }
+.project-field-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid var(--bezel); border-radius: 20px; background: var(--surface-2); color: var(--fg); font: 600 11px var(--font-body); }
+.project-field-chip:hover { border-color: var(--bezel-strong); background: var(--surface-3); }
+.project-field-chip.unset { color: var(--caution); border-color: color-mix(in srgb, var(--caution) 35%, transparent); }
+
+/* ---------- Status lamps (spec §4.4) ---------- */
+.lamp { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
+.lamp-phosphor { background: var(--phosphor); box-shadow: var(--glow-phosphor); }
+.lamp-amber { background: var(--amber); box-shadow: var(--glow-amber); }
+.lamp-cyan { background: var(--cyan); box-shadow: var(--glow-cyan); }
+.lamp-caution { background: var(--caution); box-shadow: var(--glow-caution); }
+.lamp-alarm { background: var(--alarm); box-shadow: var(--glow-alarm); }
+.lamp-muted { background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
+[data-effects='on'] .lamp.blink { animation: lamp-blink 1.2s ease infinite; }
+@keyframes lamp-blink { 50% { opacity: .25; } }
+
+/* ---------- Segmented gauge (spec §4.3) — replaces every continuous meter ---------- */
+.gauge-seg { display: flex; gap: 2px; align-items: center; height: 6px; }
+.gauge-seg .seg { flex: 1 1 0; height: 100%; min-width: 2px; border-radius: 1px; background: var(--surface-3); }
+.gauge-seg.tone-amber .seg.lit { background: var(--amber); box-shadow: var(--glow-amber); }
+.gauge-seg.tone-cyan .seg.lit { background: var(--cyan); box-shadow: var(--glow-cyan); }
+.gauge-seg.tone-phosphor .seg.lit { background: var(--phosphor); box-shadow: var(--glow-phosphor); }
+.gauge-seg.tone-caution .seg.lit { background: var(--caution); box-shadow: var(--glow-caution); }
+.gauge-seg.tone-alarm .seg.lit { background: var(--alarm); box-shadow: var(--glow-alarm); }
+.gauge-seg.tone-muted .seg.lit { background: var(--bezel-strong); }
+
+/* ---------- Radar sweep (spec §4.5) — queued-for-routing indicator ---------- */
+.radar { position: relative; display: inline-block; width: var(--radar-size, 16px); height: var(--radar-size, 16px); border-radius: 50%; flex: 0 0 auto; box-shadow: inset 0 0 0 1px var(--bezel-strong); }
+.radar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--cyan), transparent 70deg, transparent 360deg);
+  opacity: .85;
+}
+.radar::after { content: ''; position: absolute; inset: 37%; border-radius: 50%; background: var(--cyan); box-shadow: var(--glow-cyan); }
+[data-effects='on'] .radar::before { animation: radar-sweep 2.4s linear infinite; }
+[data-effects='off'] .radar::after { animation: radar-pulse 1.6s ease-in-out infinite; }
+@keyframes radar-sweep { to { transform: rotate(360deg); } }
+@keyframes radar-pulse { 50% { opacity: .4; } }
+
+/* ---------- Probability bars (spec §6) — Route tab factor rows ---------- */
+.probability-bar { display: grid; grid-template-columns: minmax(90px, 1fr) 64px auto; align-items: center; gap: var(--s-2); font-size: 10px; color: var(--fg-muted); padding: 3px 0; }
+.probability-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.probability-bar-track { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; }
+.probability-bar-fill { height: 100%; background: var(--fg-faint); }
+.probability-bar.positive .probability-bar-fill { background: var(--phosphor); }
+.probability-bar.negative .probability-bar-fill { background: var(--caution); }
+.probability-bar-value { font-size: 10px; }
+.probability-bar.positive .probability-bar-value { color: var(--phosphor); }
+.probability-bar.negative .probability-bar-value { color: var(--caution); }
+.probability-bars { display: grid; gap: 3px; }
+.probability-bar.tone-cyan .probability-bar-fill { background: var(--cyan); }
+.probability-bar.tone-cyan .probability-bar-value { color: var(--cyan); text-shadow: var(--glow-cyan); }
+.probability-bar.tone-amber .probability-bar-fill { background: var(--amber); }
+.probability-bar.tone-amber .probability-bar-value { color: var(--amber); }
+.probability-bar.tone-phosphor .probability-bar-fill { background: var(--phosphor); }
+.probability-bar.tone-phosphor .probability-bar-value { color: var(--phosphor); }
+.probability-bar.tone-muted .probability-bar-fill { background: var(--fg-faint); }
+.probability-bar.tone-muted .probability-bar-value { color: var(--fg-muted); }
+
+/* ---------- Scanlines (spec §4.6) — `.screen` wells only, never on text ---------- */
+.screen { position: relative; }
+[data-effects='on'] .screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(0deg, var(--scanline) 0 1px, transparent 1px 3px);
+}
+
+/* ---------- Segmented control (also used by the Appearance theme picker) ---------- */
+.segmented { display: flex; border: 1px solid var(--bezel); border-radius: var(--r-md); overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--fg-muted); font: 500 11px var(--font-display); letter-spacing: .04em; }
+.segmented button.active { background: var(--surface-3); color: var(--amber); }
+
+/* ---------- Gauge bar (legacy alias kept out; gaugeSeg is used everywhere) ---------- */
+
+/* ---------- Composer (shared by the task surface, workspace, and the new-task dialog) ---------- */
+.output-composer { flex: 0 0 auto; display: flex; gap: var(--s-2); align-items: flex-end; padding: 11px 14px; border-top: 1px solid var(--bezel); background: var(--surface-1); }
+.output-composer textarea { flex: 1; min-height: 64px; max-height: 160px; resize: vertical; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.output-composer button { flex: 0 0 auto; }
+.composer-draft { flex: 1 1 auto; min-width: 0; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
+.composer-draft:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 10%, transparent); }
+.composer-draft.dragging { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 5%, transparent); }
+/* The attach button used to sit inline before the textarea as a flex item,
+   which reserved ~40px on the left of every line of typed text — not just
+   where the button visually sits. It is positioned over the box's own
+   bottom-left corner instead, so it stays clear of the text without taking
+   space from it; the textarea gets bottom padding instead of left padding to
+   clear the button under a few lines of text. */
+.composer-input-row { position: relative; min-width: 0; }
+.composer-input-row textarea { padding-left: 11px; padding-bottom: 40px; }
+.composer-attach { position: absolute; left: 5px; bottom: 5px; z-index: 2; width: 30px; height: 30px; margin: 0; padding: 0; border: 0; border-radius: var(--r-md); background: transparent; color: var(--fg-muted); }
+.composer-attach:hover { color: var(--amber); background: var(--surface-3); }
+.composer-attach:disabled { cursor: default; opacity: .4; }
+.composer-attachments { display: flex; gap: 7px; overflow-x: auto; padding: 7px 8px 0; }
+.composer-attachments:empty { display: none; }
+.composer-image-chip { position: relative; flex: 0 0 auto; width: 62px; height: 48px; overflow: hidden; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-3); }
+.composer-image-chip img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.composer-image-chip button { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; min-width: 0; padding: 0; border: 0; border-radius: 50%; background: var(--scrim); color: var(--on-scrim); }
+.composer-mentions { position: absolute; z-index: 30; left: 4px; bottom: calc(100% + 7px); width: min(430px, calc(100% - 8px)); max-height: 270px; overflow-y: auto; padding: 6px; border: 1px solid var(--bezel-strong); border-radius: var(--r-md); background: var(--surface-2); box-shadow: var(--e-2); }
+.composer-mention { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; padding: 8px 9px; border: 0; background: transparent; text-align: left; border-radius: var(--r-sm); }
+.composer-mention:hover, .composer-mention.selected { background: var(--surface-3); }
+.composer-mention-icon { color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.composer-mention-copy { min-width: 0; }
+.composer-mention-copy strong, .composer-mention-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-mention-copy strong { font-size: 11px; font-weight: 600; }
+.composer-mention-copy small { margin-top: 2px; color: var(--fg-muted); font-size: 9px; }
+.composer-mention-empty { padding: 12px; color: var(--fg-muted); font-size: 10px; }
+.turn-attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.turn-image { width: min(190px, 45%); min-width: 95px; max-height: 150px; object-fit: cover; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--bg); }
+.turn-reference { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 8px; border: 1px solid var(--bezel); border-radius: var(--r-sm); color: var(--fg); background: var(--surface-2); font: 10px var(--font-mono); }
+.turn-reference span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-label { display: block; margin-bottom: 6px; color: var(--fg-muted); font: 500 10px var(--font-body); letter-spacing: .02em; }
+.dialog-composer textarea { min-height: 110px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.dialog-composer .composer-mentions { bottom: auto; top: calc(100% + 7px); }
+
+/* ---------- Code & diff viewer (shared by the task Files tab and Review) ---------- */
+.task-file-code { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 0 18px; background: var(--bg); font: 11px/1.6 var(--font-mono); font-variant-numeric: tabular-nums; tab-size: 2; }
+.task-code-line { min-width: max-content; display: grid; grid-template-columns: 44px 44px 20px minmax(560px, 1fr); padding-right: 18px; }
+.task-code-line:hover { background: var(--hover-wash); }
+.task-code-number { color: var(--fg-faint); text-align: right; padding-right: 12px; user-select: none; }
+.task-code-marker { color: var(--fg-muted); text-align: center; user-select: none; }
+.task-code-line code { white-space: pre; }
+.task-code-line.addition { background: color-mix(in srgb, var(--phosphor) 10%, transparent); }
+.task-code-line.addition .task-code-marker { color: var(--phosphor); }
+.task-code-line.deletion { background: color-mix(in srgb, var(--alarm) 10%, transparent); }
+.task-code-line.deletion .task-code-marker { color: var(--alarm); }
+.task-code-line.hunk, .task-code-line.header { display: block; padding: 5px 16px; color: var(--cyan); background: color-mix(in srgb, var(--cyan) 8%, transparent); }
+.task-code-line.header { color: var(--fg-muted); background: var(--surface-2); }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-link { color: var(--amber); }
+.hljs-string, .hljs-attr, .hljs-template-variable, .hljs-addition { color: var(--phosphor); }
+.hljs-title, .hljs-title.function_, .hljs-function .hljs-title { color: var(--cyan); }
+.hljs-number, .hljs-symbol, .hljs-bullet, .hljs-variable, .hljs-template-tag { color: var(--caution); }
+.hljs-comment, .hljs-quote, .hljs-deletion, .hljs-meta { color: var(--fg-muted); }
+.hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: var(--cyan); }
+.hljs-params, .hljs-property { color: var(--fg); }
+
+/* Verification chip — shared by task lane cards and the Review branch list/detail. */
+.check-chip { border-radius: 20px; padding: 2px 7px; font: 700 8px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; border: 1px solid var(--bezel); color: var(--fg-muted); }
+.check-chip.pass { border-color: color-mix(in srgb, var(--phosphor) 40%, transparent); color: var(--phosphor); }
+.check-chip.fail { border-color: color-mix(in srgb, var(--alarm) 40%, transparent); color: var(--alarm); }
+
+/* ---------- Markdown ---------- */
+.markdown { color: var(--fg); font: 13px/1.65 var(--font-body); }
+.md-h { margin: 18px 0 8px; font-family: var(--font-display); font-weight: 600; line-height: 1.3; }
+h1.md-h { font-size: 18px; } h2.md-h { font-size: 15px; } h3.md-h { font-size: 13px; }
+h4.md-h, h5.md-h, h6.md-h { font-size: 12px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
+.markdown > .md-p:first-child, .markdown > .md-h:first-child { margin-top: 0; }
+.md-p { margin: 0 0 11px; }
+.md-list { margin: 0 0 11px; padding-left: 22px; }
+.md-list li { margin: 3px 0; }
+.md-quote { margin: 0 0 11px; padding: 2px 14px; border-left: 3px solid var(--bezel); color: var(--fg-muted); }
+.md-code-inline { background: var(--surface-2); border: 1px solid var(--bezel); border-radius: var(--r-sm); padding: 1px 5px; font: 12px/1.4 var(--font-mono); color: var(--fg); }
+.md-link { color: var(--cyan); text-decoration: underline; text-underline-offset: 2px; cursor: default; }
+.md-code { margin: 0 0 12px; border: 1px solid var(--bezel); border-radius: var(--r-md); overflow: hidden; background: var(--surface-1); }
+.md-code-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 11px; border-bottom: 1px solid var(--bezel); background: var(--surface-2); }
+.md-code-head span { font: 9px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--fg-muted); }
+.md-copy { border: 1px solid var(--bezel); background: transparent; color: var(--fg-muted); border-radius: var(--r-sm); padding: 3px 9px; font-size: 10px; cursor: pointer; }
+.md-copy:hover { color: var(--fg); border-color: var(--bezel-strong); }
+.md-pre { margin: 0; padding: 13px 14px; overflow-x: auto; }
+.md-pre code { font: 12px/1.6 var(--font-mono); color: var(--fg); white-space: pre; }
+.md-table { width: 100%; border-collapse: collapse; margin: 0 0 12px; font-size: 12px; }
+.md-table th, .md-table td { border: 1px solid var(--bezel); padding: 6px 10px; text-align: left; }
+.md-table th { background: var(--surface-2); font-weight: 600; }
+.markdown hr { border: 0; border-top: 1px solid var(--bezel); margin: 16px 0; }
+
+/* ---------- Dialogs ---------- */
+/* `calc(100vw - 32px)` per the responsive pass — every dialog stays clear of
+   the viewport edge down to the 720px floor; the body (not the dialog
+   itself) scrolls when its content is taller than the viewport allows. */
+dialog { width: min(660px, calc(100vw - 32px)); max-width: calc(100vw - 32px); border: 1px solid var(--bezel); border-radius: var(--r-lg); color: var(--fg); background: var(--surface-1); padding: 0; box-shadow: var(--e-2); }
+dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
+/* The workspace dialogs share the task dialog's form layout. Without this they fell back
+   to `display: block` with no padding or gap, which collapsed every field against the
+   next and left the actions row flush with the dialog edge. */
+#task-form, #participant-form, #workspace-form, #participants-dialog-body { padding: var(--s-5); display: grid; gap: var(--s-4); max-height: 86vh; overflow-y: auto; }
+.dialog-header { display: flex; justify-content: space-between; align-items: start; padding-bottom: 4px; }
+.path-control { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+.form-row[hidden] { display: none; }
+@media (max-width: 640px) {
+  .form-row { grid-template-columns: 1fr; }
+}
+.task-model-custom:not([hidden]) { margin-top: 6px; }
+.dialog-actions { justify-content: flex-end; margin-top: 3px; }
+.form-error { color: var(--alarm); font-size: 10px; margin: -5px 0; min-height: 13px; }
+
+/* New-task dialog: run mode picker, bench provider checklist, skills selector. */
+.run-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-2); }
+.run-mode { display: block; text-align: left; padding: 12px 13px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
+.run-mode strong { display: block; font: 600 12px var(--font-body); margin-bottom: 5px; }
+.run-mode small { display: block; color: var(--fg-muted); font-size: 9px; line-height: 1.45; }
+.run-mode:hover { border-color: var(--bezel-strong); }
+.run-mode.active { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 10%, var(--surface-2)); }
+.run-mode.active strong { color: var(--amber); }
+.bench-options[hidden], #model-field[hidden] { display: none; }
+.bench-providers { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s-2); }
+.bench-provider { display: flex; flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); cursor: pointer; }
+.bench-provider:hover { border-color: var(--bezel-strong); }
+.bench-provider input { width: auto; }
+.bench-provider-body { min-width: 0; }
+.bench-provider-body strong { display: block; color: var(--fg); font: 600 12px var(--font-body); }
+.bench-provider-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 9px; }
+.bench-provider:has(input:checked) { border-color: color-mix(in srgb, var(--amber) 45%, transparent); background: color-mix(in srgb, var(--amber) 10%, var(--surface-2)); }
+
+.task-skills-field { border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
+.task-skills-field summary { cursor: pointer; padding: 10px 13px; font-size: 12px; color: var(--fg); list-style: none; }
+.task-skills-field summary::-webkit-details-marker { display: none; }
+.task-skills-field summary::before { content: '▸'; display: inline-block; width: 11px; color: var(--fg-muted); transition: transform var(--t-fast) var(--ease); }
+.task-skills-field[open] summary::before { transform: rotate(90deg); }
+.task-skills-list { display: grid; gap: 6px; padding: 0 13px 12px; max-height: 220px; overflow-y: auto; }
+.task-skill-item { display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px; border: 1px solid var(--bezel); border-radius: var(--r-sm); background: var(--surface-3); }
+.task-skill-item input { width: auto; margin-top: 2px; }
+.task-skill-body strong { display: block; font: 600 12px var(--font-body); color: var(--fg); }
+.task-skill-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 9px; line-height: 1.4; }
+
+.confirm-dialog { width: min(440px, calc(100vw - 32px)); }
+.confirm-shell { padding: var(--s-5); display: grid; gap: var(--s-4); }
+.confirm-shell h2 { font-size: 18px; }
+.confirm-shell p { margin: 0; color: var(--fg-muted); font-size: 12px; line-height: 1.6; word-break: break-word; }
+
+.command-palette { width: min(620px, calc(100vw - 32px)); margin-top: 14vh; border-color: var(--bezel-strong); background: var(--surface-1); }
+.command-palette-shell { display: grid; }
+.command-palette-search { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 11px; padding: 14px 16px; border-bottom: 1px solid var(--bezel); }
+.command-palette-search > span { color: var(--amber); display: flex; }
+.command-palette-search input { border: 0; background: transparent; padding: 4px 0; border-radius: 0; font-size: 15px; box-shadow: none; }
+.command-palette-results { max-height: min(430px, 58vh); overflow-y: auto; padding: 7px; }
+.command-palette-item { width: 100%; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 11px; border: 0; background: transparent; text-align: left; border-radius: var(--r-sm); }
+.command-palette-item:hover, .command-palette-item.selected { background: var(--surface-3); }
+.command-palette-item-icon { color: var(--amber); display: flex; align-items: center; justify-content: center; }
+.command-palette-item-copy { min-width: 0; display: grid; gap: 3px; }
+.command-palette-item-copy strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-palette-item-copy small { color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-palette-item-key { color: var(--fg-faint); font: 9px var(--font-mono); }
+.command-palette-empty { color: var(--fg-muted); font-size: 11px; text-align: center; padding: 38px 20px; }
+.command-palette-hint { display: flex; gap: 14px; padding: 9px 16px; border-top: 1px solid var(--bezel); color: var(--fg-faint); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+
+@media (max-width: 1120px) {
+  .run-modes { grid-template-columns: 1fr; }
+}
+
+/* ---------- Inspector section (spec §6) — Tasks' right-hand panel ---------- */
+.inspector-section { border-bottom: 1px solid var(--bezel); }
+.inspector-section:last-child { border-bottom: 0; }
+.inspector-section-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 12px 16px; border: 0; border-radius: 0; background: transparent; color: var(--fg); text-align: left; font: 600 11px var(--font-display); letter-spacing: .04em; text-transform: uppercase; }
+.inspector-section-head:hover { background: var(--surface-2); }
+.inspector-section-caret { flex: 0 0 auto; color: var(--fg-muted); display: flex; transition: transform var(--t-fast) var(--ease); }
+.inspector-section.open .inspector-section-caret { transform: rotate(90deg); }
+.inspector-section-title { flex: 1 1 auto; }
+.inspector-section-body { display: none; padding: 0 16px 16px; }
+.inspector-section.open .inspector-section-body { display: block; }
+
+/* ---------- Data table (spec §6) ---------- */
+.table-wrap { overflow-x: auto; }
+.data-table tr.clickable { cursor: pointer; }
+.data-table tr.clickable:hover, .data-table tr.clickable:focus-visible { background: var(--surface-2); }
+.data-table tr.clickable:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+
+/* ---------- Drawer / overlay dialogs (spec §6) ----------
+   Thin variants of the base `dialog` bezel: a drawer is pinned to the right
+   edge at full height, an overlay is a large centred workspace. Both only set
+   `display` inside `[open]` — the base `dialog` rule already relies on the UA
+   stylesheet's `display: none` while closed, and an unconditional `display`
+   here would defeat that. */
+.drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(460px, 94vw); height: 100vh; max-height: 100vh; border-radius: 0; border-width: 0 0 0 1px; }
+@media (max-width: 760px) {
+  .drawer { width: 100vw; border-width: 0; }
+}
+.drawer[open] { display: flex; flex-direction: column; }
+.drawer-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.drawer-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: var(--s-5); border-bottom: 1px solid var(--bezel); }
+.drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s-5); display: grid; gap: var(--s-5); }
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } }
+[data-effects='on'] .drawer[open] { animation: drawer-in var(--t-med) var(--ease); }
+
+.file-overlay { position: fixed; inset: 4vh auto auto 50%; transform: translateX(-50%); margin: 0; width: min(1180px, 94vw); height: 92vh; max-height: 92vh; padding: 0; }
+.file-overlay[open] { display: flex; flex-direction: column; }
+.file-overlay-shell { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.file-overlay-head { flex: 0 0 auto; display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--bezel); }
+.file-overlay-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
+
+/* ---------- Shared JS tooltip (ui/tooltip.ts) ----------
+   Fixed to the viewport, not any scrolling ancestor, so it is never clipped —
+   the collapsed sidebar's own `overflow-y: auto` clipped the old CSS
+   `::after` version. Shown on hover and keyboard focus alike. */
+.ui-tooltip { position: fixed; z-index: 50; max-width: 240px; padding: 6px 9px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); color: var(--fg); box-shadow: var(--e-2); font: 11px/1.4 var(--font-body); pointer-events: none; }
+.ui-tooltip[hidden] { display: none; }
+.ui-tooltip.ui-tooltip-right { transform: translateY(-50%); }
+.ui-tooltip.ui-tooltip-below { transform: none; }
+
+/* ---------- Toast ---------- */
+#toast { visibility: hidden; position: fixed; right: 24px; bottom: 24px; z-index: 40; border: 1px solid var(--bezel); background: var(--surface-2); border-radius: var(--r-md); padding: 11px 15px; font-size: 11px; box-shadow: var(--e-2); max-width: 420px; }
+#toast.show { visibility: visible; animation: toast 2.8s both; }
+@keyframes toast { 0% { opacity: 0; transform: translateY(8px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }

@@ -8,6 +8,11 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview } from './main'
+import { onProjectChange, projectMatches, renderProjectChipInto } from './project'
+import { lamp } from './ui/components'
+import { icon, type IconName } from './ui/icons'
+import { initRadioGroup, syncRadioGroupTabIndex } from './ui/segmented'
+import { restoreFocusOnClose } from './ui/components'
 import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
@@ -34,6 +39,10 @@ function emptyState(title: string, detail: string): HTMLElement {
   empty.append(element('strong', undefined, title), detail)
   return empty
 }
+
+function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
+function writeStorage(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
+function removeStorage(key: string): void { try { localStorage.removeItem(key) } catch { /* private mode / disabled storage */ } }
 
 function timeAgo(date?: string): string {
   if (!date) return '—'
@@ -69,6 +78,7 @@ function reportError(action: string, error: unknown): void {
 // mirrors main.ts's own confirmAction over the same shared `#confirm-dialog` markup.
 // Only one modal can be open at a time, so the two independent implementations never race.
 const confirmDialog = byId<HTMLDialogElement>('confirm-dialog')
+restoreFocusOnClose(confirmDialog)
 function confirmAction(title: string, body: string, acceptLabel: string): Promise<boolean> {
   byId('confirm-title').textContent = title
   byId('confirm-body').textContent = body
@@ -89,16 +99,15 @@ function confirmAction(title: string, body: string, acceptLabel: string): Promis
   })
 }
 
-const ACTIVITY_ICON: Record<string, string> = { tool: '⚙', thinking: '✳', notice: '•' }
-const CAPABILITY_META: Record<ParticipantCapability, { icon: string; label: string }> = {
-  'read-repo': { icon: '⌁', label: 'read' },
-  'edit-files': { icon: '⎇', label: 'branch' },
-  'run-commands': { icon: '⚙', label: 'run' }
+const ACTIVITY_ICON: Record<string, IconName> = { tool: 'tool', thinking: 'thinking', notice: 'notice' }
+const CAPABILITY_META: Record<ParticipantCapability, { icon: IconName; label: string }> = {
+  'read-repo': { icon: 'cap-read', label: 'read' },
+  'edit-files': { icon: 'cap-edit', label: 'branch' },
+  'run-commands': { icon: 'cap-run', label: 'run' }
 }
-// Reused from the existing palette (hljs-keyword / hljs-type) rather than inventing new
-// hex values — participant accents are the one place new *colours* are allowed, and even
+// Participant accents are the one place new *colours* are allowed, and even
 // there we stay inside tokens the stylesheet already defines.
-const ACCENT_SWATCHES = ['var(--green)', 'var(--blue)', 'var(--yellow)', 'var(--red)', '#e4a9eb', '#7ed9c4']
+const ACCENT_SWATCHES = ['var(--amber)', 'var(--cyan)', 'var(--phosphor)', 'var(--caution)', 'var(--alarm)']
 
 // ---- Module state ----
 let latestSnapshot: AppSnapshot | undefined
@@ -166,7 +175,11 @@ function renderWorkspaceList(workspaces: WorkspaceView[]): void {
     row.append(element('strong', undefined, workspace.name))
     const meta = element('div', 'workspace-item-meta')
     meta.append(element('span', undefined, `${agents.length} agent${agents.length === 1 ? '' : 's'}`))
-    if (agents.length) meta.append(element('span', 'workspace-item-online', `● ${available}`))
+    if (agents.length) {
+      const online = element('span', 'workspace-item-online')
+      online.append(lamp(available ? 'phosphor' : 'muted', `${available} available`), document.createTextNode(String(available)))
+      meta.append(online)
+    }
     row.append(meta)
     row.addEventListener('click', () => {
       if (selectedWorkspaceId === workspace.id) return
@@ -236,7 +249,7 @@ function messageBubble(message: WorkspaceMessage, participant?: ParticipantView)
 function queuedLabel(turn: WorkspaceTurn, participant?: ParticipantView): string {
   const provider = latestSnapshot?.providers.find((item) => item.id === turn.providerId)
   const running = provider?.runtime.running ?? 0
-  return `⏳ waiting for ${provider?.name ?? participant?.name ?? 'agent'}${running ? ` (${running} running)` : ''}`
+  return `waiting for ${provider?.name ?? participant?.name ?? 'agent'}${running ? ` (${running} running)` : ''}`
 }
 
 function activityRow(event: ActivityEvent): HTMLElement {
@@ -244,8 +257,15 @@ function activityRow(event: ActivityEvent): HTMLElement {
   const body = element('div')
   body.append(element('strong', undefined, event.label))
   if (event.detail) body.append(element('small', undefined, event.detail))
-  row.append(element('span', undefined, ACTIVITY_ICON[event.kind] ?? '•'), body)
+  row.append(icon(ACTIVITY_ICON[event.kind] ?? 'notice', 14), body)
   return row
+}
+
+function statusLine(iconName: IconName | undefined, text: string, className = 'ws-message-status'): HTMLElement {
+  const line = element('span', className)
+  if (iconName) line.append(icon(iconName, 14))
+  line.append(document.createTextNode(text))
+  return line
 }
 
 function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement {
@@ -253,9 +273,9 @@ function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement 
   const block = element('article', `ws-message agent ${turn.status}`)
   const head = element('div', 'ws-message-head')
   head.append(avatarDot(participant), element('strong', undefined, participant ? `${participant.name} · ${participant.role}` : 'Unknown participant'))
-  if (turn.status === 'queued') head.append(element('span', 'ws-message-status', queuedLabel(turn, participant)))
-  else if (turn.status === 'running') head.append(element('span', 'ws-message-status', '▌ working…'))
-  else if (turn.status === 'failed') head.append(element('span', 'ws-message-status', `⚠ ${turn.error ?? 'Failed'}`))
+  if (turn.status === 'queued') head.append(statusLine('waiting', queuedLabel(turn, participant)))
+  else if (turn.status === 'running') head.append(statusLine('loader', 'working…'))
+  else if (turn.status === 'failed') head.append(statusLine('alert', turn.error ?? 'Failed'))
   else if (turn.status === 'cancelled') head.append(element('span', undefined, 'Cancelled'))
   else head.append(element('span', undefined, timeAgo(turn.finishedAt ?? turn.startedAt)))
   block.append(head)
@@ -280,7 +300,7 @@ function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement 
   if (turn.branch) {
     const branch = element('button', 'lane-branch') as HTMLButtonElement
     const fileNote = turn.filesChanged?.length ? ` · ${turn.filesChanged.length} file${turn.filesChanged.length === 1 ? '' : 's'}` : ''
-    branch.textContent = turn.committed ? `⎇ ${turn.branch}${fileNote}` : `⎇ ${turn.branch} · no changes`
+    branch.append(icon('branch', 14), document.createTextNode(turn.committed ? ` ${turn.branch}${fileNote}` : ` ${turn.branch} · no changes`))
     branch.title = turn.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !turn.committed
     if (turn.committed) branch.addEventListener('click', () => openBranchInReview(workspace.cwd, turn.branch!))
@@ -392,7 +412,7 @@ function renderWsMentions(): void {
     const detail = [entry.role, entry.kind === 'agent' ? providerLabel(entry.providerId) : undefined, entry.available ? undefined : (entry.unavailableReason ?? 'unavailable')]
       .filter(Boolean).join(' · ')
     copy.append(element('strong', undefined, entry.name), element('small', undefined, detail))
-    button.append(element('span', `provider-dot ${entry.available ? 'online' : ''}`), copy)
+    button.append(lamp(entry.available ? 'phosphor' : 'muted', entry.available ? 'Available' : 'Unavailable'), copy)
     button.addEventListener('mousedown', (event) => { event.preventDefault(); selectWsMention(entry) })
     return button
   }))
@@ -450,6 +470,7 @@ async function sendWsMessage(): Promise<void> {
 // and closing it (`.close()`) only dismisses that one, leaving this dialog open beneath.
 
 const participantsDialog = byId<HTMLDialogElement>('participants-dialog')
+restoreFocusOnClose(participantsDialog)
 byId('workspace-participants-button').addEventListener('click', () => participantsDialog.showModal())
 byId('participants-dialog-close').addEventListener('click', () => participantsDialog.close())
 
@@ -460,7 +481,9 @@ function capabilityChips(participant: ParticipantView): HTMLElement | undefined 
   const row = element('div', 'ws-capability-chips')
   for (const capability of participant.capabilities) {
     const meta = CAPABILITY_META[capability]
-    row.append(element('span', 'ws-capability-chip', `${meta.icon} ${meta.label}`))
+    const chip = element('span', 'ws-capability-chip')
+    chip.append(icon(meta.icon, 14), document.createTextNode(meta.label))
+    row.append(chip)
   }
   return row
 }
@@ -486,7 +509,7 @@ function toggleRosterMenu(workspace: WorkspaceView, participant: ParticipantView
 
 function rosterRow(workspace: WorkspaceView, participant: ParticipantView): HTMLElement {
   const row = element('div', 'workspace-roster-row')
-  row.append(element('span', `provider-dot ${participant.available ? 'online' : ''}`))
+  row.append(lamp(participant.available ? 'phosphor' : 'muted', participant.available ? 'Available' : 'Unavailable'))
   const body = element('div', 'workspace-roster-row-body')
   body.append(element('strong', undefined, participant.name))
   if (participant.kind === 'agent') {
@@ -498,7 +521,8 @@ function rosterRow(workspace: WorkspaceView, participant: ParticipantView): HTML
   if (chips) body.append(chips)
   row.append(body)
 
-  const menuButton = element('button', 'ws-roster-menu-button', '⋯')
+  const menuButton = element('button', 'ws-roster-menu-button')
+  menuButton.append(icon('more', 16))
   menuButton.setAttribute('aria-label', `Actions for ${participant.name}`)
   menuButton.addEventListener('click', (event) => { event.stopPropagation(); toggleRosterMenu(workspace, participant, row) })
   row.append(menuButton)
@@ -509,11 +533,12 @@ function rosterRow(workspace: WorkspaceView, participant: ParticipantView): HTML
 // shown here as a not-yet-added suggestion until the user actually adds it.
 function suggestedRow(workspace: WorkspaceView, provider: SnapshotProvider): HTMLElement {
   const row = element('div', 'workspace-roster-row suggested')
-  row.append(element('span', 'provider-dot'))
+  row.append(lamp('muted', 'Not yet added'))
   const body = element('div', 'workspace-roster-row-body')
   body.append(element('strong', undefined, provider.name), element('small', undefined, 'Not yet added'))
   row.append(body)
-  const add = element('button', 'text-button ws-add-button', '+ Add')
+  const add = element('button', 'text-button ws-add-button')
+  add.append(icon('plus', 14), document.createTextNode(' Add'))
   add.addEventListener('click', () => openParticipantEditor(workspace.id, undefined, provider.id))
   row.append(add)
   return row
@@ -552,7 +577,7 @@ function applyWorkspaceGutters(): void { for (const apply of workspaceGutterAppl
 
 function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: string, storageKey: string, min: number, max: number, anchor: 'left' | 'right'): void {
   const clamp = (value: number): number | undefined => (Number.isFinite(value) && value > 0 ? Math.round(Math.min(max, Math.max(min, value))) : undefined)
-  const stored = Number(localStorage.getItem(storageKey))
+  const stored = Number(readStorage(storageKey))
   let width: number | undefined = Number.isFinite(stored) && stored > 0 ? clamp(stored) : undefined
   const apply = (): void => { if (width === undefined) grid.style.removeProperty(cssVar); else grid.style.setProperty(cssVar, `${width}px`) }
   let dragging = false
@@ -568,16 +593,19 @@ function setupResizableColumn(grid: HTMLElement, gutter: HTMLElement, cssVar: st
   window.addEventListener('mouseup', () => {
     if (!dragging) return
     dragging = false; gutter.classList.remove('dragging'); document.body.style.userSelect = ''
-    if (width === undefined) localStorage.removeItem(storageKey); else localStorage.setItem(storageKey, String(width))
+    if (width === undefined) removeStorage(storageKey); else writeStorage(storageKey, String(width))
   })
   workspaceGutterAppliers.push(apply)
 }
 
 setupResizableColumn(byId('workspace-grid'), byId('workspace-gutter-list'), '--ws-list-col', 'fp-ws-list-width', 220, 460, 'left')
 
+onProjectChange(() => { if (latestSnapshot) renderWorkspaceView(latestSnapshot) })
+
 // ---- Workspace create / rename dialog ----
 
 const workspaceFormDialog = byId<HTMLDialogElement>('workspace-form-dialog')
+restoreFocusOnClose(workspaceFormDialog)
 
 function openWorkspaceForm(mode: 'create' | 'rename', workspace?: WorkspaceView): void {
   workspaceFormMode = mode
@@ -646,6 +674,7 @@ byId('workspace-delete-button').addEventListener('click', () => void deleteCurre
 // ---- Participant editor dialog ----
 
 const participantDialog = byId<HTMLDialogElement>('participant-dialog')
+restoreFocusOnClose(participantDialog)
 
 function renderAccentPicker(selected: string): void {
   const container = byId('ws-participant-accent')
@@ -664,11 +693,13 @@ function setParticipantKind(kind: ParticipantKind): void {
     const active = button.dataset.kind === kind
     button.classList.toggle('active', active); button.setAttribute('aria-checked', String(active))
   })
+  syncRadioGroupTabIndex(byId('ws-participant-kind'))
   byId('ws-participant-agent-fields').hidden = kind !== 'agent'
   byId('ws-participant-capabilities').hidden = kind !== 'agent'
 }
 document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) =>
   button.addEventListener('click', () => setParticipantKind(button.dataset.kind === 'human' ? 'human' : 'agent')))
+initRadioGroup(byId('ws-participant-kind'), (option) => setParticipantKind(option.dataset.kind === 'human' ? 'human' : 'agent'))
 
 let handleEdited = false
 byId<HTMLInputElement>('ws-participant-handle').addEventListener('input', () => { handleEdited = true })
@@ -795,7 +826,8 @@ wsComposerInput.addEventListener('blur', () => window.setTimeout(closeWsMentions
 // path — safe to call repeatedly; it no-ops wherever nothing changed.
 export function renderWorkspaceView(snapshot: AppSnapshot): void {
   latestSnapshot = snapshot
-  const workspaces = snapshot.workspaces
+  renderProjectChipInto('workspace-project-chip')
+  const workspaces = snapshot.workspaces.filter((workspace) => projectMatches(workspace.cwd))
   const empty = byId('workspace-empty')
   const grid = byId('workspace-grid')
   if (!workspaces.length) {

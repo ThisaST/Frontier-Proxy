@@ -22,12 +22,18 @@ const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/do
     runs that agent locally, streams the result back, and keeps the conversation, file changes, and usage in one place.
   </p>
 
-  <Callout title="No API keys, ever">
+  <Callout title="Coding agents never hand Frontier a key">
     <p>
-      Frontier does not call model APIs and holds no keys of its own. Authentication is delegated entirely to each
-      CLI's own login session — <code>codex</code>, <code>claude login</code>, <code>copilot login</code>, <code>opencode auth login</code>, or a local
-      <code>ollama</code>. When Frontier runs a provider it spawns that CLI in non-interactive mode and the CLI reuses
-      the session already on disk. If an agent cannot authenticate, the fix is to log in with that agent's own CLI.
+      Frontier does not call model APIs on an agent's behalf and holds no model-execution keys of its own.
+      Authentication is delegated entirely to each CLI's own login session — <code>codex</code>,
+      <code>claude login</code>, <code>copilot login</code>, <code>opencode auth login</code>, or a local <code>ollama</code>. When Frontier runs a
+      provider it spawns that CLI in non-interactive mode and the CLI reuses the session already on disk. If an agent
+      cannot authenticate, the fix is to log in with that agent's own CLI.
+    </p>
+    <p>
+      The one narrow exception is the optional <a href={url("docs/routing")}>Jev routing advisor</a> — it never runs
+      an agent, is off by default, and its key is encrypted with your OS keychain. See
+      <a href={url("docs/security")}>security &amp; data</a>.
     </p>
   </Callout>
 
@@ -117,7 +123,7 @@ const next = docsNav.flatMap((g) => g.links).filter((l) => !l.href.endsWith("/do
 
 <style>
   .arch { margin: 30px 0 10px; }
-  .arch :global(svg) { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .arch :global(svg) { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--bezel); display: block; }
   .steps h4 { margin: 0 0 2px; }
   .steps p { margin: 0; font-size: 13.5px; }
 </style>

@@ -18,6 +18,16 @@ Do **not** add `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / token entry fields to pr
 That contradicts the whole design. If a provider can't authenticate, the fix is to log in
 with that provider's own CLI (e.g. `copilot login`), not to inject a key from the app.
 
+**Narrow exception — auxiliary services** ([ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)).
+A service that never runs a coding agent may hold an opt-in credential. Today that means the
+Jev routing advisor; forge APIs will follow. Such a credential is:
+- encrypted with `safeStorage` and kept in the main process only;
+- exposed to the renderer only as `hasKey`, and never logged or persisted in state;
+- redacted from errors.
+
+The service is off by default, and losing it must leave routing exactly as it was without it.
+The sidebar privacy note must never say "local only" while an advisor is active.
+
 ## How a task flows
 
 1. Renderer (`src/renderer`) collects prompt + working dir + routing mode → IPC.
@@ -377,6 +387,137 @@ and with it off the router scores exactly as it did before. Cancelling a task re
 nothing — that is the user's decision, not a verdict on the agent. Deleting a branch that
 was already merged is housekeeping, not a rejection.
 
+**Per-model outcomes** — `ProviderRuntime.modelOutcomes[modelId][taskType]` is the same
+`OutcomeStats` shape, keyed one level deeper by the model that actually ran (`task.model`/a
+subtask's own model as the CLI reported it, else the model handed to the CLI, else the
+provider's configured default — never left unattributed unless no model was known at all).
+Recorded at every point the provider-level figure is: `execute`/`continueTask` completion,
+bench/subtask verification, and a Review-inbox merge/discard (`engine.ts`'s `recordOutcome`
+updates both in one call). Persisted the same way `outcomes` is (`store.ts`); an older state
+file with no `modelOutcomes` loads unchanged. Two places read it, both gated behind
+`learnFromOutcomes`:
+- `pickModel` — when two or more of a provider's models land on the identical tier distance
+  from the desired tier, the tie is broken toward whichever tied model has the better
+  recorded score, gated at ≥3 runs like every other outcome signal; below that, or with
+  outcome learning off, it keeps today's tie-break (the first tied model).
+- `scoreFactors` — once a provider's picked model (via that same `pickModel` call) has its
+  own recorded outcomes, a labelled `Recent <type> outcomes on <model> (<n> runs)` factor
+  **replaces** the provider-wide one for that provider rather than stacking with it; bounded
+  to the same ±14. Both only ever apply in active mode with jev-sourced advice — with no
+  advice, `pickModel` (and the tie-break) returns `undefined`/the provider default as before.
+
+## Routing advisor (Jev)
+
+Jev (TypeSafe's System One model, ADR 0002) is an **auxiliary service**, not a coding
+agent: it never generates text and never runs on the user's behalf, so it falls under
+ADR 0002's narrowed "no API keys" rule rather than breaking it. **Jev advises, the router
+decides** — its answers only ever become bounded, labelled `RoutingFactor`s next to every
+other factor; they never override eligibility (`skipReason`), an explicit pick (+1000), or
+a user-picked model.
+
+- **What's sent** — `buildJevRequest` (`src/main/advisor.ts`, pure) sends the prompt
+  (trimmed to fit Jev's budget, keeping head and tail), attachment *names* only, and —
+  when `AppSettings.advisor.shareRepoFacts` is on (default) — lightweight `repoFacts(cwd)`:
+  top languages, file count, manifests, and top-level folder names from `git ls-files`.
+  Frontier never reads a file in order to send it. The subtask-advice call is the exception
+  to "prompt only": it sends the planner's subtask titles and prompts, and those can quote code
+  the planner read. Every disclosure surface must say so: the site, the README, the Routing
+  screen and the sidebar tooltip. One request asks five questions at once:
+  `task_type` (choice over the six `TaskType`s), `complexity` (score, 4 levels: trivial →
+  single-file → multi-file → architectural), `edits_files`/`long_context`/`split_worthy`
+  (nouls), and `target` — a choice over every eligible `(provider, model)` pair, each
+  described by `src/shared/model-profiles.ts`'s `describeCandidate` (the one place that
+  says what a model is good at: tier + strengths, honest about what it *can't* do — an
+  Ollama provider has no file tools). `target` is omitted below two candidates.
+- **OpenCode's `provider/model` ids** — `profileFor`/`tierFor` (`model-profiles.ts`) also
+  try the segment after OpenCode's `provider/` prefix against the curated catalog (and a
+  `.`/`-` version swap either way), so `anthropic/claude-sonnet-4-5` still gets a real
+  profile instead of a generic tier sentence. A prefix naming a **local runtime**
+  (`LOCAL_RUNTIME_PREFIXES`: `ollama`, `lmstudio`, `llama.cpp`/`llamacpp`) makes `isLocalModel`
+  — and so `tierFor` — call it `local` regardless of the model name, same as an
+  Ollama-backed provider kind; `src/main/router.ts`'s mode policy and read-only bonus both
+  route through that one helper so OpenCode-with-a-local-model gets the same local treatment
+  an Ollama or Codex+Ollama provider does, without OpenCode itself being a local *kind*.
+- **Modes** — `AdvisorMode`: `off` (default; routing scores exactly as without this
+  feature), `shadow` (records what Jev *would* have chosen in `decision.advisor`, next to
+  the real route, without changing it), `active` (its answers become real factors and can
+  become the routed model). `AppSettings.advisor` holds the mode, Jev model id,
+  `minConfidence` (default 0.5 — a `task_type`/`complexity` answer below it is ignored),
+  `shareRepoFacts`, and `previewWhileTyping`.
+- **Never blocks the queue** — `JevClient` (injected `fetch`) hard-times-out each attempt
+  (~2s default), retries once on 429/529 honouring `Retry-After` (capped, so a slow retry
+  can't itself stall things), then the caller (`advise`) falls back to `heuristicAdvice`
+  (today's `classifyTask`) with the error attached. The engine computes heuristic advice
+  *synchronously* at task creation and only *fires* the Jev call — the queue pump skips a
+  task while its `OrchestrationEngine.pendingAdvice` flag is set and picks an older queued
+  task instead, never blocking on it, and the flag is bounded by the client's own
+  timeout/retry so it can never hang indefinitely.
+- **Router factors** (`src/main/router.ts`, gated on `mode === 'active' && task.advice
+  ?.source === 'jev'`): **tier fit** (±20) scores how close a provider's best
+  discovered/known model gets to the tier `complexity` calls for (`<0.75` fast, `<1.75`
+  standard, `<2.5` standard-or-frontier, `≥2.5` frontier), shifted one tier by
+  saver/quality mode, gated on `complexityConfidence ≥ minConfidence`; **Jev best fit**
+  (0…+15 × confidence) sums `target`'s probability mass over a provider's own
+  `(providerId)::(model)` options; **read-only bonus** (+8) favours local providers only
+  when `editsFiles < 0.2`. `pickModel(provider, models, advice, mode)` is pure and
+  provider-scoped — it can never hand a model id to a different agent — and returns
+  `undefined` (keep the provider default) when there's no usable signal.
+- **Model precedence** (`OrchestrationEngine.withModel`): user override (owner only, via
+  `resolveTaskModel`) → the advisor's pick *for this specific provider* (active mode only;
+  recorded as `task.routedModel` with a plain-language reason) → the provider's own
+  default. Continuations, bench lanes, and workspace turns never get advice — bench and
+  workspaces aren't routed at all, and a continuation stays pinned to the transcript.
+- **Per-subtask advice** — once the planner returns ≥2 subtasks, and only when the advisor
+  mode is not `off` and a key is stored, `OrchestrationEngine.requestSubtaskAdvice` makes
+  **one extra Jev call** covering every subtask at once: `state = { task: <parent prompt>,
+  plan: [{ n, title, type, prompt }] }` (only the first 8 subtasks — `MAX_ADVISED_SUBTASKS`
+  — the rest run on defaults, noted in `state.note`), asking `complexity_<n>`/`target_<n>`
+  per subtask with `{ question, subtask: '<n>' }` instructions referencing the subtask by
+  its plan number. `buildSubtaskAdviceRequest`/`subtaskAdviceFromResponse`
+  (`src/main/advisor.ts`, pure, unit-tested) build and parse it; `task_type` is never
+  re-asked per subtask, since the planner already typed it. Same overall deadline pattern as
+  the parent's own advice (`advisorDeadlineMs`, hard 3s cap, a late answer ignored) —
+  delegation starts once the race settles, never later. On any failure every subtask simply
+  keeps no advice and runs on provider defaults, same as today. In **active** mode, a
+  subtask that got advice stores it on `SubTask.advice` and routes on it — through the same
+  `advisorFactors`/`pickModel` the parent uses, via `runOne`'s `subtask` parameter — lifting
+  the earlier restriction that every subtask inherited only the provider default regardless
+  of the plan's own per-subtask complexity. A subtask with no advice keeps that original
+  behaviour unchanged. In **shadow** mode `SubTask.advice` is never set (nothing about the
+  real run changes) but `SubTask.routing` still records what `routeTask` would have chosen
+  (`routing.advisor.wouldChooseProviderId`/`wouldChooseModel`), the same shadow mechanism
+  the parent task uses. Synthesis stays advice-free either way.
+- **Credentials** — the API key is encrypted with the same Electron `safeStorage`
+  codec/pattern as MCP OAuth tokens (`AdvisorKeyManager`, its own small file under
+  userData), lives only in the main process, and is redacted from every `JevClient` error
+  message. `AppSnapshot.advisor` exposes only `{ hasKey, lastError, lastCheckedAt }` — the
+  key itself never reaches the renderer, `frontier-state.json`, or a log. IPC:
+  `advisor:set-key` / `advisor:clear-key` / `advisor:test` / `advisor:preview` (the preview
+  returns the exact request body that would be sent, heuristic advice, and the resulting
+  `RoutingDecision` — it calls Jev for real only when `previewWhileTyping` is on and a key
+  exists, otherwise it stays on the heuristic so typing never leaks a draft prompt).
+- **Calibration** — `src/shared/calibration.ts`'s `advisorCalibration(tasks)` (pure,
+  unit-tested in `tests/calibration.test.ts`) buckets every terminal, jev-sourced task by the
+  confidence of its `target` answer (falling back to `taskTypeConfidence` when no target was
+  asked) into `< 0.5` / `0.5 – 0.8` / `≥ 0.8`, and reports each bucket's `tasks`,
+  `completed`/`failed`, `verified`/`verifyFailed` (rolled up from a task's own subtasks —
+  a plain task carries no verification of its own), and `agreedWithRoute` (the `target`
+  choice's provider matched whoever actually ran it). It also returns the overall
+  `shadowAgreement`, reusing `routing.advisor.wouldChooseProviderId` the same way the Routing
+  screen's agreement summary already did. The Routing screen's "Would Jev have agreed?" card
+  (`src/renderer/src/views/routing.ts`) renders it as a small `.data-table`, honest about an
+  empty state, next to the existing agreement/disagreement list.
+- Tests: `tests/advisor.test.ts` (request shape/trimming, response parsing incl.
+  malformed shapes, confidence gating, 401/422/429-then-success/timeout via a fake `fetch`,
+  key redaction, `repoFacts` against a temp git repo, subtask-advice request/response
+  building and the 8-subtask cap), `tests/model-profiles.test.ts`, `tests/calibration.test.ts`,
+  and additions to `tests/router.test.ts`/`tests/engine.test.ts` (off/shadow score
+  identically to no-advice, factor bounds, explicit picks and ineligibility still win,
+  `pickModel` never crosses providers, saver/quality tier shifts, a task still completes on
+  the heuristic fallback when the advisor call hangs, subtasks of different complexity
+  routed to different-tier models of the same fake provider, a subtask-advice timeout
+  leaving every subtask on defaults within the deadline, and off/shadow changing nothing).
+
 ## Provider login state
 
 `checkProvider` only runs `<exe> --version`, which is why a provider can show **Ready** and
@@ -410,6 +551,71 @@ Intentional cancellation is terminal for the current run and never enters automa
 Without an explicit change, subsequent turns stay pinned to the most recently selected provider
 even when that CLI has no resumable session id.
 
+## Renderer architecture & design system
+
+The renderer is split by responsibility, not by screen alone — `src/renderer/src/`:
+
+- **`main.ts`** — bootstrap only: wires the IPC snapshot listener to `render()`, initializes
+  every view module (`init*View`), the theme, the command palette, and the project switcher,
+  and owns the one cross-cutting render each snapshot triggers (`renderMiniProviders`,
+  `renderTasks`, `renderAdvisorStatus`, …) before dispatching to the current view.
+- **`state.ts`** — the shared mutable slice every view reads: the latest `AppSnapshot`,
+  `currentView`, `selectedTaskId`. State only one view touches stays local to that view's
+  module instead of living here.
+- **`ui/`** — presentation primitives with no domain knowledge: `dom.ts` (element/byId
+  helpers), `format.ts` (number/cost/duration/time formatting), `feedback.ts` (toasts, error
+  reporting), `icons.ts` (Lucide, tree-shaken, `currentColor`), `components.ts` (the Phosphor
+  Console kit — `button`, `lamp`, `chip`, `panel`, `gaugeSeg`, `probabilityBars`, `radar`,
+  `dataTable`, `inspectorSection`, …, per `docs/design-phosphor-console.md` §6).
+- **`views/*.ts`** — one file per screen (`home`, `tasks`, `routing`, `agents`, `review`,
+  `control`, `skills`, `settings`), each owning its own render function and DOM event wiring.
+- **`task-form.ts`** — the task-creation form (prompt, mode, provider override, model,
+  skills) is shared, not duplicated, between Home's composer and the ⌘N New Task dialog;
+  both call `createTaskForm` with their own root selector and field ids.
+- **`project.ts`** — the project switcher: which cwd Home, Tasks, Review, and Workspaces are
+  scoped to (`currentProject`, `onProjectChange`, `projectMatches`), persisted to
+  `localStorage` and defaulting to "All projects" so it changes nothing for code that
+  predates it.
+- **`theme.ts`** — live Console/Daylight/effects switching for Settings → Appearance. The
+  before-first-paint choice is made separately by `public/theme-init.js` (a plain script,
+  not a module, so it can run before anything else parses) reading the same `localStorage`
+  keys; `theme.ts` takes over afterwards so a change applies without a reload. Renderer-only
+  preference — never sent to the main process.
+
+**Design system rules**, enforced by convention (see `docs/design-phosphor-console.md` for
+the full spec):
+- Components use only the semantic tokens in `styles/tokens.css` (`--bg`, `--surface-*`,
+  `--amber`, `--cyan`, `--phosphor`, `--alarm`, `--caution`, …) — no raw hex or `rgb()`
+  literal outside that file.
+- Theme and motion are two independent flags on `<html>`: `data-theme="console|daylight"`
+  and `data-effects="on|off"` (off under `prefers-reduced-motion` too). Every glow/sweep/
+  blink/scanline reads `data-effects` rather than reimplementing the check.
+- Fonts (Chakra Petch, IBM Plex Sans, JetBrains Mono) are bundled via `@fontsource` and
+  imported from `styles/fonts.css` — the CSP is `default-src 'self'`, so no CDN.
+- `scripts/check-contrast.mjs` computes WCAG contrast ratios for the token pairs actually
+  used as text, in both themes, against the ratios `docs/design-phosphor-console.md` §8
+  requires; it duplicates the hex values deliberately so it keeps working even if the CSS
+  import graph breaks. Not yet wired into `pnpm` scripts or CI — run it directly when
+  touching tokens.
+
+**Live snapshots must not clobber an unsaved form edit.** A streamed task run touches
+snapshot state continuously (see "Snapshot coalescing" below), and every view re-renders
+from that snapshot on each one. A form seeded from settings — the Routing screen's advisor
+form is the shipped example — therefore tracks its own dirty flag (`advisorFormDirty` /
+`markAdvisorDirty` / `clearAdvisorDirty`) the moment the user changes a control, and stops
+overwriting that control from the snapshot until the edit is explicitly saved or discarded.
+Without this, a value the user just typed snaps back to the last-saved one the instant an
+unrelated task streams a token, and Save silently persists the stale value. Any new
+settings-editing view needs the same guard.
+
+**The sidebar privacy line must stay truthful.** `renderAdvisorStatus()` (`main.ts`) reads
+`snapshot.settings.advisor` and `snapshot.advisor.hasKey` on every render and shows "Local
+process mode · Prompts stay between this app and your CLIs" only when no advisor is
+active; the moment Shadow or Active mode has a stored key, it names Jev, the mode, and
+exactly what leaves the machine ("Prompt text and repo facts are sent to TypeSafe" vs.
+"Prompt text is sent to TypeSafe"), per ADR 0002. It is computed from live settings, never
+hardcoded, so it cannot silently go stale as advisor state changes.
+
 ## Layout, context window & memory
 
 - **Snapshot coalescing** — a streamed run touches task state per token, and `snapshot()`
@@ -418,9 +624,9 @@ even when that CLI has no resumable session id.
   `{ immediate: true }`. Live text is unaffected: it arrives on the separate `stream`
   channel, which is never throttled.
 - **Fixed app shell** — `body`/`.shell`/`main` are `height:100vh; overflow:hidden`; the
-  Tasks view fills remaining height and its panels scroll independently (no full-page
-  scroll). Other views scroll internally. A draggable `.grid-gutter` between the work
-  queue and live output resizes the columns (persisted to `localStorage` `fp-wq-width`).
+  Tasks view fills remaining height and its three panes scroll independently (no
+  full-page scroll). Other views scroll internally. See "Tasks is three panes" above for
+  the queue/inspector resize gutters.
 - **Context window** — usage and context are separate streams. `parseClaudeLine` reads the
   latest `message_start` input/cache usage plus `message_delta` output usage for current
   conversation occupancy, then pairs it with the active model's `modelUsage[*].contextWindow`.
@@ -430,16 +636,26 @@ even when that CLI has no resumable session id.
   report its window, the engine pairs the occupancy with the provider's configured/known
   `contextWindow` (default 400k for the GPT-5 family) and stores `task.contextSource = "estimated"`.
   The UI labels estimates accordingly.
-- **Task workspace** — **Open details** (or double-clicking a task) opens the `task-detail`
-  view with a large conversation pane, provider route/work log, task context meter, and a
-  **Files & changes** tab. `engine.readTaskFile` only reads paths present in that task's
-  `filesChanged`; it enforces workspace containment, caps text at 1 MB, identifies binary
-  files, and returns a Git working-tree diff. The renderer uses `highlight.js` for language-
-  aware source/diff highlighting. The file tree comes from `git ls-files --cached --others
-  --exclude-standard` when the cwd is a repo, so it respects the project's own `.gitignore`
-  (non-Git folders fall back to a directory walk filtered by `IGNORED_TASK_TREE_NAMES`);
-  `entriesFromPaths` rebuilds the folder hierarchy from those paths. Folders in the tree are
-  collapsible and start collapsed except the branches holding this task's changed files.
+- **Tasks is three panes, not a detail view** (`views/tasks.ts`) — the work queue (grouped
+  into Running / Needs review / Done / Failed-cancelled, filterable, project-scoped), the
+  conversation (the primary surface, composer at the bottom), and a collapsible route/
+  files/activity **inspector**. Selecting a task swaps the centre and right panes in place;
+  there is no modal and no double-click-to-open. The old Conversation/Files/Route tabs are
+  gone — the inspector's sections (`inspectorSection` in `ui/components.ts`) replace them.
+  Two independent draggable gutters (`#grid-gutter`, `#inspector-gutter`) resize the queue
+  and inspector columns (`applyQueueWidth` / `applyInspectorWidth`), each persisted to
+  `localStorage` (`fp-wq-width` / `fp-inspector-width`) and re-clamped on resize so a width
+  that stops fitting falls back to the stylesheet's proportional columns instead of
+  collapsing a pane to zero.
+- **The file viewer is an overlay**, opened from the inspector's "Files changed" section,
+  not a tab. `engine.readTaskFile` only reads paths present in that task's `filesChanged`;
+  it enforces workspace containment, caps text at 1 MB, identifies binary files, and returns
+  a Git working-tree diff. The renderer uses `highlight.js` for language-aware source/diff
+  highlighting. The file tree comes from `git ls-files --cached --others --exclude-standard`
+  when the cwd is a repo, so it respects the project's own `.gitignore` (non-Git folders
+  fall back to a directory walk filtered by `IGNORED_TASK_TREE_NAMES`); `entriesFromPaths`
+  rebuilds the folder hierarchy from those paths. Folders in the tree are collapsible and
+  start collapsed except the branches holding this task's changed files.
 - **Frontier memory** — `AppSettings.memory` (edited in Settings) is prepended by
   `promptWithMemory` as shared context to every new task's first turn and the planner
   prompt, so knowledge carries across tasks. Continuations inherit it via the resumed session.

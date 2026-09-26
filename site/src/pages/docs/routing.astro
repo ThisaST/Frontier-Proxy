@@ -73,7 +73,7 @@ import { url } from "../../lib/site";
           </td>
         </tr>
         <tr>
-          <td><span class="pill" style="color:var(--red)">Agent failure</span></td>
+          <td><span class="pill" style="color:var(--alarm)">Agent failure</span></td>
           <td>
             <strong>Stops the task.</strong> Re-running a partially completed coding task through another agent could
             duplicate or conflict with edits already on disk.
@@ -108,5 +108,94 @@ import { url } from "../../lib/site";
     (the shipped default is one concurrent run per agent). Optional per-provider daily token budgets give you a
     deterministic ceiling on top of whatever the CLI itself enforces — useful because subscription tools expose no
     universal "tokens remaining" interface.
+  </p>
+
+  <h2>Picking a model, not just an agent</h2>
+  <p>
+    Routing does not stop at "which agent" — each candidate model is placed on a tier (<strong>local</strong>,
+    <strong>fast</strong>, <strong>standard</strong>, <strong>frontier</strong>), and the Balanced/Quality-first/
+    Token-saver policy shifts which tier a task is aimed at. Providers also accumulate <strong>outcome-aware
+    routing</strong> signal over time — completion, whether your own repo checks passed, and whether you merged or
+    discarded the resulting branch in the Review inbox — folded into one bounded, labelled factor per provider (and,
+    once enough runs exist, per model) that nudges the ranking without ever overruling policy or an explicit pick.
+    Turn it off in Settings and the router scores exactly as it did without it.
+  </p>
+
+  <h2>Jev — the optional routing advisor</h2>
+  <p>
+    <strong>Jev</strong> (TypeSafe's System One model) is an auxiliary service, not a coding agent: it never generates
+    text and never runs on your behalf, which is why it falls under the narrowed, opt-in exception to Frontier's
+    "no API keys" rule rather than breaking it — see <a href={url("docs/security")}>security &amp; data</a>. Jev
+    advises; <strong>the router still decides.</strong> Its answers only ever become bounded, labelled routing
+    factors next to every other factor in this page — they never override eligibility, an explicit pick, or a
+    user-picked model.
+  </p>
+
+  <h3>What Jev adds</h3>
+  <p>
+    One request asks a single typed, calibrated question set about the task: its <strong>type</strong> (the same six
+    categories used everywhere else), a <strong>complexity</strong> score across four levels (trivial → single-file →
+    multi-file → architectural), whether it <strong>edits files</strong>, whether it needs a <strong>large
+    context</strong>, whether it is <strong>worth splitting</strong> into subtasks, and a <strong>best-fit
+    target</strong> — a probability distribution over every eligible provider/model pair, each described by what that
+    model is actually good at (and honest about what it can't do, such as an Ollama provider having no file tools).
+  </p>
+
+  <h3>Off / Shadow / Active</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Mode</th><th>What happens</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Off</strong></td><td class="muted">The default. Routing scores exactly as it would with no advisor at all.</td></tr>
+        <tr>
+          <td><strong>Shadow</strong></td>
+          <td class="muted">
+            Jev is asked and its pick is recorded next to the real route — visible on the Route tab and in the
+            calibration view below — but it changes nothing about what actually runs.
+          </td>
+        </tr>
+        <tr>
+          <td><strong>Active</strong></td>
+          <td class="muted">
+            Jev's answers become real, bounded routing factors and can influence which provider and model are chosen,
+            still subject to every eligibility rule and an explicit pick.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Confidence threshold and the 3-second fallback</h3>
+  <p>
+    A <code>task_type</code> or <code>complexity</code> answer below a configurable <strong>minimum confidence</strong>
+    (0.5 by default) is ignored rather than trusted. Jev is also never allowed to stall the queue: each request has a
+    hard timeout with a single retry on a rate-limit response, all bounded by an overall <strong>3-second
+    deadline</strong> — a request that has not settled by then is treated as a miss, and the task simply falls back to
+    Frontier's own built-in heuristic classifier. The queue itself is never blocked waiting on a Jev response; the
+    engine computes the heuristic answer synchronously and only fires the Jev call alongside it.
+  </p>
+
+  <h3>Per-subtask advice</h3>
+  <p>
+    When an orchestrated task's planner returns two or more subtasks, and the advisor is not off, Frontier makes one
+    additional Jev call covering every subtask (up to the first eight) at once, asking complexity and best-fit
+    questions per subtask. In active mode, each subtask that got advice routes on it independently — so a
+    trivial rename and an architectural refactor inside the same plan can land on different-tier models of the same
+    agent, instead of every subtask inheriting one provider default regardless of its own complexity. A subtask that
+    got no advice, or any failure of the extra call, simply keeps today's default behaviour.
+  </p>
+
+  <h3>The calibration view</h3>
+  <p>
+    The Routing screen buckets every finished, Jev-advised task by the confidence of its best-fit answer
+    (<code>&lt; 0.5</code>, <code>0.5 – 0.8</code>, <code>≥ 0.8</code>) and reports, per bucket, how many tasks ran,
+    how many completed, how many passed your own repo's verification checks, and whether Jev's pick agreed with
+    whoever actually ran the task — so you can see whether higher-confidence answers actually correlate with better
+    outcomes before switching from shadow to active.
+  </p>
+
+  <p>
+    Jev is built and hosted by TypeSafe; see <a href="https://docs.typesafe.ai" rel="noopener">TypeSafe's documentation</a>
+    for the model itself.
   </p>
 </Docs>

@@ -1,0 +1,246 @@
+/* ---------- Tasks: queue + conversation + inspector ----------
+   The conversation is the primary surface: it gets a `minmax(420px, 1fr)`
+   floor that the list and inspector can never squeeze past (views/tasks.ts's
+   drag clamps enforce the same 420px floor), and the two side panels default
+   to fixed, comfortable widths (280px / 320px) rather than a flex share. */
+.content-grid {
+  display: grid;
+  grid-template-columns: var(--wq-col, 280px) 7px minmax(420px, 1fr) 7px var(--insp-col, 320px);
+  gap: 0; flex: 1 1 auto; min-height: 0; position: relative;
+}
+/* Collapsing the list or the inspector removes its column (and the gutter
+   next to it) from the track list entirely, rather than hiding it in place —
+   otherwise the empty track would still reserve its width. */
+.content-grid.list-collapsed { grid-template-columns: minmax(420px, 1fr) 7px var(--insp-col, 320px); }
+.content-grid.list-collapsed .task-panel, .content-grid.list-collapsed > #grid-gutter { display: none; }
+/* Too narrow to fit the queue alongside a 420px centre (views/tasks.ts
+   computes this from measured widths, exactly like the inspector below): it
+   auto-collapses, but its own toggle can raise it as a floating overlay over
+   the conversation instead of squeezing the grid past the centre's floor. */
+.content-grid.list-overlay-open .task-panel {
+  display: flex; position: fixed; top: 104px; left: 0; bottom: 0;
+  width: min(320px, 92vw); z-index: 15; border-right: 1px solid var(--bezel-strong);
+  border-radius: 0; box-shadow: var(--e-2);
+}
+.content-grid.list-overlay-open > #grid-gutter { display: none; }
+.content-grid.inspector-collapsed { grid-template-columns: var(--wq-col, 280px) 7px minmax(420px, 1fr); }
+.content-grid.inspector-collapsed .inspector, .content-grid.inspector-collapsed > #inspector-gutter { display: none; }
+.content-grid.list-collapsed.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }
+/* Focus mode hides both side panels so the conversation gets the full width. */
+.content-grid.focus-mode { grid-template-columns: minmax(0, 1fr) !important; }
+.content-grid.focus-mode .task-panel, .content-grid.focus-mode .grid-gutter, .content-grid.focus-mode .inspector { display: none; }
+/* Too narrow to fit the inspector alongside a 420px centre: it auto-collapses
+   (views/tasks.ts computes this from measured widths, not a fixed viewport
+   breakpoint), but its own toggle can still raise it as a floating overlay
+   over the conversation instead of squeezing the grid. */
+.content-grid.inspector-overlay-open .inspector {
+  display: flex; position: fixed; top: 104px; right: 0; bottom: 0;
+  width: min(360px, 92vw); z-index: 15; border-left: 1px solid var(--bezel-strong);
+  border-radius: 0; box-shadow: var(--e-2);
+}
+.content-grid.inspector-overlay-open > #inspector-gutter { display: none; }
+.grid-gutter { cursor: col-resize; margin: 0 4px; border-radius: var(--r-sm); background: transparent; transition: background var(--t-fast) var(--ease); }
+.grid-gutter:hover, .grid-gutter.dragging { background: var(--bezel); }
+.task-panel { display: flex; flex-direction: column; min-height: 0; }
+.panel-header { flex: 0 0 auto; min-height: 66px; border-bottom: 1px solid var(--bezel); padding: 14px 17px; display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
+.panel-header-actions { display: flex; align-items: center; gap: 10px; }
+.task-search { width: 140px; padding: 6px 10px; font-size: 11px; border-radius: var(--r-md); transition: width var(--t-fast) var(--ease); }
+.task-search:focus { width: 178px; }
+.task-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.task-list:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--cyan); }
+
+/* ---------- Status groups ---------- */
+.task-group { border-bottom: 1px solid var(--bezel); }
+.task-group-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 16px; border: 0; border-radius: 0; background: var(--surface-2); color: var(--fg-muted); text-align: left; font: 700 10px var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+.task-group-head:hover { color: var(--fg); }
+.task-group-caret { flex: 0 0 auto; display: flex; color: var(--fg-faint); }
+.task-group-label { flex: 1 1 auto; }
+.task-group-count { flex: 0 0 auto; min-width: 18px; padding: 1px 6px; border-radius: 20px; background: var(--surface-3); color: var(--fg-muted); font: 700 9px var(--font-mono); text-align: center; }
+.task-group.collapsed { border-bottom-color: var(--bezel); }
+.task-group-rows { display: block; }
+
+.task-row { padding: 13px 16px; border-bottom: 1px solid var(--bezel); cursor: pointer; display: grid; grid-template-columns: 16px 1fr auto; gap: 11px; align-items: start; }
+.task-row:hover, .task-row.selected { background: var(--surface-2); }
+.task-row.selected { box-shadow: inset 2px 0 var(--amber); }
+.task-row .lamp, .task-row .radar { margin-top: 4px; }
+.task-title { font-size: 12px; line-height: 1.45; margin-bottom: 7px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; color: var(--fg-muted); font-size: 9px; }
+.task-meta span { padding: 3px 6px; border: 1px solid var(--bezel); border-radius: var(--r-sm); }
+.task-meta .task-provider { color: var(--fg); border-color: var(--bezel); }
+.task-time { color: var(--fg-faint); font-size: 9px; white-space: nowrap; padding-top: 2px; }
+.tag-orchestrated { color: var(--phosphor) !important; border-color: color-mix(in srgb, var(--phosphor) 35%, transparent) !important; }
+.tag-context { color: var(--cyan) !important; border-color: color-mix(in srgb, var(--cyan) 35%, transparent) !important; }
+
+.task-surface { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.surface-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 15px 18px 13px; border-bottom: 1px solid var(--bezel); }
+.surface-heading { min-width: 0; flex: 1 1 auto; }
+.surface-heading h2 { font-size: 17px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.surface-subtitle { margin: 5px 0 0; color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.surface-header-right { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+
+.surface-meta { flex: 0 0 auto; display: flex; flex-wrap: wrap; gap: var(--s-5); padding: 11px 18px; border-bottom: 1px solid var(--bezel); }
+.surface-meta:empty { display: none; }
+.meta-chip { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.meta-label { color: var(--fg-muted); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.meta-chip strong { font-size: 11px; font-weight: 500; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta-chip.model strong { color: var(--amber); }
+.meta-chip.context-meter { min-width: 130px; }
+.context-row { display: grid; grid-template-columns: minmax(60px, 1fr) auto; align-items: center; gap: 8px; }
+.context-row strong { font-size: 11px; }
+
+/* The conversation is the only surface now — no tab bar to switch away from
+   it — so its actions (agent-for-next-message, Run again) sit directly under
+   the meta chips. */
+.surface-actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 18px; border-bottom: 1px solid var(--bezel); }
+.surface-actions:empty { display: none; }
+.output-actions-inner { display: flex; align-items: center; gap: 8px; }
+.detail-provider-select { width: 148px; padding: 6px 9px; font-size: 10px; }
+
+.surface-stages { flex: 0 0 auto; }
+.surface-stages:empty { display: none; }
+.stage-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 11px 18px; border-bottom: 1px solid var(--bezel); }
+.stage-step { font: 700 9px var(--font-mono); letter-spacing: .05em; text-transform: uppercase; color: var(--fg-muted); padding: 3px 9px; border-radius: 20px; border: 1px solid var(--bezel); }
+.stage-step.active { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); background: color-mix(in srgb, var(--amber) 10%, transparent); }
+.stage-step.past { color: var(--phosphor); }
+.stage-sep { color: var(--fg-faint); font-size: 10px; }
+
+.surface-thread { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px 18px; display: flex; flex-direction: column; gap: 13px; }
+.detail-turn { flex: 0 0 auto; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; background: var(--surface-1); }
+.detail-turn.user { margin-left: 14%; background: var(--surface-2); }
+.detail-turn-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border-bottom: 1px solid var(--bezel); }
+.detail-turn-head strong { font-size: 11px; }
+.detail-turn.user .detail-turn-head strong { color: var(--amber); }
+.detail-turn-head span { color: var(--fg-muted); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.detail-turn-body { padding: 13px 15px; color: var(--fg); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.detail-turn-body.markdown { white-space: normal; }
+.output-error { padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--alarm) 30%, transparent); border-radius: var(--r-md); background: color-mix(in srgb, var(--alarm) 6%, transparent); color: var(--alarm); font-size: 12px; white-space: pre-wrap; }
+
+/* Subtask and comparison lanes */
+.lane-note { margin: 0; color: var(--fg-muted); font-size: 10px; }
+.lane-stack { display: grid; gap: 9px; }
+.lane-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; align-items: start; }
+.lane { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-2); overflow: hidden; }
+.lane.failed { border-color: color-mix(in srgb, var(--alarm) 30%, transparent); }
+.lane.completed { border-color: color-mix(in srgb, var(--phosphor) 20%, transparent); }
+.lane-column .lane-body { max-height: 340px; overflow-y: auto; }
+.lane-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--bezel); }
+.lane-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lane-identity strong { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-meta { color: var(--fg-muted); font-size: 9px; white-space: nowrap; }
+.lane-branch { display: flex; align-items: center; gap: 6px; width: calc(100% - 24px); margin: 9px 12px 0; padding: 5px 8px; border: 1px solid color-mix(in srgb, var(--cyan) 30%, transparent); border-radius: var(--r-sm); background: transparent; color: var(--cyan); font: 9px/1.4 var(--font-mono); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-branch:hover:not(:disabled) { background: color-mix(in srgb, var(--cyan) 8%, transparent); }
+.lane-branch:disabled { color: var(--fg-muted); border-color: var(--bezel); cursor: default; }
+.lane-body { padding: 11px 13px; font-size: 12px; line-height: 1.6; color: var(--fg); }
+.lane-body.lane-error { color: var(--alarm); }
+
+/* ---------- Routing receipt ---------- */
+.route-grid { display: grid; grid-template-columns: minmax(300px, 1.1fr) minmax(240px, .9fr); gap: 14px; padding: 16px 18px; align-items: start; }
+.route-card { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-2); padding: 14px 15px; }
+.route-card-second { margin-top: 18px; }
+.receipt-summary { margin: 0 0 12px; color: var(--fg); font-size: 12px; line-height: 1.55; }
+.receipt-row { border-top: 1px solid var(--bezel); padding: 10px 0; }
+.receipt-row:first-of-type { border-top: 0; }
+.receipt-row.skipped { opacity: .72; }
+.receipt-head { display: flex; align-items: center; gap: 8px; }
+.receipt-head strong { font-size: 12px; font-weight: 600; }
+.receipt-row.chosen .receipt-head strong { color: var(--amber); }
+.receipt-chip { border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent); border-radius: 20px; padding: 1px 7px; color: var(--amber); font-size: 8px; letter-spacing: .06em; text-transform: uppercase; }
+.receipt-score { margin-left: auto; font-size: 15px; }
+.receipt-row.skipped .receipt-score { color: var(--fg-muted); text-shadow: none; }
+.receipt-factors { display: grid; gap: 3px; margin-top: 7px; }
+.receipt-reason { margin: 6px 0 0; color: var(--fg-muted); font-size: 10px; line-height: 1.5; }
+.detail-route-row, .detail-activity-row { display: grid; grid-template-columns: 14px 1fr; gap: 9px; padding: 8px 0; border-bottom: 1px solid var(--bezel); align-items: start; }
+.detail-route-row .timeline-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-top: 5px; }
+.detail-route-row.completed { color: var(--phosphor); }
+.detail-route-row.running { color: var(--amber); }
+.detail-route-row.failed { color: var(--alarm); }
+.detail-route-row strong, .detail-activity-row strong { color: var(--fg); display: block; font-size: 11px; font-weight: 600; }
+.detail-route-row small, .detail-activity-row small { display: block; color: var(--fg-muted); font-size: 9px; line-height: 1.45; margin-top: 3px; word-break: break-word; }
+.detail-activity-row > .icon { color: var(--cyan); margin-top: 2px; }
+.probability-bar-label .chip { margin-right: 5px; vertical-align: middle; }
+
+/* ---------- Advisor panel (Jev) ---------- */
+.advice-card { display: grid; gap: 12px; }
+.advice-badge-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.advice-badge-meta { color: var(--fg-muted); font-size: 10px; }
+.advice-badge-meta.caution { color: var(--caution); }
+.advice-section { display: grid; gap: 6px; }
+.advice-label { margin: 0; color: var(--fg-muted); font: 600 9px var(--font-display); text-transform: uppercase; letter-spacing: .06em; }
+.advice-value { margin: 0; color: var(--fg); font-size: 12px; }
+.advice-note { margin: 3px 0 0; color: var(--fg-muted); font-size: 11px; line-height: 1.5; }
+.advice-signals { display: flex; flex-wrap: wrap; gap: 14px; }
+.advice-signal { display: inline-flex; align-items: center; gap: 7px; font-size: 10px; color: var(--fg-muted); }
+
+/* ---------- Files & diff viewer ---------- */
+.task-file-sidebar { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--bezel); }
+.task-file-sidebar-head, .task-file-viewer-head { flex: 0 0 auto; padding: 13px 15px; border-bottom: 1px solid var(--bezel); }
+.task-file-sidebar-head h3, .task-file-viewer-head h3 { margin: 0; font: 600 15px var(--font-display); }
+.task-detail-file-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.task-detail-folder { width: 100%; border: 0; border-radius: 0; background: transparent; display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 5px 12px 5px calc(12px + var(--tree-depth) * 14px); text-align: left; color: var(--fg-muted); }
+.task-detail-folder:hover { background: var(--surface-2); }
+.task-detail-folder .tree-caret { flex: 0 0 auto; width: 14px; color: var(--fg-muted); display: flex; }
+.task-detail-folder:hover .tree-caret { color: var(--fg); }
+.task-detail-folder strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); font-size: 10px; font-weight: 600; }
+.task-detail-folder .tree-changed-count { flex: 0 0 auto; margin-left: auto; padding: 1px 5px; border-radius: 8px; background: var(--surface-3); color: var(--phosphor); font: 700 8px var(--font-mono); }
+.task-detail-folder.open .tree-changed-count { opacity: .55; }
+.task-detail-file { width: 100%; border: 0; border-radius: 0; background: transparent; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; padding: 6px 12px 6px calc(12px + var(--tree-depth) * 14px); text-align: left; }
+.task-detail-file:hover, .task-detail-file.active { background: var(--surface-2); }
+.task-detail-file.active { box-shadow: inset 2px 0 var(--amber); }
+.task-detail-file.changed strong { color: var(--fg); font-weight: 650; }
+.task-detail-file > span:last-child { min-width: 0; }
+.task-detail-file strong, .task-detail-file small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-detail-file strong { font-size: 11px; }
+.task-detail-file small { color: var(--fg-muted); font-size: 8px; margin-top: 3px; }
+.file-badge { flex: 0 0 auto; justify-self: start; font: 700 8px var(--font-mono); letter-spacing: .04em; padding: 2px 5px; border-radius: var(--r-sm); border: 1px solid currentColor; color: var(--fg-muted); }
+.file-badge.create { color: var(--phosphor); }
+.file-badge.edit { color: var(--cyan); }
+.file-badge.delete { color: var(--alarm); }
+.file-tree-icon { color: var(--fg-faint); font-size: 12px; padding-left: 7px; }
+.task-file-viewer { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.task-file-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.task-file-viewer-head > div:first-child { min-width: 0; }
+.task-file-viewer-head h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-file-mode { display: flex; border: 1px solid var(--bezel); border-radius: var(--r-md); overflow: hidden; }
+.task-file-mode button { border: 0; border-radius: 0; padding: 6px 10px; background: transparent; color: var(--fg-muted); font-size: 9px; }
+.task-file-mode button.active { color: var(--fg); background: var(--surface-3); }
+.task-file-mode button:disabled { opacity: .35; cursor: default; }
+.task-file-notice { flex: 0 0 auto; padding: 11px 15px; border-bottom: 1px solid var(--bezel); color: var(--fg-muted); font-size: 10px; }
+
+/* Head-to-head measurements on a bench/subtask lane. */
+.lane-score { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 8px 12px 0; }
+.lane-measure { border: 1px solid var(--bezel); border-radius: 20px; padding: 2px 7px; color: var(--fg-muted); font-size: 8px; white-space: nowrap; }
+
+/* ---------- Inspector (right pane) ---------- */
+.inspector { display: flex; flex-direction: column; min-height: 0; }
+.inspector-head { flex: 0 0 auto; padding: 15px 16px 11px; border-bottom: 1px solid var(--bezel); }
+.inspector-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.inspector-route { display: grid; gap: 10px; }
+.inspector-route-sentence { margin: 0; color: var(--fg); font-size: 12px; line-height: 1.55; }
+.inspector-route-badge-row { display: flex; }
+.inspector-route-details-toggle { justify-self: start; padding-inline: 0; }
+.inspector-route-details { display: grid; gap: 12px; margin-top: 2px; }
+.inspector-route-details .route-card:first-child { margin-top: 0; }
+.inspector-route-details .route-card-second, .inspector-route-details .eyebrow:first-child { margin-top: 0; }
+
+.inspector-file-list { display: grid; gap: 4px; }
+.inspector-file-row { width: 100%; display: flex; align-items: center; gap: 9px; padding: 7px 9px; border: 1px solid var(--bezel); border-radius: var(--r-sm); background: var(--surface-2); text-align: left; }
+.inspector-file-row:hover { border-color: var(--bezel-strong); background: var(--surface-3); }
+.inspector-file-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--font-mono); color: var(--fg); }
+
+.inspector-activity-list { display: grid; }
+.inspector-activity-list .detail-activity-row:last-child { border-bottom: 0; }
+
+.inspector-context { display: grid; gap: 8px; }
+.inspector-context-head { display: flex; align-items: center; justify-content: space-between; }
+.inspector-context-head span { color: var(--fg-muted); font-size: 11px; }
+.inspector-context-detail { margin: 0; color: var(--fg-muted); font-size: 10px; }
+
+.inspector-attempts .detail-route-row:last-child { border-bottom: 0; }
+.inspector-branch-list { display: grid; gap: 6px; margin-top: 8px; }
+.inspector-branch-item { display: flex; align-items: center; gap: 8px; }
+.inspector-branch-item .lane-branch { margin: 0; width: auto; flex: 1 1 auto; }
+
+/* The inspector's auto-collapse is driven from JS (`applyInspectorState` in
+   views/tasks.ts), which measures the grid's real width rather than reading
+   a fixed viewport breakpoint here — the decision is "would the centre fall
+   below 480px", not "is the window narrower than some number". */

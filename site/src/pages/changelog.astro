@@ -72,18 +72,18 @@ const entries = await Promise.all(
   .releases { list-style: none; padding: 0; margin: 34px 0 0; }
   .release {
     display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 30px;
-    padding: 30px 0; border-top: 1px solid var(--line-soft);
+    padding: 30px 0; border-top: 1px solid var(--bezel);
   }
   .release:first-child { border-top: 0; padding-top: 6px; }
   .release-meta { display: grid; gap: 8px; align-content: start; justify-items: start; position: sticky; top: calc(var(--nav-h) + 26px); }
   .release-tag { font-family: var(--mono); font-size: 15px; font-weight: 600; }
-  .release-meta time { color: var(--muted); font-size: 12px; }
+  .release-meta time { color: var(--fg-muted); font-size: 12px; }
   .release-body h2 { font-size: 23px; margin-bottom: 12px; }
 
   .notes :global(ul) { padding-left: 20px; margin: 0 0 16px; }
   .notes :global(li) { color: #c2cbc4; margin-bottom: 6px; }
   .notes :global(h2),
-  .notes :global(h3) { font-size: 15px; font-family: var(--sans); font-weight: 650; margin: 22px 0 8px; }
+  .notes :global(h3) { font-size: 15px; font-family: var(--font-body); font-weight: 650; margin: 22px 0 8px; }
   .notes :global(p) { color: #c2cbc4; }
   .notes :global(a) { word-break: break-word; }
   .notes :global(hr) { margin: 20px 0; }

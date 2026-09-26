@@ -1,0 +1,112 @@
+/* Phosphor Console — design tokens. Components use only these; no raw hex or rgb()
+   literal is allowed outside this file (see docs/design-phosphor-console.md §2). */
+
+:root, :root[data-theme='console'] {
+  color-scheme: dark;
+  --bg: #0b0d0c;
+  --surface-1: #101312;
+  --surface-2: #161b19;
+  --surface-3: #1d2421;
+  --bezel: #262e2a;
+  --bezel-strong: #37423c;
+  --fg: #e6e3d8;
+  --fg-muted: #8e978f;
+  --fg-faint: #7c857f;
+  --amber: #ffb000;
+  --amber-fill: #ffb000;
+  --on-amber: #1a1300;
+  --cyan: #37e2d5;
+  --phosphor: #7cff6b;
+  --alarm: #ff4d4d;
+  --caution: #ff8a3d;
+  --glow-amber: 0 0 8px rgb(255 176 0 / .35);
+  --glow-cyan: 0 0 8px rgb(55 226 213 / .30);
+  --glow-phosphor: 0 0 8px rgb(124 255 107 / .30);
+  --glow-alarm: 0 0 8px rgb(255 77 77 / .30);
+  --glow-caution: 0 0 8px rgb(255 138 61 / .30);
+  --hairline-hi: rgb(255 255 255 / .04);
+  --scrim: rgb(0 0 0 / .69);
+  --shadow-color: rgb(0 0 0 / .45);
+  --e-2-shadow: 0 18px 48px var(--shadow-color);
+  --scanline: rgb(255 255 255 / .03);
+  --hover-wash: rgb(255 255 255 / .025);
+  --on-scrim: #ffffff;
+}
+
+:root[data-theme='daylight'] {
+  color-scheme: light;
+  --bg: #e9e4d8;
+  --surface-1: #f3efe5;
+  --surface-2: #fbf8f1;
+  --surface-3: #e1dbcc;
+  --bezel: #c9c1ae;
+  --bezel-strong: #a89f89;
+  --fg: #1c1f1d;
+  --fg-muted: #4c5049;
+  --fg-faint: #62665f;
+  --amber: #8f5a00;
+  --amber-fill: #c98a00;
+  --on-amber: #1a1300;
+  --cyan: #00706c;
+  --phosphor: #286d17;
+  --alarm: #b3261e;
+  --caution: #a5470a;
+  --glow-amber: none;
+  --glow-cyan: none;
+  --glow-phosphor: none;
+  --glow-alarm: none;
+  --glow-caution: none;
+  --hairline-hi: rgb(255 255 255 / .5);
+  --scrim: rgb(30 24 12 / .45);
+  --shadow-color: rgb(40 30 10 / .18);
+  --e-2-shadow: 0 12px 32px var(--shadow-color);
+  --scanline: rgb(0 0 0 / .03);
+  --hover-wash: rgb(0 0 0 / .025);
+  --on-scrim: #ffffff;
+}
+
+:root {
+  /* Spacing (4px scale) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-7: 32px;
+  --s-8: 48px;
+
+  /* Radii — instruments are squarer than the old UI; only lamps/pills are round. */
+  --r-sm: 3px;
+  --r-md: 6px;
+  --r-lg: 10px;
+
+  /* Elevation */
+  --e-1: inset 0 1px 0 0 var(--hairline-hi);
+  --e-2: var(--e-1), var(--e-2-shadow);
+
+  /* Motion */
+  --t-fast: 120ms;
+  --t-med: 220ms;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* Type */
+  --font-display: 'Chakra Petch', ui-sans-serif, sans-serif;
+  --font-body: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --sidebar-width: 244px;
+
+  font-family: var(--font-body);
+}
+
+/* Effects are switched off entirely with `data-effects="off"` (Settings → Appearance,
+   or `prefers-reduced-motion`). Everything that glows, sweeps, blinks, or scans reads
+   this token rather than reimplementing the check. */
+:root[data-effects='off'] {
+  --glow-amber: none;
+  --glow-cyan: none;
+  --glow-phosphor: none;
+  --glow-alarm: none;
+  --glow-caution: none;
+}

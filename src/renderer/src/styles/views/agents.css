@@ -1,0 +1,75 @@
+/* ---------- Agents ---------- */
+.section-intro { flex: 0 0 auto; margin-bottom: 18px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
+.section-intro p { color: var(--fg-muted); font-size: 12px; line-height: 1.55; margin: 0; max-width: 74ch; }
+
+/* Getting-started callout — the old three-card setup guide, collapsed into a
+   dismissible panel (localStorage `fp-agents-setup-dismissed`). */
+.setup-guide-callout { position: relative; margin-bottom: 18px; }
+.setup-guide-callout[hidden] { display: none; }
+.setup-guide-callout #agents-setup-dismiss { position: absolute; top: 10px; right: 10px; }
+.setup-guide-callout > .eyebrow { margin: 0 0 9px; }
+.setup-guide { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; background: var(--bezel); }
+.setup-guide > div { position: relative; padding: 16px 18px 15px 44px; background: var(--surface-1); min-height: 100px; }
+.setup-guide span { position: absolute; left: 17px; top: 17px; color: var(--amber); font: 9px var(--font-mono); }
+.setup-guide strong { display: block; font: 600 15px var(--font-display); margin-bottom: 6px; }
+.setup-guide p { color: var(--fg-muted); font-size: 9px; line-height: 1.55; margin: 0; }
+
+/* ---------- Agents table ---------- */
+#agents-table .data-table th, #agents-table .data-table td { vertical-align: middle; }
+.agents-name-cell { display: flex; align-items: center; gap: 9px; font: 600 12px var(--font-body); color: var(--fg); }
+.agents-models-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.agents-models-count { color: var(--fg-muted); font-size: 10px; }
+.agents-tier-chips { display: flex; gap: 4px; }
+.agents-plan-cell { display: grid; gap: 4px; min-width: 130px; }
+.agents-plan-cell small { color: var(--fg-muted); font-size: 9px; }
+
+/* ---------- Drawer: provider edit form + usage ---------- */
+.drawer-section + .drawer-section { padding-top: var(--s-5); border-top: 1px solid var(--bezel); }
+.provider-form { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.provider-form .wide { grid-column: 1 / -1; }
+.provider-form textarea { min-height: 62px; }
+.provider-card-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+.health-label { font-size: 10px; color: var(--fg-muted); display: flex; align-items: center; gap: 7px; }
+
+.usage-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.usage-gauges { display: grid; gap: 9px; margin-bottom: 14px; }
+.usage-stat { display: flex; flex-direction: column; gap: 3px; }
+.usage-stat-label { font-size: 8px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); }
+.usage-stat strong { font-size: 17px; font-weight: 600; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.usage-gauge { display: grid; gap: 6px; padding: 11px 12px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
+.usage-gauge-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.usage-gauge-head span { color: var(--fg); font-size: 12px; }
+.usage-gauge-head strong { font-size: 15px; }
+.usage-budget-label { font-size: 10px; color: var(--fg-muted); }
+.usage-card-footer { display: flex; align-items: center; gap: 9px; border-top: 1px solid var(--bezel); padding-top: 12px; margin-top: 14px; }
+.usage-session { font-size: 11px; color: var(--fg); }
+
+/* Usage history + per-model breakdown. */
+.usage-history { margin-top: 14px; }
+.usage-models { margin-top: 14px; }
+.usage-section-label { font-size: 8px; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 7px; }
+.usage-history-chart { display: flex; align-items: flex-end; gap: 3px; height: 46px; }
+.usage-history-bar { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; }
+.usage-history-fill { width: 100%; border-radius: 2px 2px 0 0; background: color-mix(in srgb, var(--cyan) 40%, transparent); }
+.usage-history-bar.today .usage-history-fill { background: var(--phosphor); box-shadow: var(--glow-phosphor); }
+.usage-model-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 10px; }
+.usage-model-name { font: 9px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-model-tokens { color: var(--fg-muted); font-size: 9px; white-space: nowrap; }
+
+@media (max-width: 1120px) {
+  .setup-guide { grid-template-columns: 1fr; }
+}
+
+/* Lower-priority columns drop first as the table narrows, in this order:
+   Version, Today's tokens, then Kind — `.table-wrap`'s own `overflow-x: auto`
+   (components.css) is the fallback that keeps the page itself from ever
+   scrolling sideways; this is purely for readability before that kicks in. */
+@media (max-width: 1000px) {
+  #agents-table .data-table th:nth-child(4), #agents-table .data-table td:nth-child(4) { display: none; }
+}
+@media (max-width: 900px) {
+  #agents-table .data-table th:nth-child(6), #agents-table .data-table td:nth-child(6) { display: none; }
+}
+@media (max-width: 800px) {
+  #agents-table .data-table th:nth-child(2), #agents-table .data-table td:nth-child(2) { display: none; }
+}

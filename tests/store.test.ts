@@ -121,4 +121,31 @@ describe('persistent store', () => {
     expect(loaded.providerRuntime?.claude.usage.inputTokens).toBe(1200)
     expect(loaded.providerRuntime?.claude.sessions).toHaveLength(2)
   })
+
+  it('round-trips per-model outcome stats alongside the provider-level ones', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-model-outcomes-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    const usage = { date: new Date().toLocaleDateString('en-CA'), tasks: 1, estimatedInputTokens: 0, estimatedOutputTokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, elapsedMs: 0 }
+    const outcomes = { coding: { runs: 4, completed: 4, merged: 3, discarded: 0, verified: 3, verifyFailed: 0 } }
+    const modelOutcomes = { 'claude-opus-5': { coding: { runs: 4, completed: 4, merged: 3, discarded: 0, verified: 3, verifyFailed: 0 } } }
+    await store.save({ settings, tasks: [], providerRuntime: { claude: { usage, outcomes, modelOutcomes } } })
+    const loaded = await store.load()
+    expect(loaded.providerRuntime?.claude.modelOutcomes).toEqual(modelOutcomes)
+    expect(loaded.providerRuntime?.claude.outcomes).toEqual(outcomes)
+  })
+
+  // A state file written before per-model outcomes existed must still load —
+  // provider-level outcomes intact, modelOutcomes simply absent.
+  it('loads an older state file with no modelOutcomes unchanged', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-store-legacy-outcomes-'))
+    const path = join(directory, 'state.json')
+    const outcomes = { coding: { runs: 5, completed: 5, merged: 4, discarded: 0, verified: 4, verifyFailed: 0 } }
+    const usage = { date: new Date().toLocaleDateString('en-CA'), tasks: 5, estimatedInputTokens: 0, estimatedOutputTokens: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, elapsedMs: 0 }
+    await writeFile(path, JSON.stringify({ settings: freshDefaults(), tasks: [], providerRuntime: { claude: { usage, outcomes } } }), 'utf8')
+    const store = new JsonStore(path)
+    const loaded = await store.load()
+    expect(loaded.providerRuntime?.claude.outcomes).toEqual(outcomes)
+    expect(loaded.providerRuntime?.claude.modelOutcomes).toBeUndefined()
+  })
 })

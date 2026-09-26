@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   verification: { enabled: true, commands: [], timeoutSeconds: 300 },
   notifications: { enabled: true, onlyWhenUnfocused: true },
   learnFromOutcomes: true,
+  advisor: { mode: 'off', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: true, previewWhileTyping: false },
   controlPlane: {
     systemPrompt: '',
     addDirs: [],

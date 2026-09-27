@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Frontier Proxy — amber radar scope (small-size variant)</title>
+
+  <!-- Simplified for 16–32px: same body/colours as build/icon.svg, but no corner ticks
+       and no N/E/S/W tick marks, a single (thicker) ring, and no inner ring — those
+       details disappear at favicon/tray sizes and just muddy the silhouette. -->
+
+  <defs>
+    <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1D2421"/>
+      <stop offset="1" stop-color="#0B0D0C"/>
+    </linearGradient>
+
+    <radialGradient id="sweepGrad" gradientUnits="userSpaceOnUse" cx="512" cy="512" r="300">
+      <stop offset="0" stop-color="#FFB000" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#FFB000" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="glowAmber" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="glowCyan" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Body: same smoked-glass surface, no drop shadow needed at these sizes -->
+  <rect x="100" y="100" width="824" height="824" rx="185"
+        fill="url(#bodyGrad)" stroke="#37423C" stroke-width="2"/>
+
+  <!-- Sweep wedge, ~60° from 12 o'clock to 2 o'clock -->
+  <path d="M 512 512 L 512 212 A 300 300 0 0 1 771.00 362.00 Z" fill="url(#sweepGrad)"/>
+
+  <!-- One bold outer ring — survives down to 16px -->
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#FFB000" stroke-width="46" opacity="0.85"/>
+
+  <!-- Cyan blip on the ring, inside the sweep -->
+  <circle cx="663.50" cy="264.50" r="30" fill="#37E2D5" filter="url(#glowCyan)"/>
+
+  <!-- Centre dot with amber glow -->
+  <circle cx="512" cy="512" r="56" fill="#FFB000" filter="url(#glowAmber)"/>
+</svg>

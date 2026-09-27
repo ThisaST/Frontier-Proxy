@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, safeStorage, shell } from 'electron'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { OrchestrationEngine } from './engine'
@@ -194,6 +195,13 @@ if (!app.requestSingleInstanceLock()) {
 
 function startApp(): void {
 app.whenReady().then(async () => {
+  // Unpackaged (pnpm dev) runs show Electron's default Dock icon because there's no
+  // app bundle for macOS to read one from — point it at the built PNG ourselves.
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    const devIconPath = join(app.getAppPath(), 'build', 'icon.png')
+    if (existsSync(devIconPath)) app.dock?.setIcon(devIconPath)
+  }
+
   await hydrateExecutablePath()
   const userData = app.getPath('userData')
   const store = new JsonStore(join(userData, 'frontier-state.json'))

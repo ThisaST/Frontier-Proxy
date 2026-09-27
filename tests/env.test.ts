@@ -48,6 +48,32 @@ describe('hydrateExecutablePath', () => {
     await assertDead(grandchild) // the whole process group was killed, not just the shell
   })
 
+  it('keeps the PATH already printed when the shell exits but a grandchild still holds stdout open', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'frontier-env-'))
+    const pidFile = join(dir, 'grandchild.json')
+    // The shell itself behaves — prints PATH and exits 0 — but a background
+    // job it left running (a `.zshrc` daemon, say) still holds the inherited
+    // stdout pipe open, so `close` would never fire on its own.
+    const fakeShell = `
+      const { spawn } = require('node:child_process')
+      const fs = require('node:fs')
+      const grandchild = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] })
+      grandchild.unref() // let this (fake shell) process exit while the background job lives on, like a real backgrounded job would
+      fs.writeFileSync(process.argv[1], JSON.stringify({ grandchild: grandchild.pid }))
+      process.stdout.write('/shell/reported/bin')
+    `
+    const started = Date.now()
+    await hydrateExecutablePath({ shell: process.execPath, args: ['-e', fakeShell, pidFile], timeoutMs: 3_000 })
+    const elapsed = Date.now() - started
+    expect(elapsed).toBeLessThan(1_000) // the ~100ms exit grace period, not the 3s deadline
+
+    const entries = (process.env.PATH ?? '').split(delimiter)
+    expect(entries).toContain('/shell/reported/bin') // not thrown away for the bare fallback
+
+    const { grandchild } = JSON.parse(await readFile(pidFile, 'utf8')) as { grandchild: number }
+    await assertDead(grandchild)
+  })
+
   it('merges a shell-reported PATH with the existing one, keeping entries unique', async () => {
     process.env.PATH = ['/existing/bin', '/usr/local/bin'].join(delimiter)
     const fakeShell = `process.stdout.write(['/existing/bin', '/shell/only/bin'].join(${JSON.stringify(delimiter)}))`

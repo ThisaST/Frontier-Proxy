@@ -24,8 +24,9 @@ export interface HydrateOptions {
 // shell no stdin (a `read` sees EOF immediately, rather than blocking forever
 // on an open pipe), run it in its own process group, and on the deadline
 // SIGKILL that whole group so any grandchild still holding the stdout pipe
-// open dies too — then resolve from the common-locations fallback without
-// waiting for the pipe to close.
+// open dies too — then resolve from whatever PATH already arrived (never
+// waiting for the pipe to close) rather than throwing it away for the bare
+// fallback.
 function runShell(options: HydrateOptions): Promise<string> {
   const shell = options.shell ?? process.env.SHELL ?? '/bin/zsh'
   const args = options.args ?? ['-ilc', 'printf %s "$PATH"']
@@ -33,22 +34,33 @@ function runShell(options: HydrateOptions): Promise<string> {
   return new Promise((resolve) => {
     let stdout = ''
     let settled = false
+    let graceTimer: ReturnType<typeof setTimeout> | undefined
     const child = spawn(shell, args, { stdio: ['ignore', 'pipe', 'ignore'], detached: true })
+    const killGroup = (): void => {
+      try { if (child.pid) process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ }
+    }
     const finish = (value: string): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      clearTimeout(graceTimer)
       resolve(value)
     }
-    const timer = setTimeout(() => {
-      // SIGTERM alone doesn't touch an interactive zsh; kill the whole group.
-      try { if (child.pid) process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ }
-      finish('')
-    }, timeoutMs)
+    const timer = setTimeout(() => { killGroup(); finish(stdout) }, timeoutMs)
     timer.unref?.()
     child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8') })
     child.on('error', () => finish(''))
     child.on('close', () => finish(stdout))
+    // The shell exiting is the real completion signal; `close` additionally
+    // needs the stdout pipe itself to close, which a lingering grandchild (a
+    // background job left running by .zshrc) can hold open indefinitely.
+    // Give a short grace period for any trailing data, then kill the group
+    // and resolve — a straggling grandchild then costs ~100ms, not the full
+    // deadline.
+    child.on('exit', () => {
+      graceTimer = setTimeout(() => { killGroup(); finish(stdout) }, 100)
+      graceTimer.unref?.()
+    })
   })
 }
 

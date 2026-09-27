@@ -6,6 +6,7 @@ import { OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
 import { freshDefaults } from '../src/shared/defaults'
 import type { AppSnapshot, ProviderConfig } from '../src/shared/types'
+import { noopHydrate } from './test-helpers'
 
 // End-to-end lifecycle tests: drive the real OrchestrationEngine through
 // createTask -> pump -> execute -> completion using fake CLIs (node scripts run
@@ -42,7 +43,7 @@ async function makeEngine(providers: ProviderConfig[]): Promise<{ engine: Orches
     ...providers
   ]
   await store.save({ settings, tasks: [] })
-  const engine = new OrchestrationEngine(store)
+  const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
   await engine.initialize()
   return { engine, cwd }
 }

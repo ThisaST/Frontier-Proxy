@@ -8,6 +8,7 @@ import { OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
 import { freshDefaults } from '../src/shared/defaults'
 import type { AppSnapshot, ProviderConfig, VerificationSettings } from '../src/shared/types'
+import { noopHydrate } from './test-helpers'
 
 // The verification lane end to end: a real git repo, real worktrees, real child
 // processes for both the "agent" and the checks. What is faked is only the CLI
@@ -39,7 +40,7 @@ async function makeEngine(providers: ProviderConfig[], verification: Verificatio
   settings.verification = verification
   settings.providers = [...freshDefaults().providers.map((provider) => ({ ...provider, enabled: false })), ...providers]
   await store.save({ settings, tasks: [] })
-  const engine = new OrchestrationEngine(store)
+  const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
   await engine.initialize()
   return { engine, cwd }
 }

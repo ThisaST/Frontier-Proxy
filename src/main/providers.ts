@@ -562,6 +562,12 @@ export async function runProvider(provider: ProviderConfig, options: RunOptions)
     })
 
     const stdinPrompt = command.promptPrefix ? `${command.promptPrefix}\n\n${options.prompt}` : options.prompt
+    // A CLI that exits before reading its prompt (a logged-out/misconfigured
+    // CLI, or any provider whose process just exits fast) makes this write
+    // fail with EPIPE. Without a listener that's an uncaught exception —
+    // a crash dialog in Electron's main process. The `close` handler above
+    // already reports the real outcome from the exit code, so swallow it here.
+    child.stdin.on('error', () => {})
     child.stdin.end(command.promptInArgs ? undefined : stdinPrompt)
   })
 }

@@ -117,7 +117,10 @@ export class OrchestrationEngine extends EventEmitter {
     // advice, independent of JevClient's own per-attempt timeout/retry
     // (which alone could add up to ~5s: 2s + a capped retry + 2s). Injectable
     // so tests don't have to wait out the real default.
-    private readonly advisorDeadlineMs: number = 3_000
+    private readonly advisorDeadlineMs: number = 3_000,
+    // Injectable so tests never spawn the developer's real login shell —
+    // `initialize()`/`checkProviders()` call this on every provider check.
+    private readonly hydratePath: () => Promise<void> = hydrateExecutablePath
   ) { super() }
 
   async initialize(): Promise<void> {
@@ -469,7 +472,7 @@ export class OrchestrationEngine extends EventEmitter {
     // initialized since launch, and health checks resolve executables against
     // this process's PATH. Without this, a provider missing at startup would
     // stay "Not detected" for the whole session even after the user fixes it.
-    await hydrateExecutablePath()
+    await this.hydratePath()
     await Promise.all(this.settings.providers.map(async (provider) => {
       const runtime = this.runtimes.get(provider.id) ?? blankRuntime()
       this.runtimes.set(provider.id, runtime)

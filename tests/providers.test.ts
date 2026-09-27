@@ -152,6 +152,26 @@ describe('local provider process adapter', () => {
     expect(result.failureKind).toBe('cancelled')
   })
 
+  it('does not crash on EPIPE when the CLI exits before reading a prompt too large for the pipe buffer', async () => {
+    const uncaught: unknown[] = []
+    const onUncaught = (error: unknown): void => { uncaught.push(error) }
+    process.on('uncaughtException', onUncaught)
+    try {
+      // 2MB comfortably exceeds the OS pipe buffer (typically 64KB), so the
+      // write is guaranteed to still be in flight when the process below
+      // exits without ever reading stdin — reproducing the real EPIPE.
+      const hugePrompt = 'x'.repeat(2 * 1024 * 1024)
+      const result = await runProvider(custom(['-e', 'process.exit(3)']), {
+        prompt: hugePrompt, cwd: process.cwd(), signal: new AbortController().signal, onOutput: () => undefined
+      })
+      expect(result.ok).toBe(false)
+      expect(result.error).toContain('code 3')
+      expect(uncaught).toEqual([])
+    } finally {
+      process.off('uncaughtException', onUncaught)
+    }
+  })
+
   it('offers a curated known-model set for subscription CLIs', async () => {
     const claude: ProviderConfig = {
       id: 'claude', name: 'Claude Code', kind: 'claude', enabled: true, executable: 'claude',

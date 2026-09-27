@@ -28,8 +28,8 @@ import { discoverSkills, resolveSkills } from './skills'
 import { pickModel, rankProviders, routeTask, type RoutingOptions } from './router'
 import { buildPlannerPrompt, buildSynthesisPrompt, parsePlan } from './orchestrate'
 import {
-  advise, buildJevRequest, buildSubtaskAdviceRequest, heuristicAdvice, adviceFromResponse, subtaskAdviceFromResponse,
-  repoFacts, JevClient, type AdvisorKeyManager, type AdviceCandidate
+  advise, buildJevRequest, MAX_STATE_CHARS, buildSubtaskAdviceRequest, heuristicAdvice, adviceFromResponse, subtaskAdviceFromResponse,
+  repoFacts, requestJev, JevClient, type AdvisorKeyManager, type AdviceCandidate
 } from './advisor'
 import { tierFor } from '../shared/model-profiles'
 import { branchSlug, commitWorktree, createWorktree, isGitRepo, removeWorktree } from './worktree'
@@ -307,12 +307,13 @@ export class OrchestrationEngine extends EventEmitter {
         const facts = settings.shareRepoFacts ? await repoFacts(task.cwd).catch(() => undefined) : undefined
         if (controller.signal.aborted) return undefined
         const candidates = this.adviceCandidates(task)
-        const { request, advised } = buildSubtaskAdviceRequest(
-          task.prompt,
-          plan.map((subtask) => ({ title: subtask.title, type: subtask.type, prompt: subtask.prompt })),
-          candidates, settings, facts
-        )
-        const { json, latencyMs } = await this.jevClient.request(key, request)
+        const items = plan.map((subtask) => ({ title: subtask.title, type: subtask.type, prompt: subtask.prompt }))
+        let advised: number[] = []
+        const { json, latencyMs } = await requestJev(this.jevClient, key, (maxChars) => {
+          const built = buildSubtaskAdviceRequest(task.prompt, items, candidates, settings, facts, maxChars)
+          advised = built.advised
+          return built.request
+        })
         return subtaskAdviceFromResponse(json, advised.map((n) => ({ n, type: plan[n - 1].type })), { latencyMs })
       } catch {
         // Any failure (network, timeout, malformed response) leaves every
@@ -609,15 +610,17 @@ export class OrchestrationEngine extends EventEmitter {
     const heuristic = heuristicAdvice(input.prompt)
     const facts = settings.shareRepoFacts ? await repoFacts(input.cwd).catch(() => undefined) : undefined
     const candidates = this.adviceCandidates(pseudoTask)
-    const request = buildJevRequest({ prompt: input.prompt, attachments: input.attachments }, candidates, settings, facts)
+    const build = (maxChars: number) => buildJevRequest({ prompt: input.prompt, attachments: input.attachments }, candidates, settings, facts, maxChars)
+    let request = build(MAX_STATE_CHARS)
 
     let advice: RoutingAdvice = heuristic
     if (settings.previewWhileTyping && mode !== 'off' && this.advisorKeys?.hasKey()) {
       const key = this.advisorKeys.getKey()
       if (key) {
         try {
-          const { json, latencyMs } = await this.jevClient.request(key, request)
-          advice = adviceFromResponse(json, heuristic.taskType, settings.minConfidence, { latencyMs })
+          const answered = await requestJev(this.jevClient, key, build)
+          request = answered.request
+          advice = adviceFromResponse(answered.json, heuristic.taskType, settings.minConfidence, { latencyMs: answered.latencyMs })
         } catch (error) {
           advice = { ...heuristic, error: error instanceof Error ? error.message : String(error) }
         }
@@ -805,12 +808,14 @@ export class OrchestrationEngine extends EventEmitter {
           recordFileChange(task, event)
           this.emitSnapshot()
         },
-        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? provider.model) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? runConfig.model) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
       })
-      if (!task.model) task.model = result.model ?? provider.model
+      // A CLI that never reports its model ran whatever withModel handed it —
+      // a user override or the advisor's pick — not necessarily its default.
+      if (!task.model) task.model = result.model ?? runConfig.model
       ranModel = result.model ?? runConfig.model
 
       runtime.running = Math.max(0, runtime.running - 1)
@@ -960,7 +965,7 @@ export class OrchestrationEngine extends EventEmitter {
         onOutput: (chunk) => { task.output += chunk; task.estimatedOutputTokens = estimateTokens(task.output); this.emit('stream', { taskId: task.id, kind: 'output', data: chunk } satisfies StreamEvent); this.emitSnapshot() },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? provider.model) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? runConfig.model) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }
@@ -1125,12 +1130,12 @@ export class OrchestrationEngine extends EventEmitter {
           onUsage: (usage) => {
             lane.usageInputTokens = (lane.usageInputTokens ?? 0) + usage.inputTokens
             lane.usageOutputTokens = (lane.usageOutputTokens ?? 0) + usage.outputTokens
-            this.applyUsage(runtime, usage, task, lane.model ?? provider.model)
+            this.applyUsage(runtime, usage, task, lane.model ?? runConfig.model)
           },
           onSession: (session) => { this.applySession(runtime, session) }
         })
         if (!lane.output.trim()) lane.output = result.output
-        if (!lane.model) lane.model = result.model ?? provider.model
+        if (!lane.model) lane.model = result.model ?? runConfig.model
         lane.status = controller.signal.aborted || result.failureKind === 'cancelled' ? 'cancelled' : result.ok ? 'completed' : 'failed'
         if (!result.ok && lane.status !== 'cancelled') lane.error = result.error
         releaseSlot()
@@ -1332,7 +1337,7 @@ export class OrchestrationEngine extends EventEmitter {
         onOutput: (text) => { output += text; onText?.(text) },
         onModel: (model) => { task.model = model; this.emitSnapshot() },
         onActivity: (event) => { task.activity = [...(task.activity ?? []), event].slice(-100); recordFileChange(task, event); this.emitSnapshot() },
-        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? provider.model) },
+        onUsage: (usage) => { this.applyUsage(runtime, usage, task, task.model ?? runConfig.model) },
         onContext: (context) => { contextReported = true; this.applyContext(task, provider, context) },
         onSession: (session) => { this.applySession(runtime, session) },
         onSessionId: (sessionId) => { task.sessionId = sessionId; task.sessionProviderId = provider.id }

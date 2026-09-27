@@ -6,7 +6,8 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AdvisorKeyManager, adviceFromResponse, advise, buildJevRequest, buildSubtaskAdviceRequest, clearRepoFactsCache,
-  heuristicAdvice, JevClient, MAX_ADVISED_SUBTASKS, repoFacts, subtaskAdviceFromResponse, trimForJev,
+  FALLBACK_STATE_CHARS, heuristicAdvice, JevClient, JevError, MAX_ADVISED_SUBTASKS, MAX_STATE_CHARS, repoFacts, requestJev,
+  subtaskAdviceFromResponse, trimForJev,
   type AdviceCandidate, type JevResponseBody
 } from '../src/main/advisor'
 import type { RoutingAdvisorSettings } from '../src/shared/types'
@@ -167,6 +168,15 @@ describe('buildSubtaskAdviceRequest', () => {
     const { request } = buildSubtaskAdviceRequest('Parent goal', huge, candidates(), settings())
     expect(JSON.stringify(request).length).toBeLessThan(70_000)
   })
+
+  // Parent and plan share one budget: trimmed separately, a long parent plus a
+  // long plan overflowed Jev's single request limit even at code density.
+  it('fits a long parent prompt and a long plan into one shared state budget', () => {
+    const huge = Array.from({ length: MAX_ADVISED_SUBTASKS }, (_, index) => ({ title: `Subtask ${index + 1}`, type: 'coding' as const, prompt: 'x'.repeat(50_000) }))
+    const stateChars = (maxChars?: number) => JSON.stringify(buildSubtaskAdviceRequest('p'.repeat(200_000), huge, candidates(), settings(), undefined, maxChars).request.state).length
+    expect(stateChars()).toBeLessThan(MAX_STATE_CHARS + 2_000)
+    expect(stateChars(FALLBACK_STATE_CHARS)).toBeLessThan(FALLBACK_STATE_CHARS + 2_000)
+  })
 })
 
 describe('subtaskAdviceFromResponse', () => {
@@ -247,6 +257,30 @@ describe('JevClient', () => {
     const fetchMock = vi.fn(async () => fakeResponse(422, { detail: 'questions.target.criteria: too many options' }))
     const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
     await expect(client.request('key', buildJevRequest({ prompt: 'hi' }, [], settings()))).rejects.toThrow(/too many options/)
+  })
+
+  it('turns a nested 400 detail into a sentence, never raw JSON', async () => {
+    const fetchMock = vi.fn(async () => fakeResponse(400, { detail: { error_type: 'api_usage_error', message: 'Unknown model: jev-nope' } }))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    const error = await client.request('key', buildJevRequest({ prompt: 'hi' }, [], settings())).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(JevError)
+    expect((error as JevError).message).toBe('Jev rejected the request: Unknown model: jev-nope.')
+    expect((error as JevError).errorType).toBe('api_usage_error')
+  })
+
+  it('names an over-long prompt in plain words and keeps its error type', async () => {
+    const fetchMock = vi.fn(async () => fakeResponse(400, { detail: { error_type: 'max_tokens_exceeded' } }))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    const error = await client.request('key', buildJevRequest({ prompt: 'hi' }, [], settings())).catch((caught: unknown) => caught) as JevError
+    expect(error.message).toBe('Jev rejected the request: the prompt is too long for Jev.')
+    expect(error.errorType).toBe('max_tokens_exceeded')
+    expect(error.status).toBe(400)
+  })
+
+  it('joins a validation-list detail instead of dumping it', async () => {
+    const fetchMock = vi.fn(async () => fakeResponse(422, { detail: [{ loc: ['body', 'model'], msg: 'field required' }, { msg: 'state must be an object' }] }))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    await expect(client.request('key', buildJevRequest({ prompt: 'hi' }, [], settings()))).rejects.toThrow('Jev rejected the request: field required; state must be an object.')
   })
 
   it('retries once on 429 honouring Retry-After, capped at the configured max', async () => {
@@ -340,6 +374,49 @@ describe('advise (end-to-end helper)', () => {
     expect(advice.source).toBe('heuristic')
     expect(advice.taskType).toBe('debugging')
     expect(advice.error).toBe('Jev rejected the API key.')
+  })
+})
+
+describe('requestJev', () => {
+  const tooLong = () => fakeResponse(400, { detail: { error_type: 'max_tokens_exceeded' } })
+  const sentTask = (init?: RequestInit) => JSON.parse(String(init?.body)).state.task as string
+
+  it('rebuilds an over-limit request at the fallback budget and returns the one that was answered', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => (fetchMock.mock.calls.length === 1 ? tooLong() : fakeResponse(200, response())))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    const log = `START\n${'ERROR ECONNRESET at Socket.onread\n'.repeat(5_000)}END`
+    const { json, request } = await requestJev(client, 'key', (maxChars) => buildJevRequest({ prompt: log }, [], settings(), undefined, maxChars))
+    expect(json.model).toBe('jev-1.13.0')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(sentTask(fetchMock.mock.calls[0][1]).length).toBeGreaterThan(FALLBACK_STATE_CHARS)
+    const retried = sentTask(fetchMock.mock.calls[1][1])
+    expect(retried.length).toBeLessThanOrEqual(FALLBACK_STATE_CHARS)
+    // Still keeps the ask up front and the detail at the end.
+    expect(retried.startsWith('START')).toBe(true)
+    expect(retried.endsWith('END')).toBe(true)
+    expect(request.state.task).toBe(retried)
+  })
+
+  it('does not resend a request that is already within the fallback budget', async () => {
+    const fetchMock = vi.fn(async () => tooLong())
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    await expect(requestJev(client, 'key', (maxChars) => buildJevRequest({ prompt: 'short' }, [], settings(), undefined, maxChars))).rejects.toThrow('too long for Jev')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('never retries any other rejection', async () => {
+    const fetchMock = vi.fn(async () => fakeResponse(400, { detail: { error_type: 'api_usage_error', message: 'Unknown model: x' } }))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    await expect(requestJev(client, 'key', (maxChars) => buildJevRequest({ prompt: 'y'.repeat(50_000) }, [], settings(), undefined, maxChars))).rejects.toThrow('Unknown model: x')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets advise() still return Jev advice for a prompt that only fits after the retry', async () => {
+    const fetchMock = vi.fn(async () => (fetchMock.mock.calls.length === 1 ? tooLong() : fakeResponse(200, response())))
+    const client = new JevClient({ fetch: fetchMock as unknown as typeof fetch })
+    const advice = await advise(client, 'key', { prompt: '請修復這個錯誤。'.repeat(5_000) }, candidates(), settings())
+    expect(advice.source).toBe('jev')
+    expect(advice.error).toBeUndefined()
   })
 })
 

@@ -125,7 +125,8 @@ badge and a live "how it's working" feed like Claude Code.
   estimated; `sessionID` → `onSessionId`, resumed with
   `--session`. The stream never names the model, so `task.model` is the configured one.
 - **Copilot / Ollama / custom**: raw text passthrough; `task.model` falls back to the
-  provider's configured model.
+  model the engine actually launched (`withModel`'s result — a user override or the
+  advisor's pick), never blindly to the provider's configured default.
 
 `summarizeToolInput` picks the most meaningful field (file_path, command, pattern, …)
 for a one-line activity detail. Activity is capped at the last 100 events per task.
@@ -422,7 +423,16 @@ a user-picked model.
   Frontier never reads a file in order to send it. The subtask-advice call is the exception
   to "prompt only": it sends the planner's subtask titles and prompts, and those can quote code
   the planner read. Every disclosure surface must say so: the site, the README, the Routing
-  screen and the sidebar tooltip. One request asks five questions at once:
+  screen and the sidebar tooltip.
+- **Token budget** — Jev caps the *whole request* (state + questions) at ~32k tokens
+  (measured live). The first attempt trims state to `MAX_STATE_CHARS` (96k chars — fine for
+  prose/code at ~3.6 chars/token); dense text overflows at that length (logs ~1.9, CJK ~0.9
+  chars/token), so every call goes through `requestJev`, which on a `max_tokens_exceeded`
+  `JevError` rebuilds the request once at `FALLBACK_STATE_CHARS` (20k — fits even one token
+  per char) and resends. The subtask request splits one budget between parent (⅓) and plan
+  (⅔); trimming them separately let the pair overflow. Error bodies (`detail` as string,
+  `{ error_type, message }`, or a `[{ msg }]` list) are reduced to one sentence — never raw
+  JSON in a transcript. One request asks five questions at once:
   `task_type` (choice over the six `TaskType`s), `complexity` (score, 4 levels: trivial →
   single-file → multi-file → architectural), `edits_files`/`long_context`/`split_worthy`
   (nouls), and `target` — a choice over every eligible `(provider, model)` pair, each
@@ -446,7 +456,7 @@ a user-picked model.
   `shareRepoFacts`, and `previewWhileTyping`.
 - **Never blocks the queue** — `JevClient` (injected `fetch`) hard-times-out each attempt
   (~2s default), retries once on 429/529 honouring `Retry-After` (capped, so a slow retry
-  can't itself stall things), then the caller (`advise`) falls back to `heuristicAdvice`
+  can't itself stall things) — and `requestJev` once more on an over-limit request — then the caller (`advise`) falls back to `heuristicAdvice`
   (today's `classifyTask`) with the error attached. The engine computes heuristic advice
   *synchronously* at task creation and only *fires* the Jev call — the queue pump skips a
   task while its `OrchestrationEngine.pendingAdvice` flag is set and picks an older queued

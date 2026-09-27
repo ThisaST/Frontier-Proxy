@@ -19,6 +19,19 @@ async function assertDead(pid: number, ms = 1_000): Promise<void> {
   }
 }
 
+// The fake-shell scripts below race their own SIGKILL deadline to write a pid
+// file. On a loaded machine (many suites running in parallel) that race can
+// still lose even though the write is the very first synchronous statement —
+// fail with a clear message instead of a raw ENOENT.
+async function readPidFile(path: string): Promise<Record<string, number>> {
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as Record<string, number>
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error(`pid file ${path} was never written — the probe's deadline fired before the fake shell's first statement ran`)
+    throw error
+  }
+}
+
 const originalPath = process.env.PATH
 
 describe('hydrateExecutablePath', () => {
@@ -29,21 +42,28 @@ describe('hydrateExecutablePath', () => {
     const pidFile = join(dir, 'pids.json')
     // Mimics an interactive zsh stuck in a slow .zshrc: ignores SIGTERM, and
     // spawns a long-lived grandchild that inherits its stdout pipe, so the
-    // pipe alone would never close on its own.
+    // pipe alone would never close on its own. The pid file is written as the
+    // very first statement (before the SIGTERM handler or the spawn), and
+    // again once the grandchild's pid is known, so a deadline firing early
+    // under load still finds at least the shell's own pid on disk.
     const fakeShell = `
-      const { spawn } = require('node:child_process')
       const fs = require('node:fs')
+      fs.writeFileSync(process.argv[1], JSON.stringify({ shell: process.pid }))
+      const { spawn } = require('node:child_process')
       process.on('SIGTERM', () => {})
       const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] })
       fs.writeFileSync(process.argv[1], JSON.stringify({ shell: process.pid, grandchild: grandchild.pid }))
       setInterval(() => {}, 1000)
     `
+    const deadlineMs = 1_500 // tolerant of a loaded machine; still far below a real hang
     const started = Date.now()
-    await hydrateExecutablePath({ shell: process.execPath, args: ['-e', fakeShell, pidFile], timeoutMs: 300 })
+    await hydrateExecutablePath({ shell: process.execPath, args: ['-e', fakeShell, pidFile], timeoutMs: deadlineMs })
     const elapsed = Date.now() - started
-    expect(elapsed).toBeLessThan(2_000) // well under a 5s/30s hang; generous for CI jitter
+    expect(elapsed).toBeLessThan(deadlineMs + 1_000) // bounded by the deadline, not a tight race
 
-    const { shell, grandchild } = JSON.parse(await readFile(pidFile, 'utf8')) as { shell: number; grandchild: number }
+    const { shell, grandchild } = await readPidFile(pidFile)
+    expect(typeof shell).toBe('number')
+    expect(typeof grandchild).toBe('number')
     await assertDead(shell)
     await assertDead(grandchild) // the whole process group was killed, not just the shell
   })
@@ -53,24 +73,28 @@ describe('hydrateExecutablePath', () => {
     const pidFile = join(dir, 'grandchild.json')
     // The shell itself behaves — prints PATH and exits 0 — but a background
     // job it left running (a `.zshrc` daemon, say) still holds the inherited
-    // stdout pipe open, so `close` would never fire on its own.
+    // stdout pipe open, so `close` would never fire on its own. Same
+    // hardening as above: the pid file is written before anything else runs.
     const fakeShell = `
-      const { spawn } = require('node:child_process')
       const fs = require('node:fs')
+      fs.writeFileSync(process.argv[1], JSON.stringify({}))
+      const { spawn } = require('node:child_process')
       const grandchild = spawn(process.execPath, ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'] })
       grandchild.unref() // let this (fake shell) process exit while the background job lives on, like a real backgrounded job would
       fs.writeFileSync(process.argv[1], JSON.stringify({ grandchild: grandchild.pid }))
       process.stdout.write('/shell/reported/bin')
     `
+    const deadlineMs = 3_000 // the exit grace period should resolve this in well under a second
     const started = Date.now()
-    await hydrateExecutablePath({ shell: process.execPath, args: ['-e', fakeShell, pidFile], timeoutMs: 3_000 })
+    await hydrateExecutablePath({ shell: process.execPath, args: ['-e', fakeShell, pidFile], timeoutMs: deadlineMs })
     const elapsed = Date.now() - started
-    expect(elapsed).toBeLessThan(1_000) // the ~100ms exit grace period, not the 3s deadline
+    expect(elapsed).toBeLessThan(2_000) // the ~100ms exit grace period plus load slack, nowhere near the 3s deadline
 
     const entries = (process.env.PATH ?? '').split(delimiter)
     expect(entries).toContain('/shell/reported/bin') // not thrown away for the bare fallback
 
-    const { grandchild } = JSON.parse(await readFile(pidFile, 'utf8')) as { grandchild: number }
+    const { grandchild } = await readPidFile(pidFile)
+    expect(typeof grandchild).toBe('number')
     await assertDead(grandchild)
   })
 

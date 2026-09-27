@@ -6,6 +6,7 @@ import { OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
 import { freshDefaults } from '../src/shared/defaults'
 import type { ProviderConfig, UsageDay } from '../src/shared/types'
+import { noopHydrate } from './test-helpers'
 
 function provider(id: string): ProviderConfig {
   return {
@@ -27,7 +28,7 @@ async function engineWith(runtime: Record<string, unknown>): Promise<Orchestrati
   const settings = freshDefaults()
   settings.providers = [provider('agent')]
   await store.save({ settings, tasks: [], providerRuntime: { agent: runtime as never } })
-  const engine = new OrchestrationEngine(store)
+  const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
   await engine.initialize()
   return engine
 }

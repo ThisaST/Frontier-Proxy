@@ -8,6 +8,7 @@ import { WorkspaceRuntime } from '../src/main/workspace'
 import { CliParticipantRunner } from '../src/main/participants'
 import { freshDefaults } from '../src/shared/defaults'
 import type { AppSnapshot, ProviderConfig, Workspace } from '../src/shared/types'
+import { noopHydrate } from './test-helpers'
 
 // Mirrors tests/e2e.test.ts's approach (a real engine, fake node-script CLIs
 // spawned via cross-spawn) but drives the workspace side of the app: a real
@@ -41,7 +42,7 @@ async function makeWorkspaceHarness(providers: ProviderConfig[]): Promise<{ engi
     ...providers
   ]
   await store.save({ settings, tasks: [] })
-  const engine = new OrchestrationEngine(store)
+  const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
   await engine.initialize()
 
   // Same construction order as src/main/index.ts: `workspaceRuntime` is
@@ -150,7 +151,7 @@ describe('end-to-end workspace lifecycle', () => {
     expect(reloaded.turns.map((turn) => turn.output).sort()).toEqual([docTurn.output, novaTurn.output].sort())
 
     const reloadedStore = new JsonStore(statePath)
-    const reloadedEngine = new OrchestrationEngine(reloadedStore)
+    const reloadedEngine = new OrchestrationEngine(reloadedStore, undefined, undefined, undefined, undefined, noopHydrate)
     await reloadedEngine.initialize()
     const reloadedWorkspace = reloadedEngine.loadedWorkspaces().find((item) => item.id === workspace.id)!
     expect(reloadedWorkspace.turns).toHaveLength(2)

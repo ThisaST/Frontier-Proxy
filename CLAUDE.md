@@ -531,6 +531,14 @@ the secret in the keychain), Codex's `~/.codex/auth.json`. It reports `logged-ou
 positive evidence**; anything unreadable stays `unknown` rather than accusing a working CLI.
 Ollama-backed and custom providers have no account and return nothing.
 
+`hydrateExecutablePath` (`src/main/env.ts`) rebuilds `process.env.PATH` from the user's login
+shell before every provider check. That probe is **hard-bounded**, not just given a timeout:
+an interactive shell (`-i`, e.g. zsh with oh-my-zsh) ignores `SIGTERM`, so on the deadline it
+`SIGKILL`s the whole process group instead and resolves from the common-locations fallback
+without waiting for the output pipe to close. `OrchestrationEngine` takes the hydrator as an
+injectable constructor dependency (defaulting to the real one) so tests pass a no-op and never
+spawn the developer's real shell — see `tests/test-helpers.ts`.
+
 ## Conversations (multi-turn continuation)
 
 Every task is a conversation (`task.turns: ConversationTurn[]`), not a one-shot. The

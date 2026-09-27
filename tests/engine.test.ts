@@ -6,6 +6,7 @@ import { mergeSessionWindows, OrchestrationEngine } from '../src/main/engine'
 import { JsonStore } from '../src/main/store'
 import { AdvisorKeyManager, JevClient } from '../src/main/advisor'
 import { freshDefaults } from '../src/shared/defaults'
+import { noopHydrate } from './test-helpers'
 import type { AppSnapshot, ProviderConfig, ProxyTask } from '../src/shared/types'
 
 // Poll the engine snapshot until the task reaches a terminal state.
@@ -66,7 +67,7 @@ describe('conversation provider selection', () => {
       ]
     }
     await store.save({ settings, tasks: [task] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
 
     const continued = await engine.continueTask(task.id, 'Continue here')
@@ -94,7 +95,7 @@ describe('conversation provider selection', () => {
       ]
     }
     await store.save({ settings, tasks: [task] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
 
     const changed = await engine.changeTaskProvider(task.id, 'second')
@@ -127,7 +128,7 @@ describe('conversation provider selection', () => {
       ]
     }
     await store.save({ settings, tasks: [task] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
 
     const continued = await engine.continueTask(task.id, 'Review @notes.md', [{ id: 'ref-1', kind: 'file', name: 'notes.md', path: 'notes.md' }])
@@ -145,7 +146,7 @@ describe('skill selection', () => {
     const settings = freshDefaults()
     settings.providers = [provider('first', 1, ['-e', 'process.stdout.write("ok")'])]
     await store.save({ settings, tasks: [] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
 
     const created = await engine.createTask({ prompt: 'Do work', cwd: directory, mode: 'balanced', skillIds: ['skill-a', 'skill-b'] })
@@ -159,7 +160,7 @@ describe('skill selection', () => {
     const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-settings-'))
     const store = new JsonStore(join(directory, 'state.json'))
     await store.save({ settings: freshDefaults(), tasks: [] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
 
     const snapshot = await engine.updateSettings({ skills: { disabledIds: ['skill-a', 'skill-a', 'skill-b'] } })
@@ -212,7 +213,7 @@ describe('Jev routing advisor', () => {
     })) as unknown as typeof fetch
     const jevClient = new JevClient({ fetch: hangingFetch, timeoutMs: 30, retryDelayCapMs: 5 })
 
-    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient)
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient, undefined, noopHydrate)
     await engine.initialize()
 
     const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
@@ -243,7 +244,7 @@ describe('Jev routing advisor', () => {
 
     let called = false
     const fetchSpy = (async () => { called = true; throw new Error('should never be called') }) as unknown as typeof fetch
-    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchSpy }))
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchSpy }), undefined, noopHydrate)
     await engine.initialize()
 
     const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
@@ -275,7 +276,7 @@ describe('Jev routing advisor', () => {
     const gate = deferred<Response>()
     const fetchMock = (async () => gate.promise) as unknown as typeof fetch
     const jevClient = new JevClient({ fetch: fetchMock, timeoutMs: 60_000 })
-    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient, 40)
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, jevClient, 40, noopHydrate)
     await engine.initialize()
 
     const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced' })
@@ -336,7 +337,7 @@ describe('Jev routing advisor', () => {
       long_context: { type: 'noul', noul: 0.8 },
       split_worthy: { type: 'noul', noul: 0.1 }
     })) as unknown as typeof fetch
-    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }))
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }), undefined, noopHydrate)
     await engine.initialize()
     // Give the fake provider a second, larger model via the live runtime
     // reference (real discovery for a 'custom' kind only ever finds its own
@@ -401,7 +402,7 @@ describe('per-subtask Jev advice', () => {
     await advisorKeys.initialize()
     await advisorKeys.setKey('sk-test-token')
 
-    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }), advisorDeadlineMs)
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }), advisorDeadlineMs, noopHydrate)
     await engine.initialize()
     const runtime = engine.providerRuntime('first')
     if (runtime) runtime.models = ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']
@@ -505,7 +506,7 @@ describe('previewAdvisor policy', () => {
       { id: 'hosted', name: 'Hosted Agent', kind: 'claude' as const, enabled: true, executable: process.execPath, model: 'claude-opus-5', priority: 0, maxConcurrent: 1, capabilities }
     ]
     await store.save({ settings, tasks: [] })
-    const engine = new OrchestrationEngine(store)
+    const engine = new OrchestrationEngine(store, undefined, undefined, undefined, undefined, noopHydrate)
     await engine.initialize()
     // The real `checkProvider` probe (`<exe> list`/`--version`) has nothing to
     // do with the policy this test is about; force both candidates available

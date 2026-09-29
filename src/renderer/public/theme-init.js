@@ -1,25 +1,42 @@
-// Sets `data-theme` / `data-effects` on <html> before first paint, so switching
-// theme never flashes the wrong palette. Loaded as a plain (non-module) script
-// before the stylesheet, so it runs synchronously during HTML parsing. Kept out
-// of the Vite/TS build on purpose: the CSP has no 'unsafe-inline', so this has to
-// be a same-origin file, and it must not depend on any bundled module.
-// Mirrored (not shared — this file cannot import anything) by src/renderer/src/theme.ts,
-// which takes over live updates once the app has booted.
+// Sets the appearance attributes on <html> before first paint, so switching theme never
+// flashes the wrong palette. Loaded as a plain (non-module) script before the stylesheet,
+// so it runs synchronously during HTML parsing. Kept out of the Vite/TS build on purpose:
+// the CSP has no 'unsafe-inline', so this has to be a same-origin file, and it must not
+// depend on any bundled module. Never writes storage.
+// It re-implements `resolveAppearance` from src/renderer/src/theme-model.ts by hand (this file
+// cannot import); tests/appearance.test.ts runs both against the same inputs. `data-theme` is
+// the v1 attribute the legacy stylesheets still read (retired in P7).
 (function () {
-  var THEME_KEY = 'fp-theme'
-  var EFFECTS_KEY = 'fp-effects'
+  var DEFAULT_FAMILY = 'phosphor' // keep in step with DEFAULT_FAMILY in theme-model.ts
   var root = document.documentElement
+
+  function pick(value, allowed, fallback) { return allowed.indexOf(value) !== -1 ? value : fallback }
+  function media(query) { return !!(window.matchMedia && window.matchMedia(query).matches) }
+
   try {
-    var storedTheme = localStorage.getItem(THEME_KEY) || 'system'
-    var storedEffects = localStorage.getItem(EFFECTS_KEY) || 'on'
-    var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-    var resolvedTheme = storedTheme === 'system' ? (prefersDark ? 'console' : 'daylight') : storedTheme
-    var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    var resolvedEffects = (storedEffects === 'off' || reducedMotion) ? 'off' : 'on'
-    root.setAttribute('data-theme', resolvedTheme)
-    root.setAttribute('data-effects', resolvedEffects)
+    var families = ['neutral', 'mono', 'phosphor']
+    var familyStored = families.indexOf(localStorage.getItem('fp-family')) !== -1
+    var legacyTheme = localStorage.getItem('fp-theme')
+    var legacy = legacyTheme === 'console' ? 'dark' : legacyTheme === 'daylight' ? 'light' : undefined
+    var schemePref = pick(localStorage.getItem('fp-scheme'), ['system', 'light', 'dark'], (!familyStored && legacy) || 'system')
+    var scheme = schemePref === 'system' ? (media('(prefers-color-scheme: dark)') ? 'dark' : 'light') : schemePref
+    var effectsOff = localStorage.getItem('fp-effects') === 'off' || media('(prefers-reduced-motion: reduce)')
+    root.setAttribute('data-family', pick(localStorage.getItem('fp-family'), families, DEFAULT_FAMILY))
+    root.setAttribute('data-scheme', scheme)
+    root.setAttribute('data-dock', pick(localStorage.getItem('fp-dock'), ['bottom', 'left', 'right'], 'bottom'))
+    root.setAttribute('data-dock-labels', pick(localStorage.getItem('fp-dock-labels'), ['hover', 'always'], 'hover'))
+    root.setAttribute('data-density', pick(localStorage.getItem('fp-density'), ['comfortable', 'compact'], 'comfortable'))
+    root.setAttribute('data-font-size', pick(localStorage.getItem('fp-font-size'), ['default', 'large'], 'default'))
+    root.setAttribute('data-effects', effectsOff ? 'off' : 'on')
+    root.setAttribute('data-theme', scheme === 'dark' ? 'console' : 'daylight')
   } catch (error) {
-    root.setAttribute('data-theme', 'console')
+    root.setAttribute('data-family', DEFAULT_FAMILY)
+    root.setAttribute('data-scheme', 'dark')
+    root.setAttribute('data-dock', 'bottom')
+    root.setAttribute('data-dock-labels', 'hover')
+    root.setAttribute('data-density', 'comfortable')
+    root.setAttribute('data-font-size', 'default')
     root.setAttribute('data-effects', 'off')
+    root.setAttribute('data-theme', 'console')
   }
 })()

@@ -1,109 +1,246 @@
-/* Phosphor Console — design tokens. Components use only these; no raw hex or rgb()
-   literal is allowed outside this file (see docs/design-phosphor-console.md §2). */
+/* Frontier — design tokens, v2 ("Calm" system; docs/ui-calm/ui-plan.md §7).
+   Components use only these; no raw hex or rgb() literal is allowed outside this file.
 
-:root, :root[data-theme='console'] {
+   Three families (neutral, mono, phosphor) x two schemes (light, dark). The app sets
+   `data-family` / `data-scheme` on <html>; the `:is(:root, .app)` selectors let a nested
+   `.app` carry its own pair, for preview tiles. With no `data-family` on <html> the
+   page is Phosphor dark, so a first paint before theme-init.js runs is unchanged; those
+   fallback selectors are `:where(:not([data-family]))`, so they can never leak into a
+   family that is set.
+
+   Transition (P1 -> P6): `data-theme='console'|'daylight'` still resolves like
+   phosphor/dark and phosphor/light, and every v1 token name (--amber, --bezel, …) is
+   kept as an alias in §5 until P7 deletes it. */
+
+/* ---------- 1. Non-color scales (shared by every family) ---------- */
+:root {
+  /* Type */
+  --font-sans: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: var(--font-sans);           /* Phosphor overrides with Chakra Petch */
+  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-15: 15px;
+  --fs-16: 16px; --fs-18: 18px; --fs-22: 22px; --fs-28: 28px;
+  --lh-tight: 1.25; --lh-ui: 1.4; --lh-body: 1.55;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+  --tracking-label: 0;                          /* Phosphor overrides with .08em */
+  --label-transform: none;                      /* Phosphor overrides with uppercase */
+
+  /* Spacing, 4px scale */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px;
+  --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px;
+
+  /* Radii */
+  --r-1: 4px;   /* chips, inputs */
+  --r-2: 6px;   /* buttons, list rows */
+  --r-3: 10px;  /* cards, panels */
+  --r-4: 14px;  /* dock, dialogs */
+  --r-pill: 999px;
+
+  /* Motion. --t-med stays at the v1 220ms until the views move over (v2 is 200ms). */
+  --t-fast: 120ms; --t-med: 220ms; --ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* Layout */
+  --dock-size: 52px;          /* thickness of the dock bar */
+  --dock-inset: 12px;         /* gap between dock and window edge */
+  --queue-w: 300px;           /* Tasks: work queue column */
+  --inspector-w: 320px;       /* Tasks: inspector column */
+  --control-h: 32px;          /* default control height */
+  --control-h-sm: 26px;
+  --density: 1;               /* compact sets .85 */
+  --sidebar-width: 244px;     /* v1 sidebar; goes with the dock in P3 */
+
+  font-family: var(--font-sans);
+}
+
+/* ---------- 2. Family x scheme: color tokens ---------- */
+
+/* NEUTRAL — cool-biased grays, one calm indigo accent. */
+:is(:root, .app)[data-family="neutral"][data-scheme="light"] {
+  color-scheme: light;
+  --bg: #f5f5f7; --surface: #ffffff; --surface-2: #f1f1f4; --surface-3: #e8e8ec;
+  --border: #e4e4e9; --border-strong: #cdcdd5;
+  --fg: #18181b; --fg-muted: #5c5d66; --fg-faint: #6d6e75;
+  --accent: #4b5fcf; --accent-fill: #4b5fcf; --accent-hover: #3f52b9; --accent-fg: #ffffff; --accent-soft: #eceffb;
+  --ok: #2c7a4b; --ok-soft: #e6f3ea; --warn: #875a0e; --warn-soft: #faf0dc;
+  --danger: #bf3a2f; --danger-soft: #fbe9e6; --info: #4b5fcf; --info-soft: #eceffb;
+  --focus: #4b5fcf; --selection: rgb(75 95 207 / .18);
+  --hover: rgb(24 24 27 / .045); --pressed: rgb(24 24 27 / .08); --scrim: rgb(24 24 27 / .40);
+  --shadow-1: 0 1px 2px rgb(24 24 27 / .06), 0 0 0 1px rgb(24 24 27 / .04);
+  --shadow-2: 0 8px 24px rgb(24 24 27 / .10), 0 0 0 1px rgb(24 24 27 / .05);
+  --shadow-dock: 0 10px 30px rgb(24 24 27 / .14), 0 0 0 1px rgb(24 24 27 / .06);
+  --code-bg: #f1f1f4; --diff-add: #e6f3ea; --diff-add-fg: #1f6b3f; --diff-del: #fbe9e6; --diff-del-fg: #a7302a;
+  --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+}
+:is(:root, .app)[data-family="neutral"][data-scheme="dark"] {
   color-scheme: dark;
-  --bg: #0b0d0c;
-  --surface-1: #101312;
-  --surface-2: #161b19;
-  --surface-3: #1d2421;
-  --bezel: #262e2a;
-  --bezel-strong: #37423c;
-  --fg: #e6e3d8;
-  --fg-muted: #8e978f;
-  --fg-faint: #7c857f;
-  --amber: #ffb000;
-  --amber-fill: #ffb000;
-  --on-amber: #1a1300;
-  --cyan: #37e2d5;
-  --phosphor: #7cff6b;
-  --alarm: #ff4d4d;
-  --caution: #ff8a3d;
-  --glow-amber: 0 0 8px rgb(255 176 0 / .35);
+  --bg: #131316; --surface: #1a1a1e; --surface-2: #212126; --surface-3: #2a2a30;
+  --border: #2b2b32; --border-strong: #3c3c45;
+  --fg: #ececf0; --fg-muted: #a3a4ae; --fg-faint: #888891;
+  --accent: #8d9cee; --accent-fill: #8d9cee; --accent-hover: #a1adf2; --accent-fg: #10142f; --accent-soft: #262b46;
+  --ok: #7cc79b; --ok-soft: #1c3226; --warn: #d9a64a; --warn-soft: #3a2f16;
+  --danger: #ec7a72; --danger-soft: #3d2220; --info: #8d9cee; --info-soft: #262b46;
+  --focus: #8d9cee; --selection: rgb(141 156 238 / .25);
+  --hover: rgb(255 255 255 / .05); --pressed: rgb(255 255 255 / .09); --scrim: rgb(0 0 0 / .55);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4), 0 0 0 1px rgb(255 255 255 / .04);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / .5), 0 0 0 1px rgb(255 255 255 / .06);
+  --shadow-dock: 0 12px 36px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .08);
+  --code-bg: #212126; --diff-add: #1c3226; --diff-add-fg: #9fd9b6; --diff-del: #3d2220; --diff-del-fg: #f0a09a;
+  --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+}
+
+/* MONO — warm stone and ink. The accent IS the ink: primary actions are ink-on-paper
+   (paper-on-ink in dark). Status colours are heavily desaturated; colour is reserved
+   for the destructive action and the small status dot. */
+:is(:root, .app)[data-family="mono"][data-scheme="light"] {
+  color-scheme: light;
+  --bg: #f6f5f2; --surface: #ffffff; --surface-2: #f1efeb; --surface-3: #e8e6e0;
+  --border: #e2dfd8; --border-strong: #c8c4ba;
+  --fg: #1a1917; --fg-muted: #5f5c56; --fg-faint: #6f6c65;
+  --accent: #1a1917; --accent-fill: #1a1917; --accent-hover: #34322e; --accent-fg: #ffffff; --accent-soft: #ecebe6;
+  --ok: #3f6b4e; --ok-soft: #e9efe9; --warn: #7d6535; --warn-soft: #f2ede0;
+  --danger: #a8443c; --danger-soft: #f6e7e4; --info: #4f5a6b; --info-soft: #e9ecf0;
+  --focus: #1a1917; --selection: rgb(26 25 23 / .14);
+  --hover: rgb(26 25 23 / .045); --pressed: rgb(26 25 23 / .08); --scrim: rgb(26 25 23 / .40);
+  --shadow-1: 0 1px 2px rgb(26 25 23 / .06), 0 0 0 1px rgb(26 25 23 / .05);
+  --shadow-2: 0 8px 24px rgb(26 25 23 / .10), 0 0 0 1px rgb(26 25 23 / .06);
+  --shadow-dock: 0 10px 30px rgb(26 25 23 / .14), 0 0 0 1px rgb(26 25 23 / .07);
+  --code-bg: #f1efeb; --diff-add: #e9efe9; --diff-add-fg: #2f5a3e; --diff-del: #f6e7e4; --diff-del-fg: #93392f;
+  --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+}
+:is(:root, .app)[data-family="mono"][data-scheme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a18; --surface-2: #21211f; --surface-3: #2a2926;
+  --border: #2c2b28; --border-strong: #3f3e39;
+  --fg: #edebe6; --fg-muted: #a5a29a; --fg-faint: #8b8881;
+  --accent: #edebe6; --accent-fill: #edebe6; --accent-hover: #ffffff; --accent-fg: #121211; --accent-soft: #2a2926;
+  --ok: #8fb59c; --ok-soft: #1f2b22; --warn: #c4ab7a; --warn-soft: #2f2a1c;
+  --danger: #d98079; --danger-soft: #3a2421; --info: #a3adbd; --info-soft: #24272d;
+  --focus: #edebe6; --selection: rgb(237 235 230 / .18);
+  --hover: rgb(255 255 255 / .05); --pressed: rgb(255 255 255 / .09); --scrim: rgb(0 0 0 / .55);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / .4), 0 0 0 1px rgb(255 255 255 / .04);
+  --shadow-2: 0 12px 32px rgb(0 0 0 / .5), 0 0 0 1px rgb(255 255 255 / .06);
+  --shadow-dock: 0 12px 36px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .08);
+  --code-bg: #21211f; --diff-add: #1f2b22; --diff-add-fg: #a9cdb5; --diff-del: #3a2421; --diff-del-fg: #efa9a2;
+  --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+}
+
+/* PHOSPHOR — the existing Console / Daylight palette, mapped onto the v2 token names so
+   the same components render it. (Daylight's "soft" tints are 8%, not the 12% of docs/ui-calm/tokens.css:
+   at 12% warn and accent text on their own tint measured 4.41 and 4.30, under 4.5:1.) The only family that has glow, Chakra Petch display
+   type, and uppercase tracked labels. Phosphor dark is also the bare :root, and
+   `data-theme='console'|'daylight'` resolves like its dark / light variant. */
+:root:where(:not([data-family])),
+:root[data-theme='console']:where(:not([data-family])),
+:is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0d0c; --surface: #101312; --surface-2: #161b19; --surface-3: #1d2421;
+  --border: #262e2a; --border-strong: #37423c;
+  --fg: #e6e3d8; --fg-muted: #8e978f; --fg-faint: #7c857f;
+  --accent: #ffb000; --accent-fill: #ffb000; --accent-hover: #ffc233; --accent-fg: #1a1300; --accent-soft: rgb(255 176 0 / .12);
+  --ok: #7cff6b; --ok-soft: rgb(124 255 107 / .12); --warn: #ff8a3d; --warn-soft: rgb(255 138 61 / .12);
+  --danger: #ff4d4d; --danger-soft: rgb(255 77 77 / .12); --info: #37e2d5; --info-soft: rgb(55 226 213 / .12);
+  --focus: #37e2d5; --selection: rgb(255 176 0 / .22);
+  --hover: rgb(255 255 255 / .025); --pressed: rgb(255 255 255 / .06); --scrim: rgb(0 0 0 / .69);
+  --shadow-1: inset 0 1px 0 0 rgb(255 255 255 / .04), 0 0 0 1px #262e2a;
+  --shadow-2: inset 0 1px 0 0 rgb(255 255 255 / .04), 0 18px 48px rgb(0 0 0 / .45);
+  --shadow-dock: inset 0 1px 0 0 rgb(255 255 255 / .04), 0 18px 48px rgb(0 0 0 / .55), 0 0 0 1px #37423c;
+  --code-bg: #161b19; --diff-add: rgb(124 255 107 / .10); --diff-add-fg: #7cff6b; --diff-del: rgb(255 77 77 / .10); --diff-del-fg: #ff4d4d;
+  --glow: 0 0 8px rgb(255 176 0 / .35);
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Chakra Petch', ui-sans-serif, sans-serif; --tracking-label: .08em; --label-transform: uppercase;
+}
+:root[data-theme='daylight']:where(:not([data-family])),
+:is(:root, .app)[data-family="phosphor"][data-scheme="light"] {
+  color-scheme: light;
+  --bg: #e9e4d8; --surface: #f3efe5; --surface-2: #fbf8f1; --surface-3: #e1dbcc;
+  --border: #c9c1ae; --border-strong: #a89f89;
+  --fg: #1c1f1d; --fg-muted: #4c5049; --fg-faint: #62665f;
+  --accent: #8f5a00; --accent-fill: #c98a00; --accent-hover: #b57b00; --accent-fg: #1a1300; --accent-soft: rgb(143 90 0 / .08);
+  --ok: #286d17; --ok-soft: rgb(40 109 23 / .08); --warn: #a5470a; --warn-soft: rgb(165 71 10 / .08);
+  --danger: #b3261e; --danger-soft: rgb(179 38 30 / .08); --info: #00706c; --info-soft: rgb(0 112 108 / .08);
+  --focus: #00706c; --selection: rgb(143 90 0 / .18);
+  --hover: rgb(0 0 0 / .025); --pressed: rgb(0 0 0 / .06); --scrim: rgb(30 24 12 / .45);
+  --shadow-1: inset 0 1px 0 0 rgb(255 255 255 / .5), 0 0 0 1px #c9c1ae;
+  --shadow-2: inset 0 1px 0 0 rgb(255 255 255 / .5), 0 12px 32px rgb(40 30 10 / .18);
+  --shadow-dock: inset 0 1px 0 0 rgb(255 255 255 / .5), 0 12px 32px rgb(40 30 10 / .22), 0 0 0 1px #a89f89;
+  --code-bg: #e1dbcc; --diff-add: rgb(40 109 23 / .10); --diff-add-fg: #286d17; --diff-del: rgb(179 38 30 / .10); --diff-del-fg: #b3261e;
+  --glow: none;
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Chakra Petch', ui-sans-serif, sans-serif; --tracking-label: .08em; --label-transform: uppercase;
+}
+
+/* ---------- 3. Density and text size ---------- */
+:is(:root, .app)[data-density="compact"] { --density: .85; --control-h: 28px; --control-h-sm: 24px; --queue-w: 260px; --inspector-w: 280px; }
+:is(:root, .app)[data-font-size="large"] {
+  --fs-11: 12px; --fs-12: 13px; --fs-13: 14px; --fs-14: 15px; --fs-15: 16px;
+  --fs-16: 17px; --fs-18: 19px; --fs-22: 23px; --fs-28: 29px;
+}
+
+/* ---------- 4. Legacy (v1) token names, aliased onto v2 (P7 deletes this) ----------
+   Persisted workspace participants store `accent` as `var(--amber)`, so --amber must
+   survive until the workspace view stops rendering accents. */
+:is(:root, .app) {
+  --surface-1: var(--surface);
+  --bezel: var(--border);
+  --bezel-strong: var(--border-strong);
+  --amber: var(--accent);
+  --amber-fill: var(--accent-fill);
+  --on-amber: var(--accent-fg);
+  --cyan: var(--info);
+  --phosphor: var(--ok);
+  --caution: var(--warn);
+  --alarm: var(--danger);
+  --hover-wash: var(--hover);
+  --on-scrim: #ffffff;
+  --font-body: var(--font-sans);
+  --glow-amber: var(--glow);
+  --glow-cyan: none; --glow-phosphor: none; --glow-alarm: none; --glow-caution: none;
+  --r-sm: 3px;  /* v1 radius; --r-1 is 4px */
+  --r-md: var(--r-2);
+  --r-lg: var(--r-3);
+  --e-1: inset 0 1px 0 0 var(--hairline-hi);
+  --e-2: var(--e-1), var(--e-2-shadow);
+}
+
+/* ---------- 5. Legacy (v1) tokens: values with no v2 counterpart ----------
+   Kept per family so the untouched views keep rendering until P7. Phosphor carries
+   the exact v1 literals; the other families get a flat equivalent (no highlight,
+   no scanline). */
+:is(:root, .app)[data-family="neutral"][data-scheme="light"],
+:is(:root, .app)[data-family="mono"][data-scheme="light"] {
+  --hairline-hi: transparent; --scanline: transparent;
+  --shadow-color: rgb(24 24 27 / .12); --e-2-shadow: var(--shadow-2);
+}
+:is(:root, .app)[data-family="neutral"][data-scheme="dark"],
+:is(:root, .app)[data-family="mono"][data-scheme="dark"] {
+  --hairline-hi: transparent; --scanline: transparent;
+  --shadow-color: rgb(0 0 0 / .5); --e-2-shadow: var(--shadow-2);
+}
+:root:where(:not([data-family])),
+:root[data-theme='console']:where(:not([data-family])),
+:is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
+  --hairline-hi: rgb(255 255 255 / .04); --scanline: rgb(255 255 255 / .03);
+  --shadow-color: rgb(0 0 0 / .45); --e-2-shadow: 0 18px 48px var(--shadow-color);
   --glow-cyan: 0 0 8px rgb(55 226 213 / .30);
   --glow-phosphor: 0 0 8px rgb(124 255 107 / .30);
   --glow-alarm: 0 0 8px rgb(255 77 77 / .30);
   --glow-caution: 0 0 8px rgb(255 138 61 / .30);
-  --hairline-hi: rgb(255 255 255 / .04);
-  --scrim: rgb(0 0 0 / .69);
-  --shadow-color: rgb(0 0 0 / .45);
-  --e-2-shadow: 0 18px 48px var(--shadow-color);
-  --scanline: rgb(255 255 255 / .03);
-  --hover-wash: rgb(255 255 255 / .025);
-  --on-scrim: #ffffff;
 }
-
-:root[data-theme='daylight'] {
-  color-scheme: light;
-  --bg: #e9e4d8;
-  --surface-1: #f3efe5;
-  --surface-2: #fbf8f1;
-  --surface-3: #e1dbcc;
-  --bezel: #c9c1ae;
-  --bezel-strong: #a89f89;
-  --fg: #1c1f1d;
-  --fg-muted: #4c5049;
-  --fg-faint: #62665f;
-  --amber: #8f5a00;
-  --amber-fill: #c98a00;
-  --on-amber: #1a1300;
-  --cyan: #00706c;
-  --phosphor: #286d17;
-  --alarm: #b3261e;
-  --caution: #a5470a;
-  --glow-amber: none;
-  --glow-cyan: none;
-  --glow-phosphor: none;
-  --glow-alarm: none;
-  --glow-caution: none;
-  --hairline-hi: rgb(255 255 255 / .5);
-  --scrim: rgb(30 24 12 / .45);
-  --shadow-color: rgb(40 30 10 / .18);
-  --e-2-shadow: 0 12px 32px var(--shadow-color);
-  --scanline: rgb(0 0 0 / .03);
-  --hover-wash: rgb(0 0 0 / .025);
-  --on-scrim: #ffffff;
-}
-
-:root {
-  /* Spacing (4px scale) */
-  --s-1: 4px;
-  --s-2: 8px;
-  --s-3: 12px;
-  --s-4: 16px;
-  --s-5: 20px;
-  --s-6: 24px;
-  --s-7: 32px;
-  --s-8: 48px;
-
-  /* Radii — instruments are squarer than the old UI; only lamps/pills are round. */
-  --r-sm: 3px;
-  --r-md: 6px;
-  --r-lg: 10px;
-
-  /* Elevation */
-  --e-1: inset 0 1px 0 0 var(--hairline-hi);
-  --e-2: var(--e-1), var(--e-2-shadow);
-
-  /* Motion */
-  --t-fast: 120ms;
-  --t-med: 220ms;
-  --ease: cubic-bezier(.2, .7, .2, 1);
-
-  /* Type */
-  --font-display: 'Chakra Petch', ui-sans-serif, sans-serif;
-  --font-body: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-  --sidebar-width: 244px;
-
-  font-family: var(--font-body);
+:root[data-theme='daylight']:where(:not([data-family])),
+:is(:root, .app)[data-family="phosphor"][data-scheme="light"] {
+  --hairline-hi: rgb(255 255 255 / .5); --scanline: rgb(0 0 0 / .03);
+  --shadow-color: rgb(40 30 10 / .18); --e-2-shadow: 0 12px 32px var(--shadow-color);
+  --glow-cyan: none; --glow-phosphor: none; --glow-alarm: none; --glow-caution: none;
 }
 
 /* Effects are switched off entirely with `data-effects="off"` (Settings → Appearance,
    or `prefers-reduced-motion`). Everything that glows, sweeps, blinks, or scans reads
-   this token rather than reimplementing the check. */
-:root[data-effects='off'] {
+   this token rather than reimplementing the check. The selectors are as specific as
+   the variant blocks they have to beat. */
+:root[data-effects='off'],
+:root[data-effects='off'][data-theme],
+:root[data-effects='off'][data-family][data-scheme] {
+  --glow: none;
   --glow-amber: none;
   --glow-cyan: none;
   --glow-phosphor: none;

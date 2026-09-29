@@ -1,13 +1,13 @@
-// Live theme/effects switching for the Settings → Appearance card. The
-// before-paint choice itself is made by `public/theme-init.js` (which cannot
-// import this module — see its own comment); this module takes over afterwards
-// so a change applies immediately, without a reload. Renderer-only preference:
-// never sent to the main process.
-const THEME_KEY = 'fp-theme'
-const EFFECTS_KEY = 'fp-effects'
+// Live appearance switching (family, scheme, dock, density, text size, effects). The
+// before-paint choice is made by `public/theme-init.js`, which cannot import this module —
+// see theme-model.ts for the shared, pure resolution — and this module takes over afterwards
+// so a change applies without a reload. Renderer-only preference: never sent to the main process.
+import {
+  APPEARANCE_KEYS, resolveAppearance,
+  type Appearance, type Density, type DockLabels, type DockPosition, type Effects, type Family, type FontSize, type Scheme
+} from './theme-model'
 
-export type ThemePreference = 'system' | 'console' | 'daylight'
-export type EffectsPreference = 'on' | 'off'
+export * from './theme-model'
 
 function readStorage(key: string): string | undefined {
   try { return localStorage.getItem(key) ?? undefined } catch { return undefined }
@@ -17,44 +17,59 @@ function writeStorage(key: string, value: string): void {
   try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ }
 }
 
+function media(query: string): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia(query).matches
+}
+
+function resolveNow() {
+  const stored = Object.fromEntries(Object.values(APPEARANCE_KEYS).map((key) => [key, readStorage(key)]))
+  return resolveAppearance(stored, media('(prefers-color-scheme: dark)'), media('(prefers-reduced-motion: reduce)'))
+}
+
+export function currentAppearance(): Appearance { return resolveNow().appearance }
+
+export function applyAppearance(): void {
+  const root = document.documentElement
+  for (const [name, value] of Object.entries(resolveNow().attributes)) root.setAttribute(name, value)
+}
+
+function set(key: string, value: string): void { writeStorage(key, value); applyAppearance() }
+
+export const setFamily = (family: Family): void => set(APPEARANCE_KEYS.family, family)
+export const setScheme = (scheme: Scheme): void => set(APPEARANCE_KEYS.scheme, scheme)
+export const setDock = (dock: DockPosition): void => set(APPEARANCE_KEYS.dock, dock)
+export const setDockLabels = (labels: DockLabels): void => set(APPEARANCE_KEYS.dockLabels, labels)
+export const setDensity = (density: Density): void => set(APPEARANCE_KEYS.density, density)
+export const setFontSize = (size: FontSize): void => set(APPEARANCE_KEYS.fontSize, size)
+export const setEffects = (effects: Effects): void => set(APPEARANCE_KEYS.effects, effects)
+
+export function initTheme(): void {
+  // One-time migration of the v1 key. Only the scheme is carried over; `fp-family` is deliberately
+  // NOT written from DEFAULT_FAMILY, or the P6 default flip would never reach these users.
+  const legacy = readStorage(APPEARANCE_KEYS.legacyTheme)
+  if (readStorage(APPEARANCE_KEYS.family) === undefined && readStorage(APPEARANCE_KEYS.scheme) === undefined && legacy !== undefined) {
+    const { scheme } = currentAppearance()
+    if (scheme !== 'system') writeStorage(APPEARANCE_KEYS.scheme, scheme)
+  }
+  applyAppearance()
+  if (typeof window.matchMedia !== 'function') return
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyAppearance)
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', applyAppearance)
+}
+
+// Compatibility adapter for the v1 Appearance card (views/settings.ts), until P3 replaces it.
+// Console / Daylight are the dark / light scheme of whatever family is active.
+export type ThemePreference = 'system' | 'console' | 'daylight'
+export type EffectsPreference = Effects
+
 export function themePreference(): ThemePreference {
-  const stored = readStorage(THEME_KEY)
-  return stored === 'console' || stored === 'daylight' ? stored : 'system'
-}
-
-export function effectsPreference(): EffectsPreference {
-  return readStorage(EFFECTS_KEY) === 'off' ? 'off' : 'on'
-}
-
-function prefersDark(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-export function applyTheme(): void {
-  const theme = themePreference()
-  const resolved = theme === 'system' ? (prefersDark() ? 'console' : 'daylight') : theme
-  const effects = effectsPreference() === 'off' || prefersReducedMotion() ? 'off' : 'on'
-  document.documentElement.setAttribute('data-theme', resolved)
-  document.documentElement.setAttribute('data-effects', effects)
+  const { scheme } = currentAppearance()
+  return scheme === 'dark' ? 'console' : scheme === 'light' ? 'daylight' : 'system'
 }
 
 export function setThemePreference(theme: ThemePreference): void {
-  writeStorage(THEME_KEY, theme)
-  applyTheme()
+  setScheme(theme === 'console' ? 'dark' : theme === 'daylight' ? 'light' : 'system')
 }
 
-export function setEffectsPreference(effects: EffectsPreference): void {
-  writeStorage(EFFECTS_KEY, effects)
-  applyTheme()
-}
-
-export function initTheme(): void {
-  applyTheme()
-  if (typeof window.matchMedia !== 'function') return
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themePreference() === 'system') applyTheme() })
-  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', applyTheme)
-}
+export const effectsPreference = (): EffectsPreference => currentAppearance().effects
+export const setEffectsPreference = (effects: EffectsPreference): void => setEffects(effects)

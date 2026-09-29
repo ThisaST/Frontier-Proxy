@@ -8,13 +8,13 @@ const RENDERER = fileURLToPath(new URL('../src/renderer', import.meta.url))
 const TOKENS = join(RENDERER, 'src/styles/tokens.css')
 const files = (readdirSync(RENDERER, { recursive: true }) as string[])
   .filter((file) => /\.(css|ts|html)$/.test(file) && !file.includes('node_modules'))
-  .map((file) => ({ file: file.replaceAll('\\', '/'), text: readFileSync(join(RENDERER, file), 'utf8') }))
+  .map((file) => ({ file: file.replaceAll('\\', '/'), text: readFileSync(join(RENDERER, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '') })) // comments may mention var(--token) as prose
 const rules = parseRules(readFileSync(TOKENS, 'utf8'))
 const legacy: Record<string, Record<string, string>> = JSON.parse(readFileSync(new URL('./fixtures/phosphor-v1-tokens.json', import.meta.url), 'utf8'))
 
 // Custom properties that belong to one component and are set by its own CSS or, at runtime, by
 // its own TS (`setProperty`), not design tokens. Each must still be used somewhere (checked below).
-const COMPONENT_LOCAL = ['--tick', '--tick-w', '--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--radar-size', '--swatch']
+const COMPONENT_LOCAL = ['--tick', '--tick-w', '--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--radar-size', '--swatch', '--tone', '--value'] // kit.css: status/meter tone, meter fill
 
 describe('renderer stylesheets and the token layer', () => {
   it('every var(--x) is defined in tokens.css, or is a known component-local property', () => {

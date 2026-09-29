@@ -14,7 +14,7 @@ const legacy: Record<string, Record<string, string>> = JSON.parse(readFileSync(n
 
 // Custom properties that belong to one component and are set by its own CSS or, at runtime, by
 // its own TS (`setProperty`), not design tokens. Each must still be used somewhere (checked below).
-const COMPONENT_LOCAL = ['--tick', '--tick-w', '--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--radar-size', '--swatch', '--tone', '--value'] // kit.css: status/meter tone, meter fill
+const COMPONENT_LOCAL = ['--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--radar-size', '--swatch', '--tone', '--value'] // kit.css: status/meter tone, meter fill
 
 describe('renderer stylesheets and the token layer', () => {
   it('every var(--x) is defined in tokens.css, or is a known component-local property', () => {

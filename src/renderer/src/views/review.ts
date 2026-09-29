@@ -27,6 +27,7 @@ export async function loadReview(showToastOnError = false): Promise<void> {
       reviewFilePath = undefined
     }
     renderReview()
+    renderReviewBadge()
     renderHome()
   } catch (error) {
     reviewLoaded = true
@@ -211,7 +212,18 @@ export function renderReview(): void {
   void loadReviewDiff(branch, reviewFilePath)
 }
 
+// The dock's Review badge: unmerged branches in the current project, hidden at zero. Its own
+// writer (it used to be a side effect of renderHome), called from loadReview and every render.
+export function renderReviewBadge(): void {
+  const count = reviewRepos.filter((repo) => projectMatches(repo.cwd)).reduce((sum, repo) => sum + repo.branches.filter((branch) => !branch.merged).length, 0)
+  const badge = byId('nav-review-count')
+  badge.hidden = count === 0
+  badge.textContent = String(count)
+  const item = badge.closest<HTMLElement>('.nav-item')
+  item?.setAttribute('aria-label', count ? `Review, ${count} branch${count === 1 ? '' : 'es'} waiting` : 'Review')
+}
+
 export function initReviewView(): void {
-  onProjectChange(renderReview)
+  onProjectChange(() => { renderReview(); renderReviewBadge() })
   byId('review-refresh').addEventListener('click', () => void loadReview(true))
 }

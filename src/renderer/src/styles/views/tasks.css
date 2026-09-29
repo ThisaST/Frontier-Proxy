@@ -18,7 +18,7 @@
    auto-collapses, but its own toggle can raise it as a floating overlay over
    the conversation instead of squeezing the grid past the centre's floor. */
 .content-grid.list-overlay-open .task-panel {
-  display: flex; position: fixed; top: 104px; left: 0; bottom: 0;
+  display: flex; position: fixed; top: var(--header-h); left: var(--shell-pad-left); bottom: var(--shell-pad-bottom);
   width: min(320px, 92vw); z-index: 15; border-right: 1px solid var(--bezel-strong);
   border-radius: 0; box-shadow: var(--e-2);
 }
@@ -34,7 +34,7 @@
    breakpoint), but its own toggle can still raise it as a floating overlay
    over the conversation instead of squeezing the grid. */
 .content-grid.inspector-overlay-open .inspector {
-  display: flex; position: fixed; top: 104px; right: 0; bottom: 0;
+  display: flex; position: fixed; top: var(--header-h); right: var(--shell-pad-right); bottom: var(--shell-pad-bottom);
   width: min(360px, 92vw); z-index: 15; border-left: 1px solid var(--bezel-strong);
   border-radius: 0; box-shadow: var(--e-2);
 }

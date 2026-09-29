@@ -39,3 +39,28 @@ export function initRadioGroup(group: HTMLElement, onSelect: (option: HTMLElemen
     else if (event.key === 'End') { event.preventDefault(); list[list.length - 1].focus(); onSelect(list[list.length - 1]) }
   })
 }
+
+// For an instant-apply group whose options carry `data-value` (Settings → Appearance): click and
+// arrow keys both select. Returns `sync(value)`, which marks that option checked and keeps the
+// roving tabindex in step — call it to reflect stored state, never while the user is in the group.
+export function bindRadioGroup(group: HTMLElement, onSelect: (value: string) => void): (value: string) => void {
+  const sync = (value: string): void => {
+    for (const el of options(group)) { const on = el.dataset.value === value; el.setAttribute('aria-checked', String(on)); el.classList.toggle('active', on) }
+    syncRadioGroupTabIndex(group)
+  }
+  const select = (el: HTMLElement): void => { sync(el.dataset.value ?? ''); onSelect(el.dataset.value ?? '') }
+  for (const el of options(group)) el.addEventListener('click', () => select(el))
+  initRadioGroup(group, select)
+  return sync
+}
+
+// Builds a `.segmented` group's `role="radio"` buttons from `[value, label]` pairs, then binds it.
+export function segmentedOptions(group: HTMLElement, choices: ReadonlyArray<readonly [string, string]>, onSelect: (value: string) => void): (value: string) => void {
+  group.replaceChildren(...choices.map(([value, label]) => {
+    const button = document.createElement('button')
+    button.type = 'button'; button.setAttribute('role', 'radio'); button.setAttribute('aria-checked', 'false')
+    button.dataset.value = value; button.textContent = label
+    return button
+  }))
+  return bindRadioGroup(group, onSelect)
+}

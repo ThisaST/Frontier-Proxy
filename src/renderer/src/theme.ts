@@ -3,7 +3,7 @@
 // see theme-model.ts for the shared, pure resolution — and this module takes over afterwards
 // so a change applies without a reload. Renderer-only preference: never sent to the main process.
 import {
-  APPEARANCE_KEYS, resolveAppearance,
+  APPEARANCE_KEYS, platformAttribute, resolveAppearance,
   type Appearance, type Density, type DockLabels, type DockPosition, type Effects, type Family, type FontSize, type Scheme
 } from './theme-model'
 
@@ -28,9 +28,15 @@ function resolveNow() {
 
 export function currentAppearance(): Appearance { return resolveNow().appearance }
 
+const listeners: Array<() => void> = []
+/** Called after every apply (a setter, the palette, or an OS scheme / reduced-motion change). */
+export function onAppearanceChange(listener: () => void): void { listeners.push(listener) }
+
 export function applyAppearance(): void {
   const root = document.documentElement
   for (const [name, value] of Object.entries(resolveNow().attributes)) root.setAttribute(name, value)
+  root.setAttribute('data-platform', platformAttribute(navigator as Navigator & { userAgentData?: { platform?: string } }))
+  listeners.forEach((listener) => listener())
 }
 
 function set(key: string, value: string): void { writeStorage(key, value); applyAppearance() }
@@ -57,19 +63,7 @@ export function initTheme(): void {
   window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', applyAppearance)
 }
 
-// Compatibility adapter for the v1 Appearance card (views/settings.ts), until P3 replaces it.
-// Console / Daylight are the dark / light scheme of whatever family is active.
-export type ThemePreference = 'system' | 'console' | 'daylight'
+// Effects keep their v1 names; Settings → Appearance and the palette call these.
 export type EffectsPreference = Effects
-
-export function themePreference(): ThemePreference {
-  const { scheme } = currentAppearance()
-  return scheme === 'dark' ? 'console' : scheme === 'light' ? 'daylight' : 'system'
-}
-
-export function setThemePreference(theme: ThemePreference): void {
-  setScheme(theme === 'console' ? 'dark' : theme === 'daylight' ? 'light' : 'system')
-}
-
 export const effectsPreference = (): EffectsPreference => currentAppearance().effects
 export const setEffectsPreference = (effects: EffectsPreference): void => setEffects(effects)

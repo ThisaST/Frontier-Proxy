@@ -85,7 +85,7 @@ export function renderProjectChipInto(containerId: string): void {
   container.replaceChildren(...(chip ? [chip] : []))
 }
 
-// Bring the sidebar's project switcher forward — used by any other trigger
+// Bring the header's project switcher forward — used by any other trigger
 // (Home's composer project field, the ⌘K command) that wants "clicking it
 // opens the switcher" without a second, independent menu implementation.
 // Opens `openProjectMenu()` directly rather than a synthetic `.click()` on
@@ -111,7 +111,7 @@ export async function chooseProjectInteractively(): Promise<void> {
   } catch { /* the folder picker surfaces its own failures elsewhere */ }
 }
 
-// ---- Sidebar switcher: trigger + menu, keyboard-accessible ----
+// ---- Header switcher: trigger + menu, keyboard-accessible ----
 
 let menuIndex = 0
 // The element focused just before the menu opened (the Home chip, a palette
@@ -192,12 +192,9 @@ function closeProjectMenu(returnFocus = true): void {
   menuOpener = undefined
 }
 
-// Anchors the menu to the trigger with `position: fixed` (set in CSS) rather
-// than relying on `.project-switcher`'s local stacking context: with the
-// sidebar collapsed to its icon rail the trigger sits inside `.sidebar`'s own
-// `overflow-y: auto`, which clipped an absolutely-positioned menu the same
-// way it once clipped the plain-CSS tooltip (see styles/components.css).
-// Clamped so a menu near the right edge never runs off-screen.
+// Anchors the menu under the header trigger with `position: fixed` (set in
+// shell.css), so no ancestor's overflow or the header's drag region can clip or
+// swallow it. Clamped so a menu near the right edge never runs off-screen.
 function positionProjectMenu(): void {
   const trigger = byId<HTMLButtonElement>('project-switcher-trigger')
   const menu = byId('project-switcher-menu')

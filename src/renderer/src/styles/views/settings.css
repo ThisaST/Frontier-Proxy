@@ -1,11 +1,58 @@
-/* ---------- Settings ---------- */
+/* ---------- Settings: vertical tabs and one mounted panel per tab (ui-plan §6.3) ---------- */
+.settings-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s-4); }
+.settings-nav { display: flex; flex-direction: column; gap: var(--s-4); min-height: 0; overflow-y: auto; }
+.settings-version { margin: 0 var(--s-3); color: var(--fg-faint); font-size: var(--fs-12); }
+.settings-body { min-width: 0; min-height: 0; overflow-y: auto; padding-bottom: var(--s-4); }
+.settings-panel[hidden] { display: none; }
+@media (max-width: 860px) {
+  .settings-layout { grid-template-columns: 160px minmax(0, 1fr); }
+  .settings-layout .vtabs { width: 160px; }
+}
+
+/* ---------- Settings → Appearance ---------- */
+.appearance-panel { max-width: 760px; display: flex; flex-direction: column; gap: var(--s-7); }
+.settings-section > .section-title { margin-bottom: var(--s-1); }
+.settings-help { margin: 0 0 var(--s-2); color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-body); }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s-6); min-width: 0; padding: calc(12px * var(--density)) 0; border-bottom: 1px solid var(--border); }
+.settings-row-text { flex: 1; min-width: 0; }
+.settings-row-label { display: block; color: var(--fg); font: var(--fw-medium) var(--fs-13)/var(--lh-ui) var(--font-sans); letter-spacing: 0; }
+.settings-row-help { margin-top: 2px; color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-body); }
+.settings-row .segmented { flex: none; }
+
+/* Family tiles: each holds a nested `.app` scoped to its own family and the current scheme,
+   so the tokens (tokens.css `:is(:root, .app)`) paint a small shell in that family. */
+.family-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-3); padding-top: var(--s-2); }
+.family-tile { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; padding: var(--s-2); color: var(--fg); text-align: left; cursor: pointer; }
+.family-tile:hover { border-color: var(--border-strong); }
+.family-tile[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.family-tile:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.family-caption { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--s-1) var(--s-1); font-size: var(--fs-13); }
+.family-caption strong { font-weight: var(--fw-semibold); }
+.family-caption span { color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); }
+.family-mock { position: relative; display: flex; flex-direction: column; height: 116px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--r-2); background: var(--bg); color: var(--fg); }
+.family-mock i, .family-mock b { display: block; }
+.fm-header { flex: none; display: flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; }
+.fm-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-fill); }
+.fm-title { font: var(--fw-semibold) 9px/1 var(--font-display); letter-spacing: var(--tracking-label); text-transform: var(--label-transform); }
+.fm-chip { width: 26px; height: 8px; margin-left: auto; border-radius: var(--r-pill); background: var(--surface-3); }
+.fm-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 34% 1fr; gap: 5px; padding: 0 6px 6px; }
+.fm-queue, .fm-conv { display: flex; flex-direction: column; gap: 4px; padding: 5px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-1); }
+.fm-queue i { height: 7px; border-radius: 2px; background: var(--surface-3); }
+.fm-queue i.fm-on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent-fill); }
+.fm-conv b { width: 80%; height: 5px; border-radius: 2px; background: var(--surface-3); }
+.fm-conv b.fm-short { width: 55%; background: var(--fg-faint); }
+.fm-button { width: 26px; height: 9px; margin-top: auto; align-self: flex-end; border-radius: 3px; background: var(--accent-fill); }
+.fm-dock { position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); display: flex; gap: 4px; padding: 3px 5px; border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-1); }
+.fm-dock i { width: 7px; height: 7px; border-radius: 2px; background: var(--fg-faint); }
+.fm-dock i.fm-on { background: var(--accent-fill); }
+
+/* ---------- Settings → General, Verification (the v1 cards; P5 restyles them) ---------- */
 .settings-grid { display: grid; grid-template-columns: minmax(320px,.8fr) minmax(380px,1.2fr); gap: 14px; }
 .settings-card, .explainer-card { padding: 20px; }
 .settings-card h2, .explainer-card h2 { margin-bottom: 18px; }
 .settings-card label { margin-bottom: 14px; }
 .settings-card button { margin-top: 6px; justify-self: start; }
 .settings-card .field-label { margin-top: 4px; }
-#appearance-theme { margin-bottom: 14px; }
 .policy { display: grid; grid-template-columns: 110px 1fr; gap: 16px; border-top: 1px solid var(--bezel); padding: 14px 0; font-size: 11px; line-height: 1.5; }
 .policy strong { color: var(--fg); }
 .policy span { color: var(--fg-muted); }

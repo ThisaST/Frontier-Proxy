@@ -9,6 +9,12 @@
 (function () {
   var DEFAULT_FAMILY = 'phosphor' // keep in step with DEFAULT_FAMILY in theme-model.ts
   var root = document.documentElement
+  // Not a setting: derived from navigator (platformAttribute in theme-model.ts), for the macOS traffic-light inset.
+  try {
+    var nav = typeof navigator === 'undefined' ? undefined : navigator
+    var platform = (nav && ((nav.userAgentData && nav.userAgentData.platform) || nav.platform)) || ''
+    root.setAttribute('data-platform', /mac/i.test(platform) ? 'mac' : 'other')
+  } catch (error) { root.setAttribute('data-platform', 'other') }
 
   function pick(value, allowed, fallback) { return allowed.indexOf(value) !== -1 ? value : fallback }
   function media(query) { return !!(window.matchMedia && window.matchMedia(query).matches) }
@@ -29,6 +35,7 @@
     root.setAttribute('data-font-size', pick(localStorage.getItem('fp-font-size'), ['default', 'large'], 'default'))
     root.setAttribute('data-effects', effectsOff ? 'off' : 'on')
     root.setAttribute('data-theme', scheme === 'dark' ? 'console' : 'daylight')
+    root.setAttribute('data-kit', 'v2')
   } catch (error) {
     root.setAttribute('data-family', DEFAULT_FAMILY)
     root.setAttribute('data-scheme', 'dark')
@@ -38,5 +45,6 @@
     root.setAttribute('data-font-size', 'default')
     root.setAttribute('data-effects', 'off')
     root.setAttribute('data-theme', 'console')
+    root.setAttribute('data-kit', 'v2')
   }
 })()

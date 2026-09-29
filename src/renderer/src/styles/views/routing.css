@@ -1,5 +1,4 @@
 /* ---------- Routing (Jev advisor console) ---------- */
-#routing-view.active { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* `stretch` (the grid default) rather than `start`: row 1 holds two
    half-width cards (advisor, policies) whose content heights rarely match,

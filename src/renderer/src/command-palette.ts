@@ -7,6 +7,7 @@ import { taskKindLabel } from './task-helpers'
 import { chooseProjectInteractively } from './project'
 import { snapshot } from './state'
 import { switchView } from './main'
+import { setDock, setFamily } from './theme'
 import { openTask, toggleInspector, toggleTaskList } from './views/tasks'
 import { openTaskDialog, taskDialog } from './dialogs/new-task'
 
@@ -27,15 +28,25 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
   const commands: CommandPaletteEntry[] = [
     { icon: 'plus', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run', run: () => openTaskDialog() },
     { icon: 'compare', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => openTaskDialog('bench') },
+    // Navigation goes through switchView, which resolves every id with nav.ts: Routing, Context &
+    // Tools and Skills are Settings tabs now, and Home stays reachable here until P4 removes it.
     { icon: 'home', label: 'Go to Home', detail: 'Start work and see what is running', keywords: 'navigate mission control composer', run: () => switchView('home') },
     { icon: 'tasks', label: 'Go to Tasks', detail: 'The work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
     { icon: 'workspace', label: 'Go to Workspaces', detail: 'Long-lived, per-repo conversations', keywords: 'navigate collaborate participants', run: () => switchView('workspace') },
     { icon: 'review', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
     { icon: 'agents', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
-    { icon: 'routing', label: 'Go to Routing', detail: 'Routing policy, the Jev advisor, and insights', keywords: 'navigate advisor jev policy', run: () => switchView('routing') },
-    { icon: 'control', label: 'Go to Context & Tools', detail: 'MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
-    { icon: 'skills', label: 'Go to Skills', detail: 'Enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
-    { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling and memory', keywords: 'navigate preferences', run: () => switchView('settings') },
+    { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling, notifications and memory', keywords: 'navigate preferences general', run: () => switchView('settings', 'general') },
+    { icon: 'routing', label: 'Go to Routing', detail: 'Settings: routing policy, the Jev advisor, and insights', keywords: 'navigate advisor jev policy', run: () => switchView('routing') },
+    { icon: 'control', label: 'Go to Context & Tools', detail: 'Settings: MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
+    { icon: 'skills', label: 'Go to Skills', detail: 'Settings: enable or disable discovered agent skills', keywords: 'navigate skill.md skills capabilities', run: () => switchView('skills') },
+    { icon: 'check', label: 'Go to Verification', detail: 'Settings: checks run on isolated branches', keywords: 'navigate verify checks tests', run: () => switchView('verification') },
+    { icon: 'palette', label: 'Open Appearance settings', detail: 'Theme family, scheme, dock, density and text size', keywords: 'theme appearance dark light', run: () => switchView('appearance') },
+    { icon: 'panel-bottom', label: 'Dock: bottom', detail: 'Move the dock to the bottom edge', keywords: 'appearance layout dock position', run: () => setDock('bottom') },
+    { icon: 'panel-left', label: 'Dock: left', detail: 'Move the dock to the left edge', keywords: 'appearance layout dock position', run: () => setDock('left') },
+    { icon: 'panel-right', label: 'Dock: right', detail: 'Move the dock to the right edge', keywords: 'appearance layout dock position', run: () => setDock('right') },
+    { icon: 'palette', label: 'Theme: Neutral', detail: 'Cool grays and one calm indigo accent', keywords: 'appearance family colour color', run: () => setFamily('neutral') },
+    { icon: 'palette', label: 'Theme: Mono', detail: 'Warm stone and ink', keywords: 'appearance family colour color', run: () => setFamily('mono') },
+    { icon: 'palette', label: 'Theme: Phosphor', detail: 'Amber accent, glow on readouts', keywords: 'appearance family colour color console', run: () => setFamily('phosphor') },
     { icon: 'folder-open', label: 'Switch project…', detail: 'Scope Tasks, Review, and Workspaces to one repo', keywords: 'project repo switcher filter scope', run: () => void chooseProjectInteractively() },
     { icon: 'panel-right', label: 'Toggle task list', detail: 'Collapse or expand the Tasks work queue (also [)', keywords: 'tasks list collapse expand pane', run: () => { switchView('tasks'); toggleTaskList() } },
     { icon: 'panel-right', label: 'Toggle inspector', detail: 'Collapse or expand the Tasks route inspector (also ])', keywords: 'tasks inspector route files activity collapse expand pane', run: () => { switchView('tasks'); toggleInspector() } },

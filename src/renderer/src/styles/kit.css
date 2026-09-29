@@ -3,16 +3,14 @@
 
    Imported after tokens.css and BEFORE components.css, so on any selector
    collision the legacy rule (same specificity, later in the cascade) still wins.
-   Nothing in the shipped markup consumes this file yet.
 
    Uses only var(--token) colours; a scan test (tests/kit-css.test.ts) enforces it.
 
-   COLLISIONS. Four class names are used by shipped markup AND defined by the
-   legacy sheets: .segmented, .switch/.slider (+ .switch.small), .field-label and
-   .readout. Their kit rules live in section 99 behind `:root[data-kit="v2"]`, so
-   they cannot leak into today's screens (a kit rule that sets a property the
-   legacy rule doesn't, e.g. the segmented track's padding, would otherwise apply).
-   The swap for a consumer is: delete its legacy rules, drop the gate prefix.
+   SWAPPED IN P3. Four class names are used by shipped markup: .segmented,
+   .switch/.slider (+ .switch.small), .field-label and .readout. P3 deleted their
+   legacy rules and the `:root[data-kit="v2"]` gate that kept section 99 off until
+   then, so section 99 now styles every consumer. (`data-kit="v2"` is still set on
+   <html> by theme-init.js and theme.ts; nothing selects on it.)
    Two more names collide with legacy rules, so the kit avoids them: the dialog
    heading is .dialog-title (not .dialog-header) and .meter-readout carries its
    own mono (there is no bare .mono).
@@ -246,54 +244,52 @@
 .diff-row.add .diff-ln, .diff-row.del .diff-ln { color: inherit; opacity: .7; }
 
 /* ============================================================================
-   99. COLLIDES WITH SHIPPED MARKUP. Gated by :root[data-kit="v2"] (see header).
-   The gate adds specificity, so with the gate on these also outrank the legacy
-   rules; with it off they do nothing and the app is unchanged.
+   99. Shared with shipped markup (see header): these replaced the legacy rules in P3.
    ========================================================================== */
 
 /* Switch. Targets the app's markup: <label class="switch"><input type="checkbox"><span class="slider"></span></label> */
-:root[data-kit="v2"] .switch { position: relative; display: inline-block; flex: none; width: 32px; height: 18px; gap: 0; }
-:root[data-kit="v2"] .switch input { position: absolute; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0; opacity: 0; }
-:root[data-kit="v2"] .switch .slider {
+.switch { position: relative; display: inline-block; flex: none; width: 32px; height: 18px; gap: 0; }
+.switch input { position: absolute; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0; opacity: 0; }
+.switch .slider {
   position: absolute; inset: 0; border-radius: var(--r-pill); background: var(--surface-3); box-shadow: none;
   cursor: pointer; transition: background var(--t-fast) var(--ease);
 }
-:root[data-kit="v2"] .switch .slider::after {
+.switch .slider::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
   background: var(--fg-faint); box-shadow: none;
   transition: transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
-:root[data-kit="v2"] .switch:hover .slider { background: var(--border-strong); }
-:root[data-kit="v2"] .switch input:checked + .slider { background: var(--accent-fill); box-shadow: none; }
-:root[data-kit="v2"] .switch:hover input:checked + .slider { background: var(--accent-hover); }
-:root[data-kit="v2"] .switch input:checked + .slider::after { transform: translateX(14px); background: var(--accent-fg); box-shadow: none; }
-:root[data-kit="v2"] .switch input:focus-visible + .slider { outline: 2px solid var(--focus); outline-offset: 2px; }
-:root[data-kit="v2"] .switch input:disabled + .slider { opacity: .45; cursor: default; }
-:root[data-kit="v2"] .switch.small { width: 28px; height: 16px; }
-:root[data-kit="v2"] .switch.small .slider::after { width: 12px; height: 12px; }
-:root[data-kit="v2"] .switch.small input:checked + .slider::after { transform: translateX(12px); }
+.switch:hover .slider { background: var(--border-strong); }
+.switch input:checked + .slider { background: var(--accent-fill); box-shadow: none; }
+.switch:hover input:checked + .slider { background: var(--accent-hover); }
+.switch input:checked + .slider::after { transform: translateX(14px); background: var(--accent-fg); box-shadow: none; }
+.switch input:focus-visible + .slider { outline: 2px solid var(--focus); outline-offset: 2px; }
+.switch input:disabled + .slider { opacity: .45; cursor: default; }
+.switch.small { width: 28px; height: 16px; }
+.switch.small .slider::after { width: 12px; height: 12px; }
+.switch.small input:checked + .slider::after { transform: translateX(12px); }
 
 /* Segmented. Targets the app's radiogroup: <div class="segmented" role="radiogroup"><button role="radio" aria-checked>. */
-:root[data-kit="v2"] .segmented { display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: var(--r-2); background: var(--surface-2); overflow: visible; }
-:root[data-kit="v2"] .segmented button {
+.segmented { display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: var(--r-2); background: var(--surface-2); overflow: visible; }
+.segmented button {
   height: calc(var(--control-h) - 4px); padding: 0 var(--s-3); border: 0; border-radius: calc(var(--r-2) - 2px);
   background: transparent; color: var(--fg-muted); letter-spacing: 0; box-shadow: none;
   font: var(--fw-medium) var(--fs-13)/1 var(--font-sans); cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-:root[data-kit="v2"] .segmented button:hover { color: var(--fg); }
-:root[data-kit="v2"] .segmented button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-:root[data-kit="v2"] .segmented button[aria-checked="true"], :root[data-kit="v2"] .segmented button[aria-pressed="true"], :root[data-kit="v2"] .segmented button.active {
+.segmented button:hover { color: var(--fg); }
+.segmented button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.segmented button[aria-checked="true"], .segmented button[aria-pressed="true"], .segmented button.active {
   background: var(--surface); color: var(--fg); box-shadow: var(--shadow-1);
 }
-:root[data-kit="v2"] .segmented button:disabled { opacity: .45; pointer-events: none; }
+.segmented button:disabled { opacity: .45; pointer-events: none; }
 
 /* Labels and readouts. */
-:root[data-kit="v2"] .field-label {
+.field-label {
   display: block; margin: 0; color: var(--fg-muted);
   font: var(--fw-medium) var(--fs-12)/var(--lh-ui) var(--font-display);
   letter-spacing: var(--tracking-label); text-transform: var(--label-transform);
 }
-:root[data-kit="v2"] .readout { color: var(--fg); font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
-:root[data-kit="v2"][data-family="phosphor"] .readout { color: var(--accent); text-shadow: var(--glow); }
-:root[data-kit="v2"][data-effects="off"] .readout { text-shadow: none; }
+.readout { color: var(--fg); font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+:root[data-family="phosphor"] .readout { color: var(--accent); text-shadow: var(--glow); }
+:root[data-effects="off"] .readout { text-shadow: none; }

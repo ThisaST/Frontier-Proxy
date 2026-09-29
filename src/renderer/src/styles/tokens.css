@@ -42,12 +42,17 @@
   /* Layout */
   --dock-size: 52px;          /* thickness of the dock bar */
   --dock-inset: 12px;         /* gap between dock and window edge */
+  --header-h: 44px;           /* the header row above every screen */
+  --dock-pad: calc(var(--dock-size) + 2 * var(--dock-inset)); /* room the content leaves for the dock */
+  --shell-pad-left: 0px;      /* the content's padding on each side; shell.css sets the dock's side to --dock-pad */
+  --shell-pad-right: 0px;
+  --shell-pad-bottom: 0px;
   --queue-w: 300px;           /* Tasks: work queue column */
   --inspector-w: 320px;       /* Tasks: inspector column */
   --control-h: 32px;          /* default control height */
   --control-h-sm: 26px;
   --density: 1;               /* compact sets .85 */
-  --sidebar-width: 244px;     /* v1 sidebar; goes with the dock in P3 */
+  --sidebar-width: 244px;     /* v1 sidebar, unused since P3; kept for the v1 fixture until P7 */
 
   font-family: var(--font-sans);
 }

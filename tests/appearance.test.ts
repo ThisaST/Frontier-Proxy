@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FAMILY, resolveAppearance } from '../src/renderer/src/theme-model'
+import { DEFAULT_FAMILY, platformAttribute, resolveAppearance } from '../src/renderer/src/theme-model'
 
 const THEME_INIT = readFileSync(new URL('../src/renderer/public/theme-init.js', import.meta.url), 'utf8')
 type Stored = Record<string, string | undefined>
@@ -11,7 +11,7 @@ describe('resolveAppearance: defaults', () => {
   it('lands on DEFAULT_FAMILY, the system scheme and calm chrome when nothing is stored', () => {
     expect(resolve({}, true).attributes).toEqual({
       'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-dock': 'bottom', 'data-dock-labels': 'hover',
-      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on', 'data-theme': 'console'
+      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on', 'data-theme': 'console', 'data-kit': 'v2'
     })
     expect(resolve({}, false).attributes['data-scheme']).toBe('light')
     expect(resolve({}).appearance.scheme).toBe('system')
@@ -74,8 +74,17 @@ describe('resolveAppearance: chrome settings', () => {
   })
 })
 
+describe('platformAttribute (data-platform, never stored)', () => {
+  it.each([
+    [{ platform: 'MacIntel' }, 'mac'], [{ userAgentData: { platform: 'macOS' } }, 'mac'], [{ platform: 'Win32', userAgentData: { platform: 'macOS' } }, 'mac'],
+    [{ platform: 'Win32' }, 'other'], [{ platform: 'Linux x86_64' }, 'other'], [{ userAgentData: { platform: '' }, platform: 'MacIntel' }, 'mac'], [{}, 'other'], [undefined, 'other']
+  ])('%j -> %s', (nav, expected) => expect(platformAttribute(nav)).toBe(expected))
+})
+
+type FakeNavigator = Parameters<typeof platformAttribute>[0]
+
 // theme-init.js is a plain script that cannot import theme-model.ts, so run it for real against a fake page.
-function runThemeInit(stored: Stored, dark: boolean, reduced: boolean, storageThrows = false) {
+function runThemeInit(stored: Stored, dark: boolean, reduced: boolean, storageThrows = false, navigator?: FakeNavigator) {
   const attributes: Record<string, string> = {}
   const writes: string[] = []
   const localStorage = {
@@ -84,7 +93,7 @@ function runThemeInit(stored: Stored, dark: boolean, reduced: boolean, storageTh
     removeItem: (key: string) => { writes.push(key) }
   }
   const matchMedia = (query: string) => ({ matches: query.includes('color-scheme') ? dark : query.includes('reduced-motion') ? reduced : false })
-  const context = { document: { documentElement: { setAttribute: (name: string, value: string) => { attributes[name] = value } } }, localStorage, window: { matchMedia } }
+  const context = { document: { documentElement: { setAttribute: (name: string, value: string) => { attributes[name] = value } } }, localStorage, window: { matchMedia }, ...(navigator ? { navigator } : {}) }
   runInNewContext(THEME_INIT, context)
   return { attributes, writes }
 }
@@ -102,9 +111,15 @@ describe('theme-init.js', () => {
     for (const stored of stores) {
       for (const dark of [false, true]) {
         for (const reduced of [false, true]) {
-          expect(runThemeInit(stored, dark, reduced).attributes, JSON.stringify({ stored, dark, reduced })).toEqual(resolve(stored, dark, reduced).attributes)
+          expect(runThemeInit(stored, dark, reduced).attributes, JSON.stringify({ stored, dark, reduced })).toEqual({ ...resolve(stored, dark, reduced).attributes, 'data-platform': 'other' })
         }
       }
+    }
+  })
+
+  it('derives data-platform exactly as platformAttribute does', () => {
+    for (const nav of [{ platform: 'MacIntel' }, { userAgentData: { platform: 'macOS' } }, { platform: 'Win32' }, { platform: 'Linux x86_64' }, {}]) {
+      expect(runThemeInit({}, false, false, false, nav).attributes['data-platform'], JSON.stringify(nav)).toBe(platformAttribute(nav))
     }
   })
 
@@ -113,6 +128,6 @@ describe('theme-init.js', () => {
   })
 
   it('falls back to the default family, dark, effects off when storage throws', () => {
-    expect(runThemeInit({}, false, false, true).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-theme': 'console', 'data-effects': 'off' })
+    expect(runThemeInit({}, false, false, true, { platform: 'MacIntel' }).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-theme': 'console', 'data-effects': 'off', 'data-kit': 'v2', 'data-platform': 'mac' })
   })
 })

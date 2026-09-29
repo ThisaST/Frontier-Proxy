@@ -7,7 +7,7 @@
 // no `provider.kind` branching, no per-agent icons — adding a sixth provider kind must
 // never touch this file.
 import { renderMarkdown } from './markdown'
-import { openBranchInReview } from './main'
+import { openBranchInReview, switchView } from './main'
 import { onProjectChange, projectMatches, renderProjectChipInto } from './project'
 import { lamp } from './ui/components'
 import { icon, type IconName } from './ui/icons'
@@ -130,12 +130,11 @@ function providerLabel(id?: string): string | undefined {
   return latestSnapshot?.providers.find((provider) => provider.id === id)?.name
 }
 
-// Clicking an existing nav item is the plain cross-view navigation this module needs
-// for Context & Tools — reusing the generic listener main.ts already attaches to every
-// `.nav-item` (`switchView(item.dataset.view)`). Opening a branch in Review also needs
-// to preselect it, so that case goes through `openBranchInReview` instead (below).
+// Plain cross-view navigation (Context & Tools, now a Settings tab), through `switchView`, which
+// resolves every old id via nav.ts. Opening a branch in Review also needs to preselect it, so
+// that case goes through `openBranchInReview` instead (below).
 function goToNav(view: string): void {
-  (document.querySelector<HTMLElement>(`.nav-item[data-view="${view}"]`))?.click()
+  switchView(view)
 }
 
 // ---- Repo context card (Column 2) ----

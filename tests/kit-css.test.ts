@@ -76,10 +76,14 @@ describe('kit.css', () => {
     expect(imports.indexOf('kit.css')).toBeLessThan(imports.indexOf('components.css'))
   })
 
-  it('gates every rule that collides with a legacy class used by shipped markup', () => {
-    const rules = [...kit.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => m[1].trim())
-    const colliding = rules.filter((selector) => /\.(segmented|switch|slider|readout|field-label)(?![\w-])/.test(selector))
-    expect(colliding.length).toBeGreaterThan(10)
-    expect(colliding.filter((selector) => !selector.startsWith(':root[data-kit="v2"]'))).toEqual([])
+  // P3 swapped these in: the kit rules are ungated, and the legacy sheets (imported after kit.css,
+  // so they would win any tie) no longer define the shared classes at all.
+  it('owns .segmented, .switch/.slider, .field-label and .readout outright', () => {
+    const shared = /\.(segmented|switch|slider|readout|field-label)(?![\w-])/
+    const selectors = (css: string): string[] => [...css.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((m) => m[1].trim())
+    expect(selectors(kit).filter((selector) => shared.test(selector)).length).toBeGreaterThan(10)
+    expect(kit).not.toContain('data-kit')
+    const legacy = ['base.css', 'components.css'].flatMap((file) => selectors(strip(read(`src/renderer/src/styles/${file}`))))
+    expect(legacy.filter((selector) => shared.test(selector))).toEqual([])
   })
 })

@@ -1,37 +1,7 @@
-/* ---------- Bezel panels & corner ticks (spec §4.1) ----------
-   The signature motif: a 1px bezel border, an inset top highlight (--e-1),
-   and small L-bracket corner ticks drawn as eight solid-colour background
-   layers on a single ::before (kept to panels and dialogs, not every card). */
-.panel, dialog {
-  --tick: 9px;
-  --tick-w: 1.5px;
-  position: relative;
-}
-.panel::before, dialog::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background-repeat: no-repeat;
-  background-image:
-    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
-    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
-    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0),
-    linear-gradient(var(--bezel-strong) 0 0), linear-gradient(var(--bezel-strong) 0 0);
-  background-size:
-    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
-    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
-    var(--tick-w) var(--tick), var(--tick) var(--tick-w),
-    var(--tick-w) var(--tick), var(--tick) var(--tick-w);
-  background-position:
-    left 0 top 0, left 0 top 0,
-    right 0 top 0, right 0 top 0,
-    left 0 bottom 0, left 0 bottom 0,
-    right 0 bottom 0, right 0 bottom 0;
-}
-
-.panel { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1); box-shadow: var(--e-1); overflow: hidden; min-height: 0; }
+/* ---------- Panels (the corner ticks and inset highlight went with the old shell in P3) ----------
+   `position: relative` stays: dialogs and panels still anchor absolutely-positioned children. */
+.panel, dialog { position: relative; }
+.panel { border: 1px solid var(--bezel); border-radius: var(--r-lg); background: var(--surface-1); overflow: hidden; min-height: 0; }
 .empty-state { color: var(--fg-muted); padding: 44px 26px; text-align: center; font-size: 12px; line-height: 1.6; }
 .empty-state strong { color: var(--fg); display: block; font: 600 17px var(--font-display); margin-bottom: 5px; }
 .detail-empty { color: var(--fg-muted); font-size: 11px; line-height: 1.5; padding: 14px 4px; margin: 0; }
@@ -51,9 +21,7 @@
 .chip.tone-muted { color: var(--fg-muted); }
 .cyan-text { color: var(--cyan); }
 
-/* ---------- Readouts (spec §4.2) ---------- */
-.readout { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(--glow-amber); }
+/* Readouts, segmented controls, switches and field labels are the kit's (kit.css §99) since P3. */
 
 /* ---------- Chip (spec §6) — a single labelled fact in one tone ---------- */
 
@@ -133,11 +101,6 @@ strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(-
   background-image: repeating-linear-gradient(0deg, var(--scanline) 0 1px, transparent 1px 3px);
 }
 
-/* ---------- Segmented control (also used by the Appearance theme picker) ---------- */
-.segmented { display: flex; border: 1px solid var(--bezel); border-radius: var(--r-md); overflow: hidden; }
-.segmented button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--fg-muted); font: 500 11px var(--font-display); letter-spacing: .04em; }
-.segmented button.active { background: var(--surface-3); color: var(--amber); }
-
 /* ---------- Gauge bar (legacy alias kept out; gaugeSeg is used everywhere) ---------- */
 
 /* ---------- Composer (shared by the task surface, workspace, and the new-task dialog) ---------- */
@@ -176,7 +139,6 @@ strong.readout, .receipt-score.readout { color: var(--amber); text-shadow: var(-
 .turn-image { width: min(190px, 45%); min-width: 95px; max-height: 150px; object-fit: cover; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--bg); }
 .turn-reference { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 8px; border: 1px solid var(--bezel); border-radius: var(--r-sm); color: var(--fg); background: var(--surface-2); font: 10px var(--font-mono); }
 .turn-reference span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.field-label { display: block; margin-bottom: 6px; color: var(--fg-muted); font: 500 10px var(--font-body); letter-spacing: .02em; }
 .dialog-composer textarea { min-height: 110px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .dialog-composer .composer-mentions { bottom: auto; top: calc(100% + 7px); }
 
@@ -346,9 +308,8 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 .file-overlay-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
 
 /* ---------- Shared JS tooltip (ui/tooltip.ts) ----------
-   Fixed to the viewport, not any scrolling ancestor, so it is never clipped —
-   the collapsed sidebar's own `overflow-y: auto` clipped the old CSS
-   `::after` version. Shown on hover and keyboard focus alike. */
+   Fixed to the viewport, not any scrolling ancestor, so it is never clipped.
+   Shown on hover and keyboard focus alike. */
 .ui-tooltip { position: fixed; z-index: 50; max-width: 240px; padding: 6px 9px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); color: var(--fg); box-shadow: var(--e-2); font: 11px/1.4 var(--font-body); pointer-events: none; }
 .ui-tooltip[hidden] { display: none; }
 .ui-tooltip.ui-tooltip-right { transform: translateY(-50%); }

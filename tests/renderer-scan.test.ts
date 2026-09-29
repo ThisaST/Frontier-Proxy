@@ -26,9 +26,9 @@ const KIND_LITERAL = /\.kind\s*[!=]==?\s*['"](?:claude|codex|codex-oss|copilot|o
 // Screens about a provider itself: they legitimately show or gate on what kind of CLI it is.
 const PROVIDER_KIND_ALLOWED = [
   'task-form.ts',
+  'task-helpers.ts', // routePreviewText: the route preview names the picked provider's tier (was views/home.ts)
   'views/agents.ts',
   'views/control.ts',
-  'views/home.ts',
   'views/routing.ts',
   'views/skills.ts'
 ]

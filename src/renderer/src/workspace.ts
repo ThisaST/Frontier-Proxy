@@ -8,11 +8,11 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview, switchView } from './main'
-import { onProjectChange, projectMatches, renderProjectChipInto } from './project'
-import { lamp } from './ui/components'
+import { onProjectChange, projectMatches } from './project'
+import { avatar, fieldLabel, restoreFocusOnClose, sectionTitle, status } from './ui/components'
+import { byId, element } from './ui/dom'
 import { icon, type IconName } from './ui/icons'
 import { initRadioGroup, syncRadioGroupTabIndex } from './ui/segmented'
-import { restoreFocusOnClose } from './ui/components'
 import { handleFromName, isValidHandle, normalizeHandle, parseMentions } from '../../shared/mentions'
 import type {
   ActivityEvent, AppSnapshot, ParticipantCapability, ParticipantKind, ParticipantView,
@@ -21,23 +21,18 @@ import type {
 
 type SnapshotProvider = AppSnapshot['providers'][number]
 
-// ---- Small helpers duplicated from main.ts ----
-// main.ts's diff must stay tiny (see CLAUDE.md / the phase brief), so nothing is
-// exported from there for this module to import — these few generic helpers are
-// copied rather than shared, matching main.ts's own terse style.
-const byId = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
-
-function element(tag: string, className?: string, text?: string): HTMLElement {
-  const node = document.createElement(tag)
-  if (className) node.className = className
-  if (text !== undefined) node.textContent = text
-  return node
+// ---- Small helpers local to this module ----
+function emptyState(title: string, detail: string): HTMLElement {
+  const empty = element('div', 'empty')
+  empty.append(element('strong', 'ws-empty-title', title), element('p', undefined, detail))
+  return empty
 }
 
-function emptyState(title: string, detail: string): HTMLElement {
-  const empty = element('div', 'empty-state')
-  empty.append(element('strong', undefined, title), detail)
-  return empty
+// Two-letter initials for an avatar: "GitHub Copilot" -> GC, "nova" -> NO.
+function initialsOf(name: string): string {
+  const words = name.trim().split(/[^A-Za-z0-9]+/).filter(Boolean)
+  if (!words.length) return '?'
+  return (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase()
 }
 
 function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
@@ -100,14 +95,13 @@ function confirmAction(title: string, body: string, acceptLabel: string): Promis
 }
 
 const ACTIVITY_ICON: Record<string, IconName> = { tool: 'tool', thinking: 'thinking', notice: 'notice' }
-const CAPABILITY_META: Record<ParticipantCapability, { icon: IconName; label: string }> = {
-  'read-repo': { icon: 'cap-read', label: 'read' },
-  'edit-files': { icon: 'cap-edit', label: 'branch' },
-  'run-commands': { icon: 'cap-run', label: 'run' }
+// `edit-files` governs isolation, not enforcement (CLAUDE.md, D6): it is worded as what it does,
+// never as a permission.
+const CAPABILITY_LABEL: Record<ParticipantCapability, string> = {
+  'read-repo': 'Reads the repo',
+  'edit-files': 'Works on an isolated branch',
+  'run-commands': 'Runs commands'
 }
-// Participant accents are the one place new *colours* are allowed, and even
-// there we stay inside tokens the stylesheet already defines.
-const ACCENT_SWATCHES = ['var(--amber)', 'var(--cyan)', 'var(--phosphor)', 'var(--caution)', 'var(--alarm)']
 
 // ---- Module state ----
 let latestSnapshot: AppSnapshot | undefined
@@ -117,7 +111,9 @@ let repoContextCache: { cwd: string; skillCount: number } | undefined
 let activeRosterMenuCleanup: (() => void) | undefined
 let participantEditTarget: { workspaceId: string; participantId?: string } | undefined
 let participantKind: ParticipantKind = 'agent'
-let participantAccent: string = ACCENT_SWATCHES[0]
+// The participant's `accent` stays in state (a stored field) but is no longer rendered or edited:
+// avatars are neutral initials. It is carried through an edit so nothing is dropped.
+let participantAccent: string | undefined
 let workspaceFormMode: 'create' | 'rename' = 'create'
 let workspaceFormTargetId: string | undefined
 const mentionState: { entries: ParticipantView[]; index: number; range?: { start: number; end: number } } = { entries: [], index: 0 }
@@ -137,7 +133,7 @@ function goToNav(view: string): void {
   switchView(view)
 }
 
-// ---- Repo context card (Column 2) ----
+// ---- Repo context card (list column) ----
 
 function renderRepoContext(): void {
   const workspace = currentWorkspace()
@@ -145,13 +141,15 @@ function renderRepoContext(): void {
   if (!workspace) { container.replaceChildren(); return }
   const mcpCount = latestSnapshot?.settings.controlPlane.mcpServers.filter((server) => server.enabled).length ?? 0
   const skillCount = repoContextCache?.cwd === workspace.cwd ? repoContextCache.skillCount : undefined
-  const path = element('p', undefined, workspace.cwd); path.title = workspace.cwd
-  const link = element('button', 'text-button', 'Context & Tools →')
+  const path = element('span', 'mono ws-context-path', workspace.cwd); path.title = workspace.cwd
+  const link = element('button', 'btn btn-ghost btn-sm') as HTMLButtonElement
+  link.type = 'button'
+  link.append(document.createTextNode('Context & Tools'), icon('chevron-right', 14))
   link.addEventListener('click', () => goToNav('control'))
   container.replaceChildren(
-    element('p', 'eyebrow', 'REPO CONTEXT'),
+    sectionTitle('Repo context', 'div'),
     path,
-    element('p', undefined, `Skills ${skillCount ?? '…'} · MCP ${mcpCount}`),
+    element('span', undefined, `Skills ${skillCount ?? '…'} · MCP ${mcpCount}`),
     link
   )
   if (repoContextCache?.cwd !== workspace.cwd) void loadRepoContextSkills(workspace.cwd)
@@ -163,23 +161,31 @@ async function loadRepoContextSkills(cwd: string): Promise<void> {
   if (currentWorkspace()?.cwd === cwd) renderRepoContext()
 }
 
-// ---- Workspace list (Column 2) ----
+// ---- Workspace list (list column) ----
 
 function renderWorkspaceList(workspaces: WorkspaceView[]): void {
   const list = byId('workspace-list')
   list.replaceChildren(...workspaces.map((workspace) => {
-    const row = element('button', `workspace-item${workspace.id === selectedWorkspaceId ? ' selected' : ''}`)
+    const selected = workspace.id === selectedWorkspaceId
+    const row = element('button', `row workspace-item${selected ? ' is-selected' : ''}`) as HTMLButtonElement
+    row.type = 'button'
+    if (selected) row.setAttribute('aria-current', 'true')
     const agents = workspace.participants.filter((participant) => participant.kind === 'agent')
     const available = agents.filter((participant) => participant.available).length
-    row.append(element('strong', undefined, workspace.name))
-    const meta = element('div', 'workspace-item-meta')
-    meta.append(element('span', undefined, `${agents.length} agent${agents.length === 1 ? '' : 's'}`))
-    if (agents.length) {
-      const online = element('span', 'workspace-item-online')
-      online.append(lamp(available ? 'phosphor' : 'muted', `${available} available`), document.createTextNode(String(available)))
-      meta.append(online)
-    }
-    row.append(meta)
+
+    const main = element('span', 'row-main ws-item-main')
+    const path = element('span', 'row-meta mono ws-item-path', workspace.cwd); path.title = workspace.cwd
+    const foot = element('span', 'ws-item-foot')
+    const group = element('span', 'avatar-group')
+    group.setAttribute('aria-hidden', 'true')
+    const shown = workspace.participants.slice(0, 4)
+    for (const participant of shown) group.append(avatar(initialsOf(participant.name)))
+    if (workspace.participants.length > shown.length) group.append(avatar(`+${workspace.participants.length - shown.length}`))
+    foot.append(group, agents.length
+      ? status(available === agents.length ? 'ok' : 'warn', `${available} of ${agents.length} available`, { title: `${available} of ${agents.length} agent${agents.length === 1 ? '' : 's'} available` })
+      : status('neutral', 'No agents'))
+    main.append(element('span', 'ws-item-name', workspace.name), path, foot)
+    row.append(main)
     row.addEventListener('click', () => {
       if (selectedWorkspaceId === workspace.id) return
       selectedWorkspaceId = workspace.id
@@ -191,7 +197,7 @@ function renderWorkspaceList(workspaces: WorkspaceView[]): void {
   }))
 }
 
-// ---- Conversation (Column 3) ----
+// ---- Conversation ----
 
 function renderConversation(): void {
   const workspace = currentWorkspace()
@@ -226,22 +232,81 @@ function participantFor(workspace: WorkspaceView, id?: string): ParticipantView 
   return id ? workspace.participants.find((participant) => participant.id === id) : undefined
 }
 
-function avatarDot(participant?: ParticipantView): HTMLElement {
-  const dot = element('span', 'ws-avatar-dot')
-  if (participant?.accent) dot.style.background = participant.accent
-  return dot
+// ---- Mentions in rendered text ----
+// A `@handle` that names a participant renders as an inline pill. It is display only: the
+// dispatcher (main process, `postMessage`) is the sole thing that starts a run, and an agent's
+// reply never does (ADR D4), so a pill in a reply carries no behaviour at all.
+
+const MENTION_AT = /(^|[\s([{])@([A-Za-z0-9_-]+)/g
+const CODE_SPAN = /(```[\s\S]*?```|`[^`\n]*`)/
+const REPLY_MENTION_NOTE = 'A mention in a reply does not start anything'
+
+function handlesOf(workspace: WorkspaceView): Set<string> {
+  return new Set(workspace.participants.map((participant) => normalizeHandle(participant.handle)))
 }
 
-function messageBubble(message: WorkspaceMessage, participant?: ParticipantView): HTMLElement {
-  const block = element('article', `ws-message ${message.author}`)
-  const head = element('div', 'ws-message-head')
-  if (message.author === 'system') head.append(element('strong', undefined, 'system'))
-  else head.append(avatarDot(participant), element('strong', undefined, participant?.name ?? 'Unknown'))
-  head.append(element('span', undefined, timeAgo(message.createdAt)))
-  block.append(head)
-  const body = element('div', 'ws-message-body')
-  body.textContent = message.author === 'system' ? (message.systemReason ?? message.text) : message.text
-  block.append(body)
+function mentionNodes(text: string, handles: Set<string>, note?: string): Node[] {
+  const nodes: Node[] = []
+  let last = 0
+  for (const match of text.matchAll(MENTION_AT)) {
+    const handle = match[2]
+    if (!handles.has(handle.toLowerCase())) continue
+    const start = (match.index ?? 0) + match[1].length
+    if (start > last) nodes.push(document.createTextNode(text.slice(last, start)))
+    const pill = element('span', 'mention', `@${handle}`)
+    if (note) pill.title = note
+    nodes.push(pill)
+    last = start + 1 + handle.length
+  }
+  if (last < text.length) nodes.push(document.createTextNode(text.slice(last)))
+  return nodes
+}
+
+// Plain message text (human and system messages): mention pills, and code spans left as code
+// (a mention inside code is an example, not an address — the same rule `parseMentions` applies).
+function richText(text: string, handles: Set<string>): Node[] {
+  return text.split(CODE_SPAN).flatMap((part, index) => {
+    if (index % 2 === 0) return mentionNodes(part, handles)
+    const fenced = part.startsWith('```')
+    const code = element(fenced ? 'pre' : 'code', fenced ? 'ws-code-block' : 'ws-code')
+    code.textContent = fenced ? part.slice(3, -3).replace(/^[A-Za-z0-9_+-]*\n/, '') : part.slice(1, -1)
+    return [code]
+  })
+}
+
+// Rendered markdown (an agent's reply): wrap mentions in the text nodes, skipping code.
+function chipMentions(root: HTMLElement, handles: Set<string>): void {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement?.closest('code, pre') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT)
+  })
+  const texts: Text[] = []
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text)
+  for (const text of texts) {
+    if (!text.data.includes('@')) continue
+    const replacement = mentionNodes(text.data, handles, REPLY_MENTION_NOTE)
+    if (replacement.some((node) => node instanceof HTMLElement)) text.replaceWith(...replacement)
+  }
+}
+
+function messageBubble(workspace: WorkspaceView, message: WorkspaceMessage, participant?: ParticipantView): HTMLElement {
+  const handles = handlesOf(workspace)
+  // A system line is the thread naming why something did not happen (an unknown or unreachable
+  // handle): centred, quiet, never a silent drop.
+  if (message.author === 'system') {
+    const line = element('div', 'ws-sys')
+    line.title = timeAgo(message.createdAt)
+    line.append(...richText(message.systemReason ?? message.text, handles))
+    return line
+  }
+  const block = element('article', 'wmsg human')
+  block.append(avatar(initialsOf(participant?.name ?? '?')))
+  const main = element('div', 'wmsg-main')
+  const head = element('div', 'wmsg-head')
+  head.append(element('span', 'wmsg-name', participant?.name ?? 'Unknown'), element('span', 'wmsg-tail wmsg-time', timeAgo(message.createdAt)))
+  const body = element('div', 'wmsg-body')
+  body.append(...richText(message.text, handles))
+  main.append(head, body)
+  block.append(main)
   return block
 }
 
@@ -252,61 +317,60 @@ function queuedLabel(turn: WorkspaceTurn, participant?: ParticipantView): string
 }
 
 function activityRow(event: ActivityEvent): HTMLElement {
-  const row = element('div', `detail-activity-row ${event.kind}`)
-  const body = element('div')
-  body.append(element('strong', undefined, event.label))
-  if (event.detail) body.append(element('small', undefined, event.detail))
+  const row = element('div', `ws-activity-row ${event.kind}`)
+  const body = element('span', 'ws-activity-body')
+  body.append(element('span', 'ws-activity-label', event.label))
+  if (event.detail) body.append(element('span', 'mono ws-activity-detail', event.detail))
   row.append(icon(ACTIVITY_ICON[event.kind] ?? 'notice', 14), body)
   return row
 }
 
-function statusLine(iconName: IconName | undefined, text: string, className = 'ws-message-status'): HTMLElement {
-  const line = element('span', className)
-  if (iconName) line.append(icon(iconName, 14))
-  line.append(document.createTextNode(text))
-  return line
-}
-
 function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement {
   const participant = participantFor(workspace, turn.participantId)
-  const block = element('article', `ws-message agent ${turn.status}`)
-  const head = element('div', 'ws-message-head')
-  head.append(avatarDot(participant), element('strong', undefined, participant ? `${participant.name} · ${participant.role}` : 'Unknown participant'))
-  if (turn.status === 'queued') head.append(statusLine('waiting', queuedLabel(turn, participant)))
-  else if (turn.status === 'running') head.append(statusLine('loader', 'working…'))
-  else if (turn.status === 'failed') head.append(statusLine('alert', turn.error ?? 'Failed'))
-  else if (turn.status === 'cancelled') head.append(element('span', undefined, 'Cancelled'))
-  else head.append(element('span', undefined, timeAgo(turn.finishedAt ?? turn.startedAt)))
-  block.append(head)
+  const block = element('article', `wmsg agent ${turn.status}`)
+  block.append(avatar(initialsOf(participant?.name ?? '?')))
+  const main = element('div', 'wmsg-main')
+  const head = element('div', 'wmsg-head')
+  head.append(element('span', 'wmsg-name', participant?.name ?? 'Unknown participant'))
+  if (participant?.role) head.append(element('span', 'wmsg-role', participant.role))
+  const tail = element('span', 'wmsg-tail')
+  if (turn.status === 'queued') tail.append(status('neutral', queuedLabel(turn, participant)))
+  else if (turn.status === 'running') tail.append(status('running', 'working…'))
+  else if (turn.status === 'failed') tail.append(status('danger', turn.error ?? 'Failed'))
+  else if (turn.status === 'cancelled') tail.append(status('neutral', 'Cancelled'))
+  else { tail.classList.add('wmsg-time'); tail.textContent = timeAgo(turn.finishedAt ?? turn.startedAt) }
+  head.append(tail)
+  main.append(head)
 
-  const body = element('div', 'ws-message-body markdown')
-  if (turn.output.trim()) body.appendChild(renderMarkdown(turn.output))
+  const body = element('div', 'wmsg-body markdown')
+  if (turn.output.trim()) { body.appendChild(renderMarkdown(turn.output)); chipMentions(body, handlesOf(workspace)) }
   else if (turn.status === 'failed') body.textContent = turn.error ?? 'Failed.'
   else if (turn.status === 'running') body.textContent = 'Working…'
   else if (turn.status === 'queued') body.textContent = 'Waiting for a slot…'
   else body.textContent = '—'
-  block.append(body)
+  main.append(body)
 
-  // The live activity feed reuses the exact rendering the task view uses for
-  // `task.activity` (tool label + one-line detail), just scoped to this turn.
+  // The live activity feed mirrors `task.activity` (tool label + one-line detail), scoped to this turn.
   if (turn.status === 'running' && turn.activity?.length) {
-    const activity = element('div', 'ws-message-activity')
+    const activity = element('div', 'ws-activity')
     for (const event of turn.activity.slice(-6)) activity.append(activityRow(event))
-    block.append(activity)
+    main.append(activity)
   }
 
   const foot = element('div', 'ws-turn-foot')
   if (turn.branch) {
-    const branch = element('button', 'lane-branch') as HTMLButtonElement
+    const branch = element('button', 'btn btn-secondary btn-sm') as HTMLButtonElement
+    branch.type = 'button'
     const fileNote = turn.filesChanged?.length ? ` · ${turn.filesChanged.length} file${turn.filesChanged.length === 1 ? '' : 's'}` : ''
-    branch.append(icon('branch', 14), document.createTextNode(turn.committed ? ` ${turn.branch}${fileNote}` : ` ${turn.branch} · no changes`))
+    branch.append(icon('branch', 14), element('span', 'mono', turn.branch), document.createTextNode(turn.committed ? fileNote : ' · no changes'))
     branch.title = turn.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
     branch.disabled = !turn.committed
     if (turn.committed) branch.addEventListener('click', () => openBranchInReview(workspace.cwd, turn.branch!))
     foot.append(branch)
   }
   if (turn.status === 'failed') {
-    const retry = element('button', 'secondary-button', 'Retry this reply') as HTMLButtonElement
+    const retry = element('button', 'btn btn-secondary btn-sm', 'Retry this reply') as HTMLButtonElement
+    retry.type = 'button'
     retry.addEventListener('click', async () => {
       retry.disabled = true
       try { await window.frontier.retryWorkspaceTurn(workspace.id, turn.id) }
@@ -315,7 +379,8 @@ function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement 
     foot.append(retry)
   }
   if (turn.status === 'running' || turn.status === 'queued') {
-    const cancel = element('button', 'secondary-button', 'Cancel') as HTMLButtonElement
+    const cancel = element('button', 'btn btn-ghost btn-sm', 'Cancel') as HTMLButtonElement
+    cancel.type = 'button'
     cancel.addEventListener('click', async () => {
       cancel.disabled = true
       try { await window.frontier.cancelWorkspaceTurn(workspace.id, turn.id) }
@@ -323,7 +388,8 @@ function turnBubble(workspace: WorkspaceView, turn: WorkspaceTurn): HTMLElement 
     })
     foot.append(cancel)
   }
-  if (foot.childElementCount) block.append(foot)
+  if (foot.childElementCount) main.append(foot)
+  block.append(main)
   return block
 }
 
@@ -350,7 +416,7 @@ function renderThread(workspace: WorkspaceView): void {
     // (model, activity, branch) is rendered instead, right after its trigger, so the
     // reply never appears twice.
     if (message.author === 'agent') continue
-    fragment.append(messageBubble(message, participantFor(workspace, message.participantId)))
+    fragment.append(messageBubble(workspace, message, participantFor(workspace, message.participantId)))
     for (const turn of turnsByMessage.get(message.id) ?? []) fragment.append(turnBubble(workspace, turn))
   }
   if (!sorted.length) fragment.append(emptyState('Nothing yet', 'Say something, and @mention a participant to bring them in.'))
@@ -362,15 +428,21 @@ function renderThread(workspace: WorkspaceView): void {
 function renderAddressingHint(workspace: WorkspaceView): void {
   const input = byId<HTMLTextAreaElement>('ws-composer-input')
   const hint = byId('workspace-addressing-hint')
-  const { addressed } = parseMentions(input.value, workspace.participants)
-  if (!addressed.length) {
+  const { addressed, unknown } = parseMentions(input.value, workspace.participants)
+  if (!addressed.length && !unknown.length) {
     hint.textContent = 'No one addressed — this will be posted to the log only.'
-    hint.classList.remove('addressed')
     return
   }
-  const handles = addressed.map((id) => `@${workspace.participants.find((participant) => participant.id === id)?.handle ?? id}`)
-  hint.textContent = `Addressing ${handles.join(', ')}`
-  hint.classList.add('addressed')
+  const nodes: Node[] = []
+  if (addressed.length) {
+    nodes.push(document.createTextNode('Addressing '))
+    addressed.forEach((id, index) => {
+      if (index) nodes.push(document.createTextNode(', '))
+      nodes.push(element('span', 'mention', `@${workspace.participants.find((participant) => participant.id === id)?.handle ?? id}`))
+    })
+  }
+  if (unknown.length) nodes.push(document.createTextNode(`${addressed.length ? ' · ' : ''}${unknown.map((handle) => `@${handle}`).join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not in this workspace`))
+  hint.replaceChildren(...nodes)
 }
 
 function renderAddressingHintFromInput(): void {
@@ -400,22 +472,26 @@ function selectWsMention(entry: ParticipantView): void {
 function renderWsMentions(): void {
   const menu = byId('ws-composer-mentions')
   if (!mentionState.entries.length) {
-    menu.replaceChildren(element('div', 'composer-mention-empty', 'No matching participants'))
+    menu.replaceChildren(element('div', 'ws-menu-empty', 'No matching participants'))
     menu.hidden = false
     return
   }
   menu.replaceChildren(...mentionState.entries.map((entry, index) => {
-    const button = element('button', `composer-mention ${index === mentionState.index ? 'selected' : ''}`)
-    button.setAttribute('role', 'option'); button.setAttribute('aria-selected', String(index === mentionState.index))
-    const copy = element('span', 'composer-mention-copy')
-    const detail = [entry.role, entry.kind === 'agent' ? providerLabel(entry.providerId) : undefined, entry.available ? undefined : (entry.unavailableReason ?? 'unavailable')]
-      .filter(Boolean).join(' · ')
-    copy.append(element('strong', undefined, entry.name), element('small', undefined, detail))
-    button.append(lamp(entry.available ? 'phosphor' : 'muted', entry.available ? 'Available' : 'Unavailable'), copy)
-    button.addEventListener('mousedown', (event) => { event.preventDefault(); selectWsMention(entry) })
-    return button
+    const selected = index === mentionState.index
+    const item = element('button', 'row ws-menu-item') as HTMLButtonElement
+    item.type = 'button'
+    item.setAttribute('role', 'option'); item.setAttribute('aria-selected', String(selected))
+    const main = element('span', 'row-main')
+    const title = element('span', 'ws-menu-title')
+    title.append(element('span', 'ws-menu-name', entry.name), element('span', 'mono ws-handle', `@${entry.handle}`))
+    const detail = [entry.role, entry.kind === 'agent' ? providerLabel(entry.providerId) : undefined].filter(Boolean).join(' · ')
+    main.append(title, element('span', 'row-meta', detail))
+    item.append(avatar(initialsOf(entry.name)), main, availability(entry))
+    item.addEventListener('mousedown', (event) => { event.preventDefault(); selectWsMention(entry) })
+    return item
   }))
   menu.hidden = false
+  menu.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
 }
 
 // Unavailable participants stay listed and selectable (wireframe §2) — you find out why
@@ -444,6 +520,12 @@ function handleWsMentionKeydown(event: KeyboardEvent): boolean {
   return false
 }
 
+function autoGrowComposer(): void {
+  const input = byId<HTMLTextAreaElement>('ws-composer-input')
+  input.style.height = 'auto'
+  input.style.height = `${Math.min(input.scrollHeight + 2, 140)}px`
+}
+
 async function sendWsMessage(): Promise<void> {
   const workspace = currentWorkspace()
   if (!workspace) return
@@ -452,6 +534,7 @@ async function sendWsMessage(): Promise<void> {
   const text = input.value.trim()
   if (!text) return
   input.value = ''
+  autoGrowComposer()
   closeWsMentions()
   renderAddressingHint(workspace)
   input.disabled = true; button.disabled = true
@@ -475,16 +558,10 @@ byId('participants-dialog-close').addEventListener('click', () => participantsDi
 
 function closeRosterMenu(): void { activeRosterMenuCleanup?.(); activeRosterMenuCleanup = undefined }
 
-function capabilityChips(participant: ParticipantView): HTMLElement | undefined {
-  if (!participant.capabilities.length) return undefined
-  const row = element('div', 'ws-capability-chips')
-  for (const capability of participant.capabilities) {
-    const meta = CAPABILITY_META[capability]
-    const chip = element('span', 'ws-capability-chip')
-    chip.append(icon(meta.icon, 14), document.createTextNode(meta.label))
-    row.append(chip)
-  }
-  return row
+// Availability is computed in the main process (`unavailableReason` names why); the renderer
+// only prints it: a dot and a word.
+function availability(participant: ParticipantView): HTMLElement {
+  return participant.available ? status('ok', 'Available') : status('danger', participant.unavailableReason ?? 'Unavailable')
 }
 
 function toggleRosterMenu(workspace: WorkspaceView, participant: ParticipantView, anchor: HTMLElement): void {
@@ -492,7 +569,7 @@ function toggleRosterMenu(workspace: WorkspaceView, participant: ParticipantView
   const menu = element('div', 'ws-roster-menu')
   const edit = element('button', undefined, 'Edit participant')
   edit.addEventListener('click', () => { closeRosterMenu(); openParticipantEditor(workspace.id, participant.id) })
-  const remove = element('button', undefined, 'Remove participant')
+  const remove = element('button', 'danger', 'Remove participant')
   remove.addEventListener('click', async () => {
     closeRosterMenu()
     const confirmed = await confirmAction('Remove this participant?', `${participant.name} (@${participant.handle}) will be removed from this workspace. Past messages stay in the log.`, 'Remove')
@@ -507,20 +584,25 @@ function toggleRosterMenu(workspace: WorkspaceView, participant: ParticipantView
 }
 
 function rosterRow(workspace: WorkspaceView, participant: ParticipantView): HTMLElement {
-  const row = element('div', 'workspace-roster-row')
-  row.append(lamp(participant.available ? 'phosphor' : 'muted', participant.available ? 'Available' : 'Unavailable'))
-  const body = element('div', 'workspace-roster-row-body')
-  body.append(element('strong', undefined, participant.name))
-  if (participant.kind === 'agent') {
-    const provider = latestSnapshot?.providers.find((item) => item.id === participant.providerId)
-    body.append(element('small', undefined, [participant.role, provider?.name, participant.model].filter(Boolean).join(' · ')))
-  } else if (participant.role) body.append(element('small', undefined, participant.role))
-  if (!participant.available && participant.unavailableReason) body.append(element('small', 'ws-unavailable-reason', participant.unavailableReason))
-  const chips = capabilityChips(participant)
-  if (chips) body.append(chips)
+  const row = element('div', 'ws-roster-row')
+  row.append(avatar(initialsOf(participant.name)))
+  const body = element('div', 'ws-roster-body')
+  const title = element('div', 'ws-menu-title')
+  title.append(element('span', 'ws-menu-name', participant.name), element('span', 'mono ws-handle', `@${participant.handle}`))
+  body.append(title)
+  const detail = element('div', 'row-meta')
+  const provider = participant.kind === 'agent' ? latestSnapshot?.providers.find((item) => item.id === participant.providerId) : undefined
+  detail.append(document.createTextNode([participant.role, provider?.name].filter(Boolean).join(' · ')))
+  if (participant.kind === 'agent' && participant.model) detail.append(document.createTextNode(' · '), element('span', 'mono', participant.model))
+  if (detail.childNodes.length) body.append(detail)
+  body.append(availability(participant))
+  // What the participant is set up to do, as one quiet line. `edit-files` is worded as isolation
+  // ("works on an isolated branch"), never as a permission (CLAUDE.md, D6).
+  if (participant.kind === 'agent' && participant.capabilities.length) body.append(element('div', 'ws-cap-line', participant.capabilities.map((capability) => CAPABILITY_LABEL[capability]).join(' · ')))
   row.append(body)
 
-  const menuButton = element('button', 'ws-roster-menu-button')
+  const menuButton = element('button', 'btn btn-ghost btn-icon btn-sm ws-roster-menu-button') as HTMLButtonElement
+  menuButton.type = 'button'
   menuButton.append(icon('more', 16))
   menuButton.setAttribute('aria-label', `Actions for ${participant.name}`)
   menuButton.addEventListener('click', (event) => { event.stopPropagation(); toggleRosterMenu(workspace, participant, row) })
@@ -531,13 +613,14 @@ function rosterRow(workspace: WorkspaceView, participant: ParticipantView): HTML
 // Creating a workspace seeds only the human participant; every other enabled agent is
 // shown here as a not-yet-added suggestion until the user actually adds it.
 function suggestedRow(workspace: WorkspaceView, provider: SnapshotProvider): HTMLElement {
-  const row = element('div', 'workspace-roster-row suggested')
-  row.append(lamp('muted', 'Not yet added'))
-  const body = element('div', 'workspace-roster-row-body')
-  body.append(element('strong', undefined, provider.name), element('small', undefined, 'Not yet added'))
+  const row = element('div', 'ws-roster-row suggested')
+  row.append(avatar(initialsOf(provider.name)))
+  const body = element('div', 'ws-roster-body')
+  body.append(element('div', 'ws-menu-name', provider.name), status('neutral', 'Not yet added'))
   row.append(body)
-  const add = element('button', 'text-button ws-add-button')
-  add.append(icon('plus', 14), document.createTextNode(' Add'))
+  const add = element('button', 'btn btn-secondary btn-sm ws-add-button') as HTMLButtonElement
+  add.type = 'button'
+  add.append(icon('plus', 14), document.createTextNode('Add'))
   add.addEventListener('click', () => openParticipantEditor(workspace.id, undefined, provider.id))
   row.append(add)
   return row
@@ -545,7 +628,7 @@ function suggestedRow(workspace: WorkspaceView, provider: SnapshotProvider): HTM
 
 function rosterGroup(label: string, rows: HTMLElement[]): HTMLElement {
   const group = element('div', 'workspace-roster-group')
-  group.append(element('p', 'eyebrow', label))
+  group.append(fieldLabel(label))
   const list = element('div', 'workspace-roster-list')
   list.append(...rows)
   group.append(list)
@@ -563,9 +646,9 @@ function renderRoster(): void {
 
   const agentRows = [...agents.map((agent) => rosterRow(workspace, agent)), ...suggested.map((provider) => suggestedRow(workspace, provider))]
   container.replaceChildren(
-    rosterGroup('HUMANS', humans.map((human) => rosterRow(workspace, human))),
-    rosterGroup('AGENTS', agentRows),
-    element('p', 'workspace-roster-footer', 'Only participants you @mention will reply.')
+    rosterGroup('Humans', humans.map((human) => rosterRow(workspace, human))),
+    rosterGroup('Agents', agentRows),
+    element('p', 'workspace-roster-footer', 'Only participants you @mention will reply. A mention in a reply never starts another participant.')
   )
 }
 
@@ -675,28 +758,15 @@ byId('workspace-delete-button').addEventListener('click', () => void deleteCurre
 const participantDialog = byId<HTMLDialogElement>('participant-dialog')
 restoreFocusOnClose(participantDialog)
 
-function renderAccentPicker(selected: string): void {
-  const container = byId('ws-participant-accent')
-  container.replaceChildren(...ACCENT_SWATCHES.map((swatch) => {
-    const button = element('button', `ws-accent-swatch${swatch === selected ? ' selected' : ''}`) as HTMLButtonElement
-    button.style.setProperty('--swatch', swatch)
-    button.setAttribute('aria-label', `Accent ${swatch}`)
-    button.addEventListener('click', () => { participantAccent = swatch; renderAccentPicker(swatch) })
-    return button
-  }))
-}
-
 function setParticipantKind(kind: ParticipantKind): void {
   participantKind = kind
-  document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) => {
-    const active = button.dataset.kind === kind
-    button.classList.toggle('active', active); button.setAttribute('aria-checked', String(active))
-  })
+  document.querySelectorAll<HTMLElement>('#ws-participant-kind [role="radio"]').forEach((button) => button.setAttribute('aria-checked', String(button.dataset.kind === kind)))
   syncRadioGroupTabIndex(byId('ws-participant-kind'))
+  byId('ws-participant-kind-help').textContent = kind === 'human' ? 'A named person in the conversation.' : 'Runs on one of your configured agents.'
   byId('ws-participant-agent-fields').hidden = kind !== 'agent'
   byId('ws-participant-capabilities').hidden = kind !== 'agent'
 }
-document.querySelectorAll<HTMLElement>('#ws-participant-kind .run-mode').forEach((button) =>
+document.querySelectorAll<HTMLElement>('#ws-participant-kind [role="radio"]').forEach((button) =>
   button.addEventListener('click', () => setParticipantKind(button.dataset.kind === 'human' ? 'human' : 'agent')))
 initRadioGroup(byId('ws-participant-kind'), (option) => setParticipantKind(option.dataset.kind === 'human' ? 'human' : 'agent'))
 
@@ -757,8 +827,7 @@ function openParticipantEditor(workspaceId: string, participantId?: string, sugg
     byId<HTMLInputElement>('ws-participant-model-custom').value = hasModel ? '' : participant.model
   }
 
-  participantAccent = participant?.accent ?? ACCENT_SWATCHES[(workspace?.participants.length ?? 0) % ACCENT_SWATCHES.length]
-  renderAccentPicker(participantAccent)
+  participantAccent = participant?.accent
 
   byId<HTMLInputElement>('ws-cap-read').checked = participant ? participant.capabilities.includes('read-repo') : true
   byId<HTMLInputElement>('ws-cap-edit').checked = participant?.capabilities.includes('edit-files') ?? false
@@ -811,7 +880,7 @@ byId<HTMLFormElement>('participant-form').addEventListener('submit', async (even
 
 byId('ws-composer-send').addEventListener('click', () => void sendWsMessage())
 const wsComposerInput = byId<HTMLTextAreaElement>('ws-composer-input')
-wsComposerInput.addEventListener('input', () => { refreshWsMentions(); renderAddressingHintFromInput() })
+wsComposerInput.addEventListener('input', () => { autoGrowComposer(); refreshWsMentions(); renderAddressingHintFromInput() })
 wsComposerInput.addEventListener('click', () => refreshWsMentions())
 wsComposerInput.addEventListener('keydown', (event) => {
   if (handleWsMentionKeydown(event)) { event.stopImmediatePropagation(); return }
@@ -825,13 +894,14 @@ wsComposerInput.addEventListener('blur', () => window.setTimeout(closeWsMentions
 // path — safe to call repeatedly; it no-ops wherever nothing changed.
 export function renderWorkspaceView(snapshot: AppSnapshot): void {
   latestSnapshot = snapshot
-  renderProjectChipInto('workspace-project-chip')
   const workspaces = snapshot.workspaces.filter((workspace) => projectMatches(workspace.cwd))
   const empty = byId('workspace-empty')
   const grid = byId('workspace-grid')
   if (!workspaces.length) {
     empty.hidden = false; grid.hidden = true
     selectedWorkspaceId = undefined
+    byId<HTMLButtonElement>('workspace-participants-button').disabled = true
+    byId('workspace-participants-count').textContent = '0'
     return
   }
   empty.hidden = true; grid.hidden = false

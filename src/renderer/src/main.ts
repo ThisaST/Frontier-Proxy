@@ -32,7 +32,7 @@ import { initProjectSwitcher } from './project'
 const HEADER: Record<ViewId, { title: string; actions?: string[]; project?: boolean }> = {
   home: { title: 'Home', project: true },
   tasks: { title: 'Tasks', project: true },
-  workspace: { title: 'Workspaces', project: true },
+  workspace: { title: 'Workspaces', actions: ['workspace-participants-button'], project: true },
   review: { title: 'Review', actions: ['review-refresh'], project: true },
   agents: { title: 'Agents', actions: ['health-check', 'add-provider'] },
   settings: { title: 'Settings' }

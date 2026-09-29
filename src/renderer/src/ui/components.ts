@@ -95,6 +95,68 @@ export function probabilityBars(entries: Array<{ label: string; value: number }>
   return wrap
 }
 
+// ---------- Calm kit factories (styles/kit.css). Not consumed yet; they replace lamp/gaugeSeg/chip in P3-P6. ----------
+export type StatusTone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral' | 'running'
+export type MeterTone = 'ok' | 'warn' | 'danger' | 'accent'
+
+const STATUS_NAMES: Record<StatusTone, string> = { ok: 'OK', warn: 'Warning', danger: 'Error', info: 'Info', neutral: 'Idle', running: 'Running' }
+
+// A dot and a word. With no text it is a dot-only status (queue rows), so the dot itself
+// carries the accessible name: `opts.ariaLabel`, else the tone's plain word.
+export function status(tone: StatusTone, label: string, opts: { ariaLabel?: string; title?: string } = {}): HTMLElement {
+  const node = element('span', `status ${tone}`, label)
+  if (!label) { node.setAttribute('role', 'img'); node.setAttribute('aria-label', opts.ariaLabel ?? STATUS_NAMES[tone]) }
+  if (opts.title) node.title = opts.title
+  return node
+}
+
+// Small neutral text tag (kinds, tiers, file actions). Text is shown as given, never uppercased.
+export function tag(label: string): HTMLElement { return element('span', 'tag', label) }
+
+// A 4px meter. `--value` is set through the CSSOM (`style.setProperty`), never an inline
+// `style` attribute, because the CSP is `style-src 'self'`. As with `gaugeSeg`, a `meter` role
+// needs `aria-valuenow`, so an unknown value renders as a labelled image instead.
+export function meter(percent: number | undefined, tone?: MeterTone, label?: string): HTMLElement {
+  const node = element('div', `meter${tone ? ` ${tone}` : ''}`)
+  const track = element('div', 'meter-track'), fill = element('div', 'meter-fill')
+  track.append(fill); node.append(track)
+  if (percent === undefined || !Number.isFinite(percent)) {
+    node.setAttribute('role', 'img')
+    node.setAttribute('aria-label', label ? `${label}: not reported` : 'Not reported')
+    return node
+  }
+  const clamped = Math.min(100, Math.max(0, percent)), rounded = Math.round(clamped)
+  node.style.setProperty('--value', `${clamped}%`)
+  node.setAttribute('role', 'meter')
+  node.setAttribute('aria-valuemin', '0'); node.setAttribute('aria-valuemax', '100'); node.setAttribute('aria-valuenow', String(rounded))
+  node.setAttribute('aria-valuetext', `${rounded}%${label ? `: ${label}` : ''}`)
+  if (label) node.setAttribute('aria-label', label)
+  return node
+}
+
+// Label + meter + mono readout on one row (routing factors, advisor best fit, plan windows).
+export function meterRow(label: string, percent: number | undefined, readoutText: string, tone?: MeterTone): HTMLElement {
+  const row = element('div', 'meter-row')
+  row.append(element('span', 'meter-label', label), meter(percent, tone, label), element('span', 'meter-readout', readoutText))
+  return row
+}
+
+// Two-letter initials in a neutral circle. Decorative unless a `name` is given.
+export function avatar(initials: string, name?: string): HTMLElement {
+  const node = element('span', 'avatar', initials.trim().slice(0, 2).toUpperCase())
+  if (name) { node.setAttribute('role', 'img'); node.setAttribute('aria-label', name) } else node.setAttribute('aria-hidden', 'true')
+  return node
+}
+
+export function sectionTitle(text: string, tagName: 'h2' | 'h3' | 'h4' | 'div' = 'h3'): HTMLElement { return element(tagName, 'section-title', text) }
+
+// A `label` when it names a control (`forId`), otherwise a plain span.
+export function fieldLabel(text: string, forId?: string): HTMLElement {
+  const node = element(forId ? 'label' : 'span', 'field-label', text)
+  if (forId) node.setAttribute('for', forId)
+  return node
+}
+
 // A collapsible header + body — the Tasks inspector's Route/Files/Activity/
 // Context/Attempts sections (design spec §6). Open state is left to the
 // caller (`onToggle`) so it can be persisted or reset per task as needed.

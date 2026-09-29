@@ -1,0 +1,299 @@
+/* ============================================================================
+   Frontier "Calm" component kit (docs/ui-calm/spec.md section 4).
+
+   Imported after tokens.css and BEFORE components.css, so on any selector
+   collision the legacy rule (same specificity, later in the cascade) still wins.
+   Nothing in the shipped markup consumes this file yet.
+
+   Uses only var(--token) colours; a scan test (tests/kit-css.test.ts) enforces it.
+
+   COLLISIONS. Four class names are used by shipped markup AND defined by the
+   legacy sheets: .segmented, .switch/.slider (+ .switch.small), .field-label and
+   .readout. Their kit rules live in section 99 behind `:root[data-kit="v2"]`, so
+   they cannot leak into today's screens (a kit rule that sets a property the
+   legacy rule doesn't, e.g. the segmented track's padding, would otherwise apply).
+   The swap for a consumer is: delete its legacy rules, drop the gate prefix.
+   Two more names collide with legacy rules, so the kit avoids them: the dialog
+   heading is .dialog-title (not .dialog-header) and .meter-readout carries its
+   own mono (there is no bare .mono).
+   ========================================================================== */
+
+/* ---------- 1. Focus (never removed) ---------- */
+.btn:focus-visible, .row:focus-visible, .vtabs button:focus-visible, .table tr:focus-visible,
+.code:focus-visible, .diff:focus-visible {
+  outline: 2px solid var(--focus); outline-offset: 2px;
+}
+
+/* ---------- 2. Buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  height: var(--control-h); padding: 0 var(--s-3);
+  border: 1px solid transparent; border-radius: var(--r-2);
+  font: var(--fw-medium) var(--fs-13)/1 var(--font-sans);
+  white-space: nowrap; cursor: pointer; box-shadow: none; filter: none;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.btn-sm { height: var(--control-h-sm); padding: 0 var(--s-2); font-size: var(--fs-12); }
+.btn-icon { width: var(--control-h); padding: 0; }
+.btn-icon.btn-sm { width: var(--control-h-sm); }
+
+.btn-primary { background: var(--accent-fill); color: var(--accent-fg); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-hover); box-shadow: inset 0 0 0 1px var(--pressed); }
+
+.btn-secondary { background: var(--surface); border-color: var(--border); color: var(--fg); }
+.btn-secondary:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.btn-secondary:active { background: var(--surface-3); border-color: var(--border-strong); }
+
+.btn-ghost { background: transparent; color: var(--fg-muted); }
+.btn-ghost:hover { background: var(--hover); color: var(--fg); }
+.btn-ghost:active { background: var(--pressed); color: var(--fg); }
+
+.btn-danger { background: transparent; color: var(--danger); }
+.btn-danger:hover { background: var(--danger-soft); }
+.btn-danger:active { background: var(--danger-soft); box-shadow: inset 0 0 0 1px var(--danger); }
+
+.btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+
+/* ---------- 3. Text inputs ---------- */
+.field { display: grid; gap: var(--s-1); }
+.input, .select, .textarea {
+  display: block; width: 100%; height: var(--control-h); padding: 0 var(--s-3);
+  background: var(--surface); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--r-1);
+  font: var(--fw-regular) var(--fs-13)/var(--lh-ui) var(--font-sans);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.textarea { height: auto; min-height: 88px; padding: var(--s-2) var(--s-3); resize: vertical; }
+.input::placeholder, .textarea::placeholder { color: var(--fg-faint); }
+.input:hover, .select:hover, .textarea:hover { border-color: var(--border-strong); }
+/* Text fields signal focus with the border + ring instead of an outline. */
+.input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--selection); }
+.input:disabled, .select:disabled, .textarea:disabled { background: var(--surface-2); color: var(--fg-faint); cursor: not-allowed; }
+/* The native arrow stays unless the select is wrapped, so a bare .select is never arrow-less. */
+.select-wrap { position: relative; }
+.select-wrap > .select { appearance: none; padding-right: var(--s-7); }
+.select-wrap > .icon { position: absolute; right: var(--s-3); top: 50%; margin-top: -7px; color: var(--fg-muted); pointer-events: none; }
+
+/* ---------- 4. Status: a dot and a word ---------- */
+.status {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  color: var(--fg-muted); font-size: var(--fs-13); line-height: var(--lh-ui);
+}
+.status::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--tone, var(--fg-faint)); }
+.status.ok { --tone: var(--ok); }
+.status.warn { --tone: var(--warn); }
+.status.danger { --tone: var(--danger); }
+.status.info { --tone: var(--info); }
+.status.neutral { --tone: var(--fg-faint); }
+.status.running { --tone: var(--accent-fill); }
+.status.running::before { animation: status-pulse 1.2s ease-in-out infinite; }
+@keyframes status-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .status.running::before { animation: none; } }
+:root[data-effects="off"] .status.running::before { animation: none; }
+
+/* ---------- 5. Tag, badge ---------- */
+.tag {
+  display: inline-flex; align-items: center; padding: 2px 6px;
+  background: var(--surface-2); color: var(--fg-muted); border-radius: var(--r-1);
+  font: var(--fw-medium) var(--fs-11)/1.3 var(--font-sans); white-space: nowrap;
+}
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 5px; border-radius: var(--r-pill);
+  background: var(--accent-fill); color: var(--accent-fg);
+  font: var(--fw-semibold) 10px/1 var(--font-sans); font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 6. Meter: a 4px track; fill width comes from --value ---------- */
+.meter { --tone: var(--fg-faint); display: flex; align-items: center; gap: var(--s-3); width: 100%; }
+.meter.ok { --tone: var(--ok); }
+.meter.warn { --tone: var(--warn); }
+.meter.danger { --tone: var(--danger); }
+.meter.accent { --tone: var(--accent-fill); }
+.meter-track { position: relative; flex: 1; height: 4px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
+.meter-fill { position: absolute; inset: 0 auto 0 0; width: var(--value, 0%); background: var(--tone); border-radius: inherit; }
+/* label + meter + readout on one row */
+.meter-row { display: grid; grid-template-columns: minmax(80px, 34%) minmax(0, 1fr) auto; align-items: center; gap: var(--s-3); font-size: var(--fs-12); }
+.meter-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
+.meter-readout { min-width: 40px; text-align: right; color: var(--fg-muted); }
+.meter-readout { font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+/* Phosphor: same markup, ten segments. The glow stays on the readout. */
+:root[data-family="phosphor"] .meter-track {
+  height: 8px; border-radius: 1px;
+  -webkit-mask: repeating-linear-gradient(90deg, var(--fg) 0 calc(10% - 2px), transparent 0 10%);
+  mask: repeating-linear-gradient(90deg, var(--fg) 0 calc(10% - 2px), transparent 0 10%);
+}
+:root[data-family="phosphor"] .meter-fill { border-radius: 0; }
+:root[data-family="phosphor"] .meter-readout { color: var(--accent); text-shadow: var(--glow); }
+:root[data-effects="off"] .meter-readout { text-shadow: none; }
+
+/* ---------- 7. Card, row ---------- */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); padding: var(--s-4); }
+.row {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: calc(10px * var(--density)) var(--s-3); border-radius: var(--r-2);
+  color: var(--fg); font-size: var(--fs-13); line-height: var(--lh-ui); cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.row:hover { background: var(--hover); }
+.row.is-selected, .row[aria-selected="true"] { background: var(--accent-soft); }
+.row-main { flex: 1; min-width: 0; }
+.row-title { color: var(--fg); font-size: var(--fs-13); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-meta { color: var(--fg-muted); font-size: var(--fs-12); }
+
+/* ---------- 8. Labels (Phosphor keeps its identity through the tokens) ---------- */
+.section-title {
+  margin: 0; color: var(--fg);
+  font: var(--fw-semibold) var(--fs-13)/var(--lh-ui) var(--font-display);
+  letter-spacing: var(--tracking-label); text-transform: var(--label-transform);
+}
+.screen-title { margin: 0; color: var(--fg); font: var(--fw-semibold) var(--fs-15)/var(--lh-tight) var(--font-display); }
+
+/* ---------- 9. Table ---------- */
+.table { width: 100%; border-collapse: collapse; color: var(--fg); font-size: var(--fs-13); }
+.table th {
+  padding: var(--s-2) var(--s-3); text-align: left; white-space: nowrap;
+  border-bottom: 1px solid var(--border); color: var(--fg-muted);
+  font-size: var(--fs-12); font-weight: var(--fw-medium);
+}
+.table td { padding: calc(10px * var(--density)) var(--s-3); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.table tbody tr:hover { background: var(--hover); }
+.table th.num, .table td.num { text-align: right; }
+.table td.num { font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+
+/* ---------- 10. Vertical tabs (Settings). Horizontal .tabs has no consumer yet and is not built. ---------- */
+.vtabs { display: flex; flex-direction: column; gap: 2px; width: 200px; max-width: 100%; }
+.vtabs button {
+  padding: 7px var(--s-3); border: 0; border-radius: var(--r-2); background: none; text-align: left;
+  color: var(--fg-muted); font: var(--fw-medium) var(--fs-13)/var(--lh-ui) var(--font-sans); cursor: pointer;
+}
+.vtabs button:hover { background: var(--hover); color: var(--fg); }
+.vtabs button[aria-selected="true"], .vtabs button.is-selected { background: var(--accent-soft); color: var(--fg); }
+.vtabs button:disabled { opacity: .45; pointer-events: none; }
+
+/* ---------- 11. Sheet: right-side panel. A div toggled with .is-open, or a <dialog class="sheet">. ---------- */
+.sheet {
+  position: fixed; inset: 0 0 0 auto; z-index: 40; margin: 0; padding: 0; border: 0;
+  display: flex; flex-direction: column; width: 420px; max-width: 100%; height: 100%; max-height: none;
+  background: var(--surface); color: var(--fg); box-shadow: var(--shadow-2);
+  transform: translateX(100%); transition: transform var(--t-med) var(--ease);
+}
+.sheet.is-open, .sheet[open] { transform: none; }
+.sheet[open] { display: flex; animation: sheet-in var(--t-med) var(--ease); }
+.sheet::backdrop { background: var(--scrim); }
+@keyframes sheet-in { from { transform: translateX(100%); } }
+.sheet-header { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-4); border-bottom: 1px solid var(--border); }
+.sheet-body { flex: 1; overflow: auto; padding: var(--s-4); }
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet[open] { transition: none; animation: none; } }
+:root[data-effects="off"] .sheet, :root[data-effects="off"] .sheet[open] { transition: none; animation: none; }
+
+/* ---------- 12. Dialog: a class for <dialog> (or a div inside .scrim) ---------- */
+.scrim { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: var(--s-4); background: var(--scrim); }
+.dialog {
+  width: 480px; max-width: calc(100vw - 32px); margin: auto; padding: 0; border: 0;
+  background: var(--surface); color: var(--fg); border-radius: var(--r-4); box-shadow: var(--shadow-2);
+}
+.dialog::backdrop { background: var(--scrim); }
+.dialog-title { padding: var(--s-5) var(--s-5) var(--s-2); font: var(--fw-semibold) var(--fs-18)/var(--lh-tight) var(--font-display); }
+.dialog-body { padding: 0 var(--s-5) var(--s-4); color: var(--fg-muted); font-size: var(--fs-13); line-height: var(--lh-body); }
+.dialog-footer { display: flex; justify-content: flex-end; gap: var(--s-2); padding: var(--s-3) var(--s-5) var(--s-5); }
+
+/* ---------- 13. Toast, tooltip, kbd ---------- */
+.toast {
+  position: fixed; top: var(--s-3); right: var(--s-3); z-index: 60;
+  display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4);
+  background: var(--surface); color: var(--fg); border-radius: var(--r-3); box-shadow: var(--shadow-2);
+  font-size: var(--fs-13); animation: toast-in var(--t-med) var(--ease);
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+:root[data-effects="off"] .toast { animation: none; }
+.tooltip {
+  display: inline-block; max-width: 280px; padding: var(--s-1) var(--s-2); border-radius: var(--r-1);
+  background: var(--fg); color: var(--bg); font-size: var(--fs-12); line-height: var(--lh-ui);
+}
+.kbd {
+  display: inline-flex; align-items: center; padding: 1px 5px;
+  background: var(--surface-2); color: var(--fg-muted); border: 1px solid var(--border); border-radius: var(--r-1);
+  font: var(--fw-regular) var(--fs-11)/1.4 var(--font-mono);
+}
+
+/* ---------- 14. Empty, avatar ---------- */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-3);
+  padding: var(--s-8) var(--s-4); color: var(--fg-muted); font-size: var(--fs-13); text-align: center;
+}
+.avatar {
+  display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--surface-3); color: var(--fg); font: var(--fw-semibold) var(--fs-11)/1 var(--font-sans);
+}
+.avatar-group { display: inline-flex; }
+.avatar-group .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
+
+/* ---------- 15. Code and diff ---------- */
+.code {
+  margin: 0; padding: var(--s-3) var(--s-4); overflow-x: auto; tab-size: 2;
+  background: var(--code-bg); color: var(--fg); border-radius: var(--r-2);
+  font: var(--fw-regular) var(--fs-12)/1.5 var(--font-mono); white-space: pre;
+}
+.diff { overflow-x: auto; background: var(--code-bg); border-radius: var(--r-2); font: var(--fw-regular) var(--fs-12)/1.5 var(--font-mono); }
+.diff-row { display: grid; grid-template-columns: 44px 1fr; min-width: max-content; }
+.diff-ln { padding: 0 var(--s-2); color: var(--fg-faint); text-align: right; user-select: none; font-variant-numeric: tabular-nums; }
+.diff-code { padding: 0 var(--s-3); white-space: pre; }
+.diff-row.add, .diff .add { background: var(--diff-add); color: var(--diff-add-fg); }
+.diff-row.del, .diff .del { background: var(--diff-del); color: var(--diff-del-fg); }
+.diff-row.add .diff-ln, .diff-row.del .diff-ln { color: inherit; opacity: .7; }
+
+/* ============================================================================
+   99. COLLIDES WITH SHIPPED MARKUP. Gated by :root[data-kit="v2"] (see header).
+   The gate adds specificity, so with the gate on these also outrank the legacy
+   rules; with it off they do nothing and the app is unchanged.
+   ========================================================================== */
+
+/* Switch. Targets the app's markup: <label class="switch"><input type="checkbox"><span class="slider"></span></label> */
+:root[data-kit="v2"] .switch { position: relative; display: inline-block; flex: none; width: 32px; height: 18px; gap: 0; }
+:root[data-kit="v2"] .switch input { position: absolute; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0; opacity: 0; }
+:root[data-kit="v2"] .switch .slider {
+  position: absolute; inset: 0; border-radius: var(--r-pill); background: var(--surface-3); box-shadow: none;
+  cursor: pointer; transition: background var(--t-fast) var(--ease);
+}
+:root[data-kit="v2"] .switch .slider::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--fg-faint); box-shadow: none;
+  transition: transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+:root[data-kit="v2"] .switch:hover .slider { background: var(--border-strong); }
+:root[data-kit="v2"] .switch input:checked + .slider { background: var(--accent-fill); box-shadow: none; }
+:root[data-kit="v2"] .switch:hover input:checked + .slider { background: var(--accent-hover); }
+:root[data-kit="v2"] .switch input:checked + .slider::after { transform: translateX(14px); background: var(--accent-fg); box-shadow: none; }
+:root[data-kit="v2"] .switch input:focus-visible + .slider { outline: 2px solid var(--focus); outline-offset: 2px; }
+:root[data-kit="v2"] .switch input:disabled + .slider { opacity: .45; cursor: default; }
+:root[data-kit="v2"] .switch.small { width: 28px; height: 16px; }
+:root[data-kit="v2"] .switch.small .slider::after { width: 12px; height: 12px; }
+:root[data-kit="v2"] .switch.small input:checked + .slider::after { transform: translateX(12px); }
+
+/* Segmented. Targets the app's radiogroup: <div class="segmented" role="radiogroup"><button role="radio" aria-checked>. */
+:root[data-kit="v2"] .segmented { display: inline-flex; gap: 2px; padding: 2px; border: 0; border-radius: var(--r-2); background: var(--surface-2); overflow: visible; }
+:root[data-kit="v2"] .segmented button {
+  height: calc(var(--control-h) - 4px); padding: 0 var(--s-3); border: 0; border-radius: calc(var(--r-2) - 2px);
+  background: transparent; color: var(--fg-muted); letter-spacing: 0; box-shadow: none;
+  font: var(--fw-medium) var(--fs-13)/1 var(--font-sans); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+:root[data-kit="v2"] .segmented button:hover { color: var(--fg); }
+:root[data-kit="v2"] .segmented button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+:root[data-kit="v2"] .segmented button[aria-checked="true"], :root[data-kit="v2"] .segmented button[aria-pressed="true"], :root[data-kit="v2"] .segmented button.active {
+  background: var(--surface); color: var(--fg); box-shadow: var(--shadow-1);
+}
+:root[data-kit="v2"] .segmented button:disabled { opacity: .45; pointer-events: none; }
+
+/* Labels and readouts. */
+:root[data-kit="v2"] .field-label {
+  display: block; margin: 0; color: var(--fg-muted);
+  font: var(--fw-medium) var(--fs-12)/var(--lh-ui) var(--font-display);
+  letter-spacing: var(--tracking-label); text-transform: var(--label-transform);
+}
+:root[data-kit="v2"] .readout { color: var(--fg); font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+:root[data-kit="v2"][data-family="phosphor"] .readout { color: var(--accent); text-shadow: var(--glow); }
+:root[data-kit="v2"][data-effects="off"] .readout { text-shadow: none; }

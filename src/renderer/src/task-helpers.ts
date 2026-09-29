@@ -7,7 +7,6 @@ import { element } from './ui/dom'
 import { status, type StatusTone } from './ui/components'
 import { formatDuration } from './ui/format'
 import { checkLine } from '../../shared/review-agents'
-import { status } from './ui/components'
 
 export function taskIsBusy(task: ProxyTask): boolean {
   return task.status === 'running' || task.status === 'queued'

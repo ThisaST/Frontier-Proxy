@@ -23,8 +23,3 @@
   .cp-server-top { grid-template-columns: auto minmax(0, 1fr); }
   .cp-server-top > select, .cp-server-top > button { grid-column: 1 / -1; }
 }
-
-/* ---------- Shared with Agents and the workspace participant dialog ----------
-   Kept verbatim until those move to the kit switch (P6); nothing in Settings uses it now. */
-.checkbox-row { display: flex; flex-direction: row; align-items: center; gap: 9px; color: var(--fg-muted); font-size: 11px; }
-.checkbox-row input { width: auto; }

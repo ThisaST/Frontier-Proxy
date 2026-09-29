@@ -11,7 +11,7 @@ describe('resolveAppearance: defaults', () => {
   it('lands on DEFAULT_FAMILY, the system scheme and calm chrome when nothing is stored', () => {
     expect(resolve({}, true).attributes).toEqual({
       'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-dock': 'bottom', 'data-dock-labels': 'hover',
-      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on', 'data-theme': 'console', 'data-kit': 'v2'
+      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on', 'data-kit': 'v2'
     })
     expect(resolve({}, false).attributes['data-scheme']).toBe('light')
     expect(resolve({}).appearance.scheme).toBe('system')
@@ -52,8 +52,8 @@ describe('resolveAppearance: fp-theme migration (ui-plan 7.3)', () => {
 
   it('carries the light/dark choice into every family', () => {
     for (const family of ['neutral', 'mono', 'phosphor']) {
-      expect(resolve({ 'fp-family': family, 'fp-scheme': 'dark' }).attributes).toMatchObject({ 'data-family': family, 'data-scheme': 'dark', 'data-theme': 'console' })
-      expect(resolve({ 'fp-family': family, 'fp-scheme': 'light' }).attributes).toMatchObject({ 'data-family': family, 'data-scheme': 'light', 'data-theme': 'daylight' })
+      expect(resolve({ 'fp-family': family, 'fp-scheme': 'dark' }).attributes).toMatchObject({ 'data-family': family, 'data-scheme': 'dark' })
+      expect(resolve({ 'fp-family': family, 'fp-scheme': 'light' }).attributes).toMatchObject({ 'data-family': family, 'data-scheme': 'light' })
     }
   })
 })
@@ -141,6 +141,6 @@ describe('theme-init.js', () => {
   })
 
   it('falls back to the default family, dark, effects off when storage throws', () => {
-    expect(runThemeInit({}, false, false, true, { platform: 'MacIntel' }).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-theme': 'console', 'data-effects': 'off', 'data-kit': 'v2', 'data-platform': 'mac' })
+    expect(runThemeInit({}, false, false, true, { platform: 'MacIntel' }).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-effects': 'off', 'data-kit': 'v2', 'data-platform': 'mac' })
   })
 })

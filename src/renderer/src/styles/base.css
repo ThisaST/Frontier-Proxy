@@ -1,12 +1,12 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
-body { height: 100vh; overflow: hidden; font-family: var(--font-body); }
+body { height: 100vh; overflow: hidden; font-family: var(--font-sans); }
 button, input, textarea, select { font: inherit; }
 button { color: inherit; }
 .icon { flex: 0 0 auto; }
 
 /* Focus is always visible — never removed, never only a colour change. */
-:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* Visually hidden but present for assistive tech — the live-status region
    and anything else that only needs to be announced, never seen. */
@@ -14,40 +14,19 @@ button { color: inherit; }
 
 /* First focusable element in the document; invisible until it has keyboard
    focus, per the standard "skip to content" pattern. */
-.skip-link { position: fixed; top: -60px; left: var(--s-3); z-index: 100; padding: 10px 16px; border-radius: var(--r-md); background: var(--amber-fill); color: var(--on-amber); font: 700 12px var(--font-body); text-decoration: none; transition: top var(--t-fast) var(--ease); }
+.skip-link { position: fixed; top: -60px; left: var(--s-3); z-index: 100; padding: 10px 16px; border-radius: var(--r-2); background: var(--accent-fill); color: var(--accent-fg); font: var(--fw-semibold) var(--fs-12) var(--font-sans); text-decoration: none; transition: top var(--t-fast) var(--ease); }
 .skip-link:focus-visible { top: var(--s-3); }
 
 /* The shell (dock, header row, content padding) is styles/shell.css. */
-.eyebrow { color: var(--fg-faint); font: 750 10px/1.2 var(--font-display); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 7px; }
 h1, h2 { font-family: var(--font-display); font-weight: 600; margin: 0; }
-h1 { font-size: 28px; }
 h2 { font-size: 20px; }
 .header-actions, .dialog-actions { display: flex; gap: var(--s-2); align-items: center; }
 
-button { border-radius: var(--r-md); border: 1px solid transparent; padding: 9px 13px; font: 500 12px var(--font-body); cursor: pointer; transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
-
-/* Hardware keys (spec §4.7): primary is a filled amber key with a darker
-   bottom edge that shifts down 1px when pressed; secondary is bezelled;
-   ghost is text-only; danger outlines in alarm and fills on hover. Only these
-   top-level button kinds get the icon+label flex layout — buttons that lay
-   out their own content (tabs, run-mode cards, palette rows, …) keep their
-   own display rule untouched. */
-.primary-button, .secondary-button, .icon-button, .text-button { display: inline-flex; align-items: center; gap: 7px; }
-.primary-button { background: var(--amber-fill); color: var(--on-amber); font-weight: 700; box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--on-amber) 28%, transparent); }
-.primary-button:hover { filter: brightness(1.08); }
-.primary-button:active { transform: translateY(1px); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--on-amber) 28%, transparent); }
-.primary-button:disabled { opacity: .45; cursor: default; transform: none; }
-.primary-button.cancel-button { background: var(--alarm); color: var(--on-amber); box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--on-amber) 30%, transparent); }
-.secondary-button { background: var(--surface-2); border-color: var(--bezel); color: var(--fg); }
-.secondary-button:hover { border-color: var(--bezel-strong); background: var(--surface-3); }
-.secondary-button:disabled { opacity: .45; cursor: default; }
-.text-button { background: transparent; color: var(--fg-muted); padding-inline: 2px; }
-.text-button:hover { color: var(--fg); }
-.icon-button { width: 31px; height: 31px; padding: 0; border: 1px solid var(--bezel); background: transparent; color: var(--fg-muted); place-content: center; }
-.icon-button:hover { color: var(--fg); border-color: var(--bezel-strong); background: var(--surface-2); }
+/* Bare buttons (tabs, palette rows, inspector heads, …) that lay out their own content. Actions use the kit's `.btn`. */
+button { border-radius: var(--r-2); border: 1px solid transparent; padding: 9px 13px; font: var(--fw-medium) var(--fs-12) var(--font-sans); cursor: pointer; transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
 
 .view { display: none; padding: var(--s-1) var(--s-4) var(--s-4); }
-#tasks-view.active, #workspace-view.active, #home-view.active, #review-view.active, #settings-view.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+#tasks-view.active, #workspace-view.active, #review-view.active, #settings-view.active { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 #agents-view.active { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -55,29 +34,17 @@ button { border-radius: var(--r-md); border: 1px solid transparent; padding: 9px
 }
 /* The "Reduce effects" switch (Settings → Appearance) is a separate,
    explicit opt-out from `prefers-reduced-motion` — everything that moves
-   (the radar sweep/pulse, lamp blink, the drawer-in slide, the toast fade,
-   draggable-gutter/nav/button hover transitions, …) stops under it too, not
-   only the named "glow" motifs. `!important` here deliberately outranks any
-   more specific `animation`/`transition` shorthand (e.g. the effects-off
-   radar's own pulse keyframe) so nothing is missed case by case. */
+   (the running-dot pulse, the sheet slide, the toast fade, hover
+   transitions, …) stops under it too, not only Phosphor's glow.
+   `!important` here deliberately outranks any more specific
+   `animation`/`transition` shorthand so nothing is missed case by case. */
 [data-effects='off'] *, [data-effects='off'] *::before, [data-effects='off'] *::after {
   animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important;
 }
 
-label { color: var(--fg-muted); font: 500 10px var(--font-body); letter-spacing: .02em; display: grid; gap: 6px; }
-input, textarea, select { width: 100%; border: 1px solid var(--bezel); color: var(--fg); background: var(--surface-2); border-radius: var(--r-md); padding: 9px 11px; outline: none; font: 12px var(--font-body); }
-input:focus, textarea:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 12%, transparent); }
+/* Bare form elements: the fallback for controls that do not carry the kit's `.input`/`.select`/`.textarea`
+   (the composers' borderless textareas, the palette search, checkboxes inside `.switch`). */
+label { color: var(--fg-muted); font: var(--fw-medium) var(--fs-12) var(--font-sans); display: grid; gap: 6px; }
+input, textarea, select { width: 100%; border: 1px solid var(--border); color: var(--fg); background: var(--surface-2); border-radius: var(--r-2); padding: 9px 11px; outline: none; font: var(--fs-12) var(--font-sans); }
+input:focus, textarea:focus, select:focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--selection); }
 textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
-
-/* Range slider — track + thumb for both engines. `appearance: none` alone (as
-   used to ship) suppresses the native track/thumb with nothing to replace it,
-   leaving only a bare thumb floating with no visible track. */
-input[type='range'] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; padding: 0; background: transparent; border: 0; }
-input[type='range']:focus { box-shadow: none; }
-input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
-input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; margin-top: -6px; width: 14px; height: 14px; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber), 0 0 0 2px var(--surface-1); cursor: pointer; }
-input[type='range']:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--cyan); outline-offset: 2px; }
-input[type='range']::-moz-range-track { height: 4px; border-radius: 2px; background: var(--surface-3); box-shadow: inset 0 0 0 1px var(--bezel); }
-input[type='range']::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--amber); }
-input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--amber); box-shadow: var(--glow-amber), 0 0 0 2px var(--surface-1); cursor: pointer; }
-input[type='range']:focus-visible::-moz-range-thumb { outline: 2px solid var(--cyan); outline-offset: 2px; }

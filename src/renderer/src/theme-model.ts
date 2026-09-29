@@ -14,11 +14,11 @@ export type Effects = 'on' | 'off'
 /** What the user chose. `scheme` may be `system`; `effects` is the stored preference, not the reduced-motion result. */
 export interface Appearance { family: Family; scheme: Scheme; dock: DockPosition; dockLabels: DockLabels; density: Density; fontSize: FontSize; effects: Effects }
 
-/** The attributes set on <html>. `data-scheme` is always resolved; `data-theme` is the v1 attribute, kept until P7.
+/** The attributes set on <html>. `data-scheme` is always resolved.
  *  `data-kit="v2"` marks the kit as live (constant since P3, not a setting); no stylesheet gates on it any more. */
 export interface AppearanceAttributes {
   'data-family': Family; 'data-scheme': 'light' | 'dark'; 'data-dock': DockPosition; 'data-dock-labels': DockLabels
-  'data-density': Density; 'data-font-size': FontSize; 'data-effects': Effects; 'data-theme': 'console' | 'daylight'; 'data-kit': 'v2'
+  'data-density': Density; 'data-font-size': FontSize; 'data-effects': Effects; 'data-kit': 'v2'
 }
 
 /** `data-platform`: derived from `navigator`, never stored. Drives the macOS traffic-light inset in shell.css. */
@@ -68,8 +68,7 @@ export function resolveAppearance(stored: Record<string, string | undefined>, pr
     attributes: {
       'data-family': appearance.family, 'data-scheme': scheme, 'data-dock': appearance.dock, 'data-dock-labels': appearance.dockLabels,
       'data-density': appearance.density, 'data-font-size': appearance.fontSize,
-      'data-effects': appearance.effects === 'off' || reducedMotion ? 'off' : 'on',
-      'data-theme': scheme === 'dark' ? 'console' : 'daylight', 'data-kit': 'v2'
+      'data-effects': appearance.effects === 'off' || reducedMotion ? 'off' : 'on', 'data-kit': 'v2'
     }
   }
 }

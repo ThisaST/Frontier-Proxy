@@ -7,11 +7,7 @@
    page is Neutral (dark under `prefers-color-scheme: dark`, light otherwise), the default
    family, so a first paint before theme-init.js runs matches what it will set; those
    fallback selectors are `:where(:not([data-family]))`, so they can never leak into a
-   family that is set.
-
-   Transition (P1 -> P6): `data-theme='console'|'daylight'` still resolves like
-   phosphor/dark and phosphor/light, and every v1 token name (--amber, --bezel, …) is
-   kept as an alias in §5 until P7 deletes it. */
+   family that is set. */
 
 /* ---------- 1. Non-color scales (shared by every family) ---------- */
 :root {
@@ -53,7 +49,6 @@
   --control-h: 32px;          /* default control height */
   --control-h-sm: 26px;
   --density: 1;               /* compact sets .85 */
-  --sidebar-width: 244px;     /* v1 sidebar, unused since P3; kept for the v1 fixture until P7 */
 
   font-family: var(--font-sans);
 }
@@ -154,9 +149,7 @@
 /* PHOSPHOR — the existing Console / Daylight palette, mapped onto the v2 token names so
    the same components render it. (Daylight's "soft" tints are 8%, not the 12% of docs/ui-calm/tokens.css:
    at 12% warn and accent text on their own tint measured 4.41 and 4.30, under 4.5:1.) The only family that has glow, Chakra Petch display
-   type, and uppercase tracked labels. `data-theme='console'|'daylight'` with no family
-   still resolves like its dark / light variant. */
-:root[data-theme='console']:where(:not([data-family])),
+   type, and uppercase tracked labels. */
 :is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
   color-scheme: dark;
   --bg: #0b0d0c; --surface: #101312; --surface-2: #161b19; --surface-3: #1d2421;
@@ -175,7 +168,6 @@
   --font-sans: 'IBM Plex Sans', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-display: 'Chakra Petch', ui-sans-serif, sans-serif; --tracking-label: .08em; --label-transform: uppercase;
 }
-:root[data-theme='daylight']:where(:not([data-family])),
 :is(:root, .app)[data-family="phosphor"][data-scheme="light"] {
   color-scheme: light;
   --bg: #e9e4d8; --surface: #f3efe5; --surface-2: #fbf8f1; --surface-3: #e1dbcc;
@@ -202,74 +194,11 @@
   --fs-16: 17px; --fs-18: 19px; --fs-22: 23px; --fs-28: 29px;
 }
 
-/* ---------- 4. Legacy (v1) token names, aliased onto v2 (P7 deletes this) ----------
-   Persisted workspace participants store `accent` as `var(--amber)`, so --amber must
-   survive until the workspace view stops rendering accents. */
-:is(:root, .app) {
-  --surface-1: var(--surface);
-  --bezel: var(--border);
-  --bezel-strong: var(--border-strong);
-  --amber: var(--accent);
-  --amber-fill: var(--accent-fill);
-  --on-amber: var(--accent-fg);
-  --cyan: var(--info);
-  --phosphor: var(--ok);
-  --caution: var(--warn);
-  --alarm: var(--danger);
-  --hover-wash: var(--hover);
-  --on-scrim: #ffffff;
-  --font-body: var(--font-sans);
-  --glow-amber: var(--glow);
-  --glow-cyan: none; --glow-phosphor: none; --glow-alarm: none; --glow-caution: none;
-  --r-sm: 3px;  /* v1 radius; --r-1 is 4px */
-  --r-md: var(--r-2);
-  --r-lg: var(--r-3);
-  --e-1: inset 0 1px 0 0 var(--hairline-hi);
-  --e-2: var(--e-1), var(--e-2-shadow);
-}
-
-/* ---------- 5. Legacy (v1) tokens: values with no v2 counterpart ----------
-   Kept per family so the untouched views keep rendering until P7. Phosphor carries
-   the exact v1 literals; the other families get a flat equivalent (no highlight,
-   no scanline). */
-:root:where(:not([data-family])),
-:is(:root, .app)[data-family="neutral"][data-scheme="light"],
-:is(:root, .app)[data-family="mono"][data-scheme="light"] {
-  --hairline-hi: transparent; --scanline: transparent;
-  --shadow-color: rgb(24 24 27 / .12); --e-2-shadow: var(--shadow-2);
-}
-:is(:root, .app)[data-family="neutral"][data-scheme="dark"],
-:is(:root, .app)[data-family="mono"][data-scheme="dark"] {
-  --hairline-hi: transparent; --scanline: transparent;
-  --shadow-color: rgb(0 0 0 / .5); --e-2-shadow: var(--shadow-2);
-}
-:root[data-theme='console']:where(:not([data-family])),
-:is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
-  --hairline-hi: rgb(255 255 255 / .04); --scanline: rgb(255 255 255 / .03);
-  --shadow-color: rgb(0 0 0 / .45); --e-2-shadow: 0 18px 48px var(--shadow-color);
-  --glow-cyan: 0 0 8px rgb(55 226 213 / .30);
-  --glow-phosphor: 0 0 8px rgb(124 255 107 / .30);
-  --glow-alarm: 0 0 8px rgb(255 77 77 / .30);
-  --glow-caution: 0 0 8px rgb(255 138 61 / .30);
-}
-:root[data-theme='daylight']:where(:not([data-family])),
-:is(:root, .app)[data-family="phosphor"][data-scheme="light"] {
-  --hairline-hi: rgb(255 255 255 / .5); --scanline: rgb(0 0 0 / .03);
-  --shadow-color: rgb(40 30 10 / .18); --e-2-shadow: 0 12px 32px var(--shadow-color);
-  --glow-cyan: none; --glow-phosphor: none; --glow-alarm: none; --glow-caution: none;
-}
-
 /* Effects are switched off entirely with `data-effects="off"` (Settings → Appearance,
-   or `prefers-reduced-motion`). Everything that glows, sweeps, blinks, or scans reads
-   this token rather than reimplementing the check. The selectors are as specific as
+   or `prefers-reduced-motion`). Everything that glows reads this token rather than
+   reimplementing the check. The selectors are as specific as
    the variant blocks they have to beat. */
 :root[data-effects='off'],
-:root[data-effects='off'][data-theme],
 :root[data-effects='off'][data-family][data-scheme] {
   --glow: none;
-  --glow-amber: none;
-  --glow-cyan: none;
-  --glow-phosphor: none;
-  --glow-alarm: none;
-  --glow-caution: none;
 }

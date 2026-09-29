@@ -10,11 +10,10 @@ const files = (readdirSync(RENDERER, { recursive: true }) as string[])
   .filter((file) => /\.(css|ts|html)$/.test(file) && !file.includes('node_modules'))
   .map((file) => ({ file: file.replaceAll('\\', '/'), text: readFileSync(join(RENDERER, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '') })) // comments may mention var(--token) as prose
 const rules = parseRules(readFileSync(TOKENS, 'utf8'))
-const legacy: Record<string, Record<string, string>> = JSON.parse(readFileSync(new URL('./fixtures/phosphor-v1-tokens.json', import.meta.url), 'utf8'))
 
 // Custom properties that belong to one component and are set by its own CSS or, at runtime, by
 // its own TS (`setProperty`), not design tokens. Each must still be used somewhere (checked below).
-const COMPONENT_LOCAL = ['--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--radar-size', '--tone', '--value'] // kit.css: status/meter tone, meter fill
+const COMPONENT_LOCAL = ['--wq-col', '--insp-col', '--ws-list-col', '--tree-depth', '--tone', '--value'] // kit.css: status/meter tone, meter fill
 
 describe('renderer stylesheets and the token layer', () => {
   it('every var(--x) is defined in tokens.css, or is a known component-local property', () => {
@@ -23,6 +22,11 @@ describe('renderer stylesheets and the token layer', () => {
     expect(used.length).toBeGreaterThan(300) // the scan really found the stylesheets
     expect(used.filter(([name]) => !defined.has(name) && !COMPONENT_LOCAL.includes(name)).map(([name, file]) => `${name} in ${file}`)).toEqual([])
     for (const name of COMPONENT_LOCAL) expect(used.some(([used]) => used === name), `${name} is allowlisted but unused`).toBe(true)
+  })
+
+  it('the v1 token names are gone (P7 deleted the alias layer)', () => {
+    const v1 = /--(?:amber(?:-fill)?|on-amber|cyan|phosphor|alarm|caution|glow-[a-z]+|surface-1|bezel(?:-strong)?|hairline-hi|e-[12](?:-shadow)?|scanline|hover-wash|font-body|r-(?:sm|md|lg)|sidebar-width|on-scrim|shadow-color)(?![\w-])/g
+    expect(files.flatMap(({ file, text }) => (text.match(v1) ?? []).map((hit) => `${hit} in ${file}`))).toEqual([])
   })
 
   it('no raw #hex, rgb() or hsl() colour appears outside tokens.css', () => {
@@ -41,11 +45,10 @@ const V2 = [
 ]
 
 describe('token layer v2', () => {
-  it('defines every v2 token, and resolves every v1 name, in all six variants', () => {
+  it('defines every v2 token in all six variants', () => {
     for (const attrs of VARIANTS) {
       const tokens = resolveTokens(rules, attrs) // throws on a var() with no definition
       expect(V2.filter((name) => !tokens[name]), JSON.stringify(attrs)).toEqual([])
-      expect(Object.keys(legacy['console']).filter((name) => !tokens[name]), JSON.stringify(attrs)).toEqual([])
     }
   })
 
@@ -77,32 +80,6 @@ describe('token layer v2', () => {
     for (const attrs of VARIANTS) {
       const tokens = resolveTokens(rules, { ...attrs, 'data-effects': 'off' })
       expect(Object.entries(tokens).filter(([name, value]) => name.startsWith('--glow') && value !== 'none')).toEqual([])
-    }
-  })
-})
-
-// Fixture: every v1 token as it resolved on main at 87f4673 (before the v2 layer), per state.
-// P1 promises the app looks identical, so each must resolve to the same value under Phosphor,
-// whether the page carries the v1 `data-theme`, the new family/scheme pair, or both (theme-init
-// sets both during the transition). The bare :root (first paint) is Neutral since the P6 flip.
-// One deliberate exception: --s-8 is 40px in the v2 scale (was 48px); nothing uses it.
-describe('Phosphor v1 tokens are unchanged', () => {
-  const dark = { 'data-family': 'phosphor', 'data-scheme': 'dark' }
-  const light = { 'data-family': 'phosphor', 'data-scheme': 'light' }
-  const cases: [string, Record<string, string>[]][] = [
-    ['console', [{ 'data-theme': 'console' }, dark, { ...dark, 'data-theme': 'console' }, { ...dark, 'data-effects': 'on' }]],
-    ['daylight', [{ 'data-theme': 'daylight' }, light, { ...light, 'data-theme': 'daylight' }, { ...light, 'data-effects': 'on' }]],
-    ['console+effects-off', [{ 'data-theme': 'console', 'data-effects': 'off' }, { ...dark, 'data-effects': 'off' }, { ...dark, 'data-theme': 'console', 'data-effects': 'off' }]],
-    ['daylight+effects-off', [{ 'data-theme': 'daylight', 'data-effects': 'off' }, { ...light, 'data-effects': 'off' }, { ...light, 'data-theme': 'daylight', 'data-effects': 'off' }]]
-  ]
-
-  it.each(cases)('%s', (state, attrSets) => {
-    const { '--s-8': _skip, ...expected } = legacy[state]
-    expect(Object.keys(expected).length).toBeGreaterThan(40)
-    for (const attrs of attrSets) {
-      const { '--s-8': s8, ...actual } = resolveTokens(rules, attrs)
-      expect(s8).toBe('40px')
-      expect(Object.fromEntries(Object.keys(expected).map((name) => [name, actual[name]])), JSON.stringify(attrs)).toEqual(expected)
     }
   })
 })

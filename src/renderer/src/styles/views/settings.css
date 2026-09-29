@@ -109,10 +109,5 @@ label.settings-row-label { cursor: pointer; }
 .fm-dock i { width: 7px; height: 7px; border-radius: 2px; background: var(--fg-faint); }
 .fm-dock i.fm-on { background: var(--accent-fill); }
 
-/* ---------- Shared with screens outside Settings (Agents, the task and workspace dialogs) ----------
-   Kept verbatim until those screens move to the kit (P4-P6); nothing in Settings uses them now. */
-/* A checkbox-row's describing text is a real `<label for>`, not a `<span>`, so
-   assistive tech gets an accessible name and a click toggles the control —
-   override the generic block/grid `label` rule so it still sits inline. */
-.checkbox-row label { display: inline; margin: 0; font: inherit; color: inherit; cursor: pointer; }
-.field-help { color: var(--fg-faint); font-size: 9px; line-height: 1.45; margin: 8px 0 0; }
+/* Help under a field (the compose card's Compare note overrides its size). */
+.field-help { color: var(--fg-faint); font-size: var(--fs-12); line-height: 1.45; margin: 8px 0 0; }

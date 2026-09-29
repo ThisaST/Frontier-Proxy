@@ -66,25 +66,6 @@ export function knownProjects(): ProjectOption[] {
   return order.map((cwd) => ({ cwd, name: baseName(cwd) }))
 }
 
-// A "Project: name ×" chip for the top of a scoped list. Returns undefined
-// under "All projects" so callers can simply omit the row.
-export function projectChip(): HTMLElement | undefined {
-  if (!currentProject) return undefined
-  const cwd = currentProject
-  const chip = element('button', 'project-chip') as HTMLButtonElement
-  chip.type = 'button'
-  chip.title = `Clear project filter · ${cwd}`
-  chip.append(element('span', undefined, `Project: ${baseName(cwd)}`), icon('close', 14))
-  chip.addEventListener('click', () => setCurrentProject(undefined))
-  return chip
-}
-
-export function renderProjectChipInto(containerId: string): void {
-  const container = byId(containerId)
-  const chip = projectChip()
-  container.replaceChildren(...(chip ? [chip] : []))
-}
-
 // Bring the header's project switcher forward — used by any other trigger
 // (Home's composer project field, the ⌘K command) that wants "clicking it
 // opens the switcher" without a second, independent menu implementation.

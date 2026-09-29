@@ -19,7 +19,7 @@ const TOOLTIP_ID = 'fp-tooltip'
 
 function ensureTooltip(): HTMLElement {
   if (tooltipEl) return tooltipEl
-  tooltipEl = element('div', 'ui-tooltip')
+  tooltipEl = element('div', 'tooltip ui-tooltip')
   tooltipEl.id = TOOLTIP_ID
   tooltipEl.setAttribute('role', 'tooltip')
   tooltipEl.hidden = true

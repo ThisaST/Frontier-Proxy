@@ -1,19 +1,16 @@
 /* ============================================================================
    Frontier "Calm" component kit (docs/ui-calm/spec.md section 4).
 
-   Imported after tokens.css and BEFORE components.css, so on any selector
-   collision the legacy rule (same specificity, later in the cascade) still wins.
+   Imported after tokens.css and BEFORE base.css / components.css, which now hold only the
+   app's own shared pieces (composers, markdown, the palette, …); P7 deleted the legacy kit.
 
    Uses only var(--token) colours; a scan test (tests/kit-css.test.ts) enforces it.
 
-   SWAPPED IN P3. Four class names are used by shipped markup: .segmented,
-   .switch/.slider (+ .switch.small), .field-label and .readout. P3 deleted their
-   legacy rules and the `:root[data-kit="v2"]` gate that kept section 99 off until
-   then, so section 99 now styles every consumer. (`data-kit="v2"` is still set on
-   <html> by theme-init.js and theme.ts; nothing selects on it.)
-   Two more names collide with legacy rules, so the kit avoids them: the dialog
-   heading is .dialog-title (not .dialog-header) and .meter-readout carries its
-   own mono (there is no bare .mono).
+   Section 99 styles class names shipped markup has used since before the kit: .segmented,
+   .switch/.slider (+ .switch.small), .field-label and .readout. (`data-kit="v2"` is still set
+   on <html> by theme-init.js and theme.ts; nothing selects on it.)
+   The dialog heading is .dialog-title, and .meter-readout carries its own mono
+   (there is no bare .mono).
    ========================================================================== */
 
 /* ---------- 1. Focus (never removed) ---------- */
@@ -244,7 +241,7 @@
 .diff-row.add .diff-ln, .diff-row.del .diff-ln { color: inherit; opacity: .7; }
 
 /* ============================================================================
-   99. Shared with shipped markup (see header): these replaced the legacy rules in P3.
+   99. Shared with shipped markup (see header).
    ========================================================================== */
 
 /* Switch. Targets the app's markup: <label class="switch"><input type="checkbox"><span class="slider"></span></label> */

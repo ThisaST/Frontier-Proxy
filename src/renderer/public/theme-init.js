@@ -4,8 +4,7 @@
 // the CSP has no 'unsafe-inline', so this has to be a same-origin file, and it must not
 // depend on any bundled module. Never writes storage.
 // It re-implements `resolveAppearance` from src/renderer/src/theme-model.ts by hand (this file
-// cannot import); tests/appearance.test.ts runs both against the same inputs. `data-theme` is
-// the v1 attribute the legacy stylesheets still read (retired in P7).
+// cannot import); tests/appearance.test.ts runs both against the same inputs.
 (function () {
   var DEFAULT_FAMILY = 'neutral' // keep in step with DEFAULT_FAMILY in theme-model.ts
   var root = document.documentElement
@@ -34,7 +33,6 @@
     root.setAttribute('data-density', pick(localStorage.getItem('fp-density'), ['comfortable', 'compact'], 'comfortable'))
     root.setAttribute('data-font-size', pick(localStorage.getItem('fp-font-size'), ['default', 'large'], 'default'))
     root.setAttribute('data-effects', effectsOff ? 'off' : 'on')
-    root.setAttribute('data-theme', scheme === 'dark' ? 'console' : 'daylight')
     root.setAttribute('data-kit', 'v2')
   } catch (error) {
     root.setAttribute('data-family', DEFAULT_FAMILY)
@@ -44,7 +42,6 @@
     root.setAttribute('data-density', 'comfortable')
     root.setAttribute('data-font-size', 'default')
     root.setAttribute('data-effects', 'off')
-    root.setAttribute('data-theme', 'console')
     root.setAttribute('data-kit', 'v2')
   }
 })()

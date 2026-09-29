@@ -3,7 +3,6 @@ import type { AppSnapshot, ProxyTask, SessionInfo } from '../../shared/types'
 import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 import { snapshot } from './state'
 import { countdown } from './ui/format'
-import type { Tone } from './ui/components'
 
 export type SnapshotProvider = AppSnapshot['providers'][number]
 
@@ -65,14 +64,4 @@ export function providerCapacity(provider: SnapshotProvider): { label: string; t
 
 export function providerSelectableForTask(provider: SnapshotProvider, task: ProxyTask): boolean {
   return provider.enabled && provider.runtime.available && !providerLimitReached(provider) && provider.capabilities.includes(task.type)
-}
-
-// What lamp tone a provider's capacity reads as right now (the Agents table). Moved here from
-// the retired Home view in P4; views/home.ts re-exports it until agents.ts imports it from here.
-export function providerLampTone(provider: SnapshotProvider): Tone {
-  const capacity = providerCapacity(provider)
-  if (capacity.tone === 'limited') return 'alarm'
-  if (provider.runtime.running) return 'caution'
-  if (provider.runtime.available) return 'phosphor'
-  return 'muted'
 }

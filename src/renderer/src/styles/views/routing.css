@@ -25,10 +25,3 @@
 .routing-shadow-prompt { margin: 0; color: var(--fg); font-size: var(--fs-13); line-height: var(--lh-ui); }
 .routing-shadow-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-4); color: var(--fg-muted); font-size: var(--fs-12); }
 .routing-shadow-meta .status { font-size: var(--fs-12); }
-
-/* ---------- Shared with Agents (`dataTable()` in ui/components.ts) ----------
-   Kept verbatim until Agents moves to the kit `.table` (P6a); Settings uses `.table`. */
-.data-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-.data-table th, .data-table td { border-bottom: 1px solid var(--bezel); padding: 8px 10px; text-align: left; vertical-align: top; }
-.data-table th { color: var(--fg-muted); font: 600 9px var(--font-display); text-transform: uppercase; letter-spacing: .05em; }
-.data-table td.mono { font-family: var(--font-mono); font-size: 11px; color: var(--amber); }

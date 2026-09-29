@@ -57,14 +57,17 @@ Create distributable installers on each target operating system with `pnpm dist`
 
 ### Development builds
 
-GitHub Actions builds Windows, macOS, and Linux installers after every push to `main`, when a `v*` tag is pushed, or when the workflow is started manually. Open the repository's **Actions** tab, select a successful **Build desktop apps** run, and download the artifact for your platform. Build artifacts are retained for 30 days.
+GitHub Actions builds Windows, macOS, and Linux installers after every push to `main` (through the **Release** workflow) or when **Build desktop apps** is started manually. Open the repository's **Actions** tab, select a successful run, and download the artifact for your platform. Build artifacts are retained for 30 days.
 
-Version tags also create a GitHub Release with the installers attached for permanent public downloads. For example:
+### Releasing
 
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
+Releases are driven by [Changesets](https://changesets.dev); nobody edits the version by hand.
+
+1. In a pull request with a user-facing change, run `pnpm changeset`, pick `patch`, `minor` or `major`, and write one changelog line. Commit the generated `.changeset/*.md` file with the change.
+2. After it merges, the **Release** workflow opens (or updates) a `chore: release` pull request that bumps `package.json` and writes `CHANGELOG.md` from every pending changeset.
+3. Merge that pull request when you want to ship. The workflow then tags `v<version>`, builds the installers, and publishes a GitHub release with them attached and that version's changelog as the notes.
+
+The version shown in the app is read from `package.json` at build time, so it updates with the release. Pushing a `v*` tag by hand still builds and publishes that tag.
 
 ## Provider setup
 
@@ -75,7 +78,7 @@ In the app, open **Providers** in the left sidebar:
 3. Configure an optional model, tracked usage limit, and context-window size, then select **Save provider**. A CLI-reported context limit takes precedence over the configured fallback.
 4. Use **Add custom CLI** only for another locally installed agent executable.
 
-The app version is shown at the bottom of the sidebar. GitHub Copilot support requires v0.2.0 or newer.
+Hover the Frontier mark at the top of the sidebar to see the app version. GitHub Copilot support requires v0.2.0 or newer.
 
 ### Codex
 

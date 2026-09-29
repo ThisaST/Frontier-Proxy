@@ -359,6 +359,60 @@ describe('Jev routing advisor', () => {
     expect(finished.subtasks?.every((subtask) => subtask.output.trim() === 'claude-haiku-4-5')).toBe(true)
     expect(finished.output.trim()).toBe('claude-haiku-4-5')
   })
+
+  // A silent CLI (custom, Copilot, Ollama, …) never reports its own model, so
+  // task.model is filled from what the engine launched. That must be the model
+  // withModel actually handed it, not the provider's configured default.
+  async function silentModelEngine(fetchMock?: typeof fetch): Promise<{ engine: OrchestrationEngine; directory: string }> {
+    const directory = await mkdtemp(join(tmpdir(), 'frontier-engine-silent-model-'))
+    const store = new JsonStore(join(directory, 'state.json'))
+    const settings = freshDefaults()
+    settings.providers = [
+      ...freshDefaults().providers.map((item) => ({ ...item, enabled: false })),
+      {
+        id: 'first', name: 'First Provider', kind: 'custom' as const, enabled: true, executable: process.execPath,
+        args: ['-e', 'process.stdout.write(process.argv[1] || "")', '{model}'], model: 'claude-sonnet-5', priority: 1, maxConcurrent: 1,
+        capabilities: ['coding', 'debugging', 'review', 'planning', 'documentation', 'general'] as ProxyTask['type'][]
+      }
+    ]
+    settings.advisor = { mode: fetchMock ? 'active' : 'off', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: false, previewWhileTyping: false }
+    await store.save({ settings, tasks: [] })
+    const advisorKeys = new AdvisorKeyManager(join(directory, 'advisor.json'), trivialCipher())
+    await advisorKeys.initialize()
+    if (fetchMock) await advisorKeys.setKey('sk-test-token')
+    const engine = new OrchestrationEngine(store, undefined, advisorKeys, new JevClient({ fetch: fetchMock }), undefined, noopHydrate)
+    await engine.initialize()
+    const runtime = engine.providerRuntime('first')
+    if (runtime) runtime.models = ['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']
+    return { engine, directory }
+  }
+
+  it('records the advisor-picked model as the task model when the CLI does not report one', async () => {
+    const fetchMock = (async () => fakeJevResponse({
+      task_type: { type: 'choice', choice: 'documentation', probabilities: { documentation: 1 }, confidence: 1 },
+      complexity: { type: 'score', score: 0, probabilities: {}, confidence: 1 },
+      edits_files: { type: 'noul', noul: 0.9 },
+      long_context: { type: 'noul', noul: 0.1 },
+      split_worthy: { type: 'noul', noul: 0.1 }
+    })) as unknown as typeof fetch
+    const { engine, directory } = await silentModelEngine(fetchMock)
+    const created = await engine.createTask({ prompt: 'Fix the typo in README.md', cwd: directory, mode: 'balanced' })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.output.trim()).toBe('claude-haiku-4-5')
+    expect(finished.routedModel?.model).toBe('claude-haiku-4-5')
+    expect(finished.model).toBe('claude-haiku-4-5')
+    expect(finished.turns?.find((turn) => turn.role === 'assistant')?.model).toBe('claude-haiku-4-5')
+  })
+
+  it('records a user model override as the task model when the CLI does not report one', async () => {
+    const { engine, directory } = await silentModelEngine()
+    const created = await engine.createTask({ prompt: 'Implement a feature', cwd: directory, mode: 'balanced', model: 'claude-opus-5', modelProviderId: 'first' })
+    const finished = await waitForTask(engine, created.id)
+
+    expect(finished.output.trim()).toBe('claude-opus-5')
+    expect(finished.model).toBe('claude-opus-5')
+  })
 })
 
 // The prompt sent over stdin distinguishes the planner call (buildPlannerPrompt's

@@ -20,17 +20,23 @@ const TASK_TYPE_CRITERIA: Record<TaskType, string> = {
   general: 'General conversation or work that does not clearly fit the other categories.'
 }
 
-// Jev bills per input token, and both the state and the longest question share
-// a combined budget. classifyTask/estimateTokens's own 4-chars-per-token rule
-// of thumb puts this well under the 32k-token field limit while keeping the
-// parts of a long prompt most likely to matter: the ask up front, the detail
-// at the end.
-const MAX_STATE_CHARS = 96_000
+// Jev bills per input token, and the whole request — state plus questions —
+// shares one ~32k-token budget (measured against the live API). At prose/code
+// density (~3.6 chars per token) this keeps the parts of a long prompt most
+// likely to matter, the ask up front and the detail at the end, well inside it.
+export const MAX_STATE_CHARS = 96_000
+// Denser text blows through the budget at the same length: a pasted log runs
+// ~1.9 chars per token, CJK ~0.9. When Jev reports `max_tokens_exceeded`, the
+// request is rebuilt once at this budget, which fits even one token per
+// character with room left for the questions.
+export const FALLBACK_STATE_CHARS = 20_000
 
-export function trimForJev(prompt: string): string {
-  if (prompt.length <= MAX_STATE_CHARS) return prompt
-  const half = Math.floor((MAX_STATE_CHARS - 20) / 2)
-  return `${prompt.slice(0, half)}\n…[trimmed for length]…\n${prompt.slice(-half)}`
+const TRIM_MARKER = '\n…[trimmed for length]…\n'
+
+export function trimForJev(prompt: string, maxChars: number = MAX_STATE_CHARS): string {
+  if (prompt.length <= maxChars) return prompt
+  const half = Math.floor((maxChars - TRIM_MARKER.length) / 2)
+  return `${prompt.slice(0, half)}${TRIM_MARKER}${prompt.slice(-half)}`
 }
 
 export interface AdviceCandidate {
@@ -66,9 +72,10 @@ export function buildJevRequest(
   input: { prompt: string; attachments?: string[] },
   candidates: AdviceCandidate[],
   settings: Pick<RoutingAdvisorSettings, 'model'>,
-  repoFacts?: RepoFacts
+  repoFacts?: RepoFacts,
+  maxChars: number = MAX_STATE_CHARS
 ): JevRequestBody {
-  const state: Record<string, unknown> = { task: trimForJev(input.prompt) }
+  const state: Record<string, unknown> = { task: trimForJev(input.prompt, maxChars) }
   if (input.attachments?.length) state.attachments = input.attachments
   if (repoFacts) state.repo = repoFacts
 
@@ -125,11 +132,11 @@ export function buildJevRequest(
 // request without bound.
 export const MAX_ADVISED_SUBTASKS = 8
 
-// The state/questions payload scales with subtask count; keep the whole
-// request comfortably under Jev's 64k combined budget even at the maximum of
-// 8 advised subtasks (the parent prompt itself still gets its own head/tail
-// trim via trimForJev).
-const MAX_SUBTASK_STATE_CHARS = 64_000
+// The parent prompt and the plan share the one state budget: two thirds for the
+// plan (it is what the per-subtask questions are about), the rest for the
+// parent. Trimming each against the full budget separately let a long parent
+// plus a long plan overflow Jev even at code density.
+const SUBTASK_PLAN_SHARE = 2 / 3
 
 export interface SubtaskAdvicePlanItem {
   title: string
@@ -144,11 +151,13 @@ export function buildSubtaskAdviceRequest(
   subtasks: SubtaskAdvicePlanItem[],
   candidates: AdviceCandidate[],
   settings: Pick<RoutingAdvisorSettings, 'model'>,
-  repoFacts?: RepoFacts
+  repoFacts?: RepoFacts,
+  maxChars: number = MAX_STATE_CHARS
 ): { request: JevRequestBody; advised: number[] } {
   const truncated = subtasks.length > MAX_ADVISED_SUBTASKS
   const limited = subtasks.slice(0, MAX_ADVISED_SUBTASKS)
-  const perSubtaskBudget = Math.max(200, Math.floor((MAX_SUBTASK_STATE_CHARS - 4_000) / Math.max(1, limited.length)))
+  const planBudget = Math.floor(maxChars * SUBTASK_PLAN_SHARE)
+  const perSubtaskBudget = Math.max(200, Math.floor((planBudget - 4_000) / Math.max(1, limited.length)))
   const plan: SubtaskPlanEntry[] = limited.map((item, index) => ({
     n: index + 1,
     title: item.title,
@@ -156,7 +165,7 @@ export function buildSubtaskAdviceRequest(
     prompt: item.prompt.length > perSubtaskBudget ? `${item.prompt.slice(0, perSubtaskBudget)}…[trimmed for length]` : item.prompt
   }))
 
-  const state: Record<string, unknown> = { task: trimForJev(parentPrompt), plan }
+  const state: Record<string, unknown> = { task: trimForJev(parentPrompt, maxChars - planBudget), plan }
   if (truncated) state.note = `Only the first ${MAX_ADVISED_SUBTASKS} of ${subtasks.length} subtasks were advised; the rest run on their provider's default.`
   if (repoFacts) state.repo = repoFacts
 
@@ -318,19 +327,51 @@ function parseRetryAfterMs(header: string | null): number | undefined {
   return Number.isFinite(at) ? Math.max(0, at - Date.now()) : undefined
 }
 
-async function jevErrorMessage(response: Response): Promise<string> {
-  const body = await response.text().catch(() => '')
-  let detail = body.trim()
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>
-    const found = parsed.detail ?? parsed.error ?? parsed.message
-    if (typeof found === 'string') detail = found
-  } catch { /* keep the raw body as the detail */ }
-  if (response.status === 401) return 'Jev rejected the API key.'
-  if (response.status === 422) return `Jev rejected the request${detail ? `: ${detail}` : '.'}`
-  if (response.status === 429) return `Jev is rate limiting requests${detail ? `: ${detail}` : '.'}`
-  if (response.status === 529) return 'Jev is currently overloaded.'
-  return `Jev request failed (${response.status})${detail ? `: ${detail}` : '.'}`
+// Carries Jev's machine-readable `error_type` (e.g. "max_tokens_exceeded")
+// alongside the sentence, so a caller can react to one specific rejection
+// without matching on message text.
+export class JevError extends Error {
+  constructor(message: string, readonly status?: number, readonly errorType?: string) {
+    super(message)
+    this.name = 'JevError'
+  }
+}
+
+const ERROR_TYPE_SENTENCES: Record<string, string> = {
+  max_tokens_exceeded: 'the prompt is too long for Jev'
+}
+
+// Jev reports errors as `{ detail: "..." }`, `{ detail: { error_type, message? } }`,
+// or a validation list `{ detail: [{ msg }] }`. Reduce any of them to one
+// sentence — never the raw JSON body.
+function errorDetail(body: string): { detail: string; errorType?: string } {
+  let parsed: Record<string, unknown>
+  try { parsed = JSON.parse(body) as Record<string, unknown> } catch { return { detail: body.trim() } }
+  const found = parsed.detail ?? parsed.error ?? parsed.message
+  if (typeof found === 'string') return { detail: found }
+  if (Array.isArray(found)) {
+    const messages = found.map((item) => (item && typeof item === 'object' && typeof (item as Record<string, unknown>).msg === 'string' ? (item as Record<string, unknown>).msg as string : undefined)).filter(Boolean)
+    return { detail: messages.join('; ') }
+  }
+  if (found && typeof found === 'object') {
+    const record = found as Record<string, unknown>
+    const errorType = typeof record.error_type === 'string' ? record.error_type : undefined
+    const message = typeof record.message === 'string' ? record.message : undefined
+    return { detail: message ?? (errorType ? ERROR_TYPE_SENTENCES[errorType] ?? errorType.replaceAll('_', ' ') : ''), errorType }
+  }
+  return { detail: '' }
+}
+
+async function jevError(response: Response): Promise<{ message: string; errorType?: string }> {
+  const parsed = errorDetail(await response.text().catch(() => ''))
+  const detail = parsed.detail.replace(/[.\s]+$/, '')
+  const errorType = parsed.errorType
+  const message = response.status === 401 ? 'Jev rejected the API key.'
+    : response.status === 400 || response.status === 422 ? `Jev rejected the request${detail ? `: ${detail}` : ''}.`
+      : response.status === 429 ? `Jev is rate limiting requests${detail ? `: ${detail}` : '.'}`
+        : response.status === 529 ? 'Jev is currently overloaded.'
+          : `Jev request failed (${response.status})${detail ? `: ${detail}` : '.'}`
+  return { message, errorType }
 }
 
 function networkErrorMessage(error: unknown): string {
@@ -396,7 +437,10 @@ export class JevClient {
       }
     }
 
-    if (!response.ok) throw new Error(redactKey(await jevErrorMessage(response), key))
+    if (!response.ok) {
+      const { message, errorType } = await jevError(response)
+      throw new JevError(redactKey(message, key), response.status, errorType)
+    }
     let json: unknown
     try {
       json = await response.json()
@@ -424,6 +468,32 @@ export class JevClient {
   }
 }
 
+// Every Frontier call to Jev goes through here. `build` produces the request
+// for a given state budget; if Jev says the first one is over its token limit
+// (dense text — logs, CJK — tokenizes far worse than the budget assumes), it is
+// rebuilt once at FALLBACK_STATE_CHARS and resent. Returns the request that was
+// actually answered, so a "what is sent" disclosure never shows a stale one.
+export async function requestJev(
+  client: JevClient,
+  key: string,
+  build: (maxChars: number) => JevRequestBody
+): Promise<{ json: JevResponseBody; latencyMs: number; request: JevRequestBody }> {
+  const started = Date.now()
+  const request = build(MAX_STATE_CHARS)
+  try {
+    return { ...(await client.request(key, request)), request }
+  } catch (error) {
+    if (!(error instanceof JevError) || error.errorType !== 'max_tokens_exceeded') throw error
+    const smaller = build(FALLBACK_STATE_CHARS)
+    // Already at or under the fallback budget: resending the same body would
+    // only fail the same way.
+    if (JSON.stringify(smaller).length >= JSON.stringify(request).length) throw error
+    // Latency covers both round trips — it is what the task actually waited.
+    const { json } = await client.request(key, smaller)
+    return { json, latencyMs: Date.now() - started, request: smaller }
+  }
+}
+
 // Ties the pieces together for a real advisory call: build the request, call
 // Jev, and fall back to the heuristic (with the error attached) on any
 // failure. Never throws — this is the one function the engine calls.
@@ -436,9 +506,8 @@ export async function advise(
   facts?: RepoFacts
 ): Promise<RoutingAdvice> {
   const heuristicType = classifyTask(input.prompt)
-  const request = buildJevRequest(input, candidates, settings, facts)
   try {
-    const { json, latencyMs } = await client.request(key, request)
+    const { json, latencyMs } = await requestJev(client, key, (maxChars) => buildJevRequest(input, candidates, settings, facts, maxChars))
     return adviceFromResponse(json, heuristicType, settings.minConfidence, { latencyMs })
   } catch (error) {
     return { ...heuristicAdvice(input.prompt), error: error instanceof Error ? error.message : String(error) }

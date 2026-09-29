@@ -125,7 +125,8 @@ badge and a live "how it's working" feed like Claude Code.
   estimated; `sessionID` → `onSessionId`, resumed with
   `--session`. The stream never names the model, so `task.model` is the configured one.
 - **Copilot / Ollama / custom**: raw text passthrough; `task.model` falls back to the
-  provider's configured model.
+  model the engine actually launched (`withModel`'s result — a user override or the
+  advisor's pick), never blindly to the provider's configured default.
 
 `summarizeToolInput` picks the most meaningful field (file_path, command, pattern, …)
 for a one-line activity detail. Activity is capped at the last 100 events per task.
@@ -422,7 +423,16 @@ a user-picked model.
   Frontier never reads a file in order to send it. The subtask-advice call is the exception
   to "prompt only": it sends the planner's subtask titles and prompts, and those can quote code
   the planner read. Every disclosure surface must say so: the site, the README, the Routing
-  screen and the sidebar tooltip. One request asks five questions at once:
+  screen and the sidebar tooltip.
+- **Token budget** — Jev caps the *whole request* (state + questions) at ~32k tokens
+  (measured live). The first attempt trims state to `MAX_STATE_CHARS` (96k chars — fine for
+  prose/code at ~3.6 chars/token); dense text overflows at that length (logs ~1.9, CJK ~0.9
+  chars/token), so every call goes through `requestJev`, which on a `max_tokens_exceeded`
+  `JevError` rebuilds the request once at `FALLBACK_STATE_CHARS` (20k — fits even one token
+  per char) and resends. The subtask request splits one budget between parent (⅓) and plan
+  (⅔); trimming them separately let the pair overflow. Error bodies (`detail` as string,
+  `{ error_type, message }`, or a `[{ msg }]` list) are reduced to one sentence — never raw
+  JSON in a transcript. One request asks five questions at once:
   `task_type` (choice over the six `TaskType`s), `complexity` (score, 4 levels: trivial →
   single-file → multi-file → architectural), `edits_files`/`long_context`/`split_worthy`
   (nouls), and `target` — a choice over every eligible `(provider, model)` pair, each
@@ -446,7 +456,7 @@ a user-picked model.
   `shareRepoFacts`, and `previewWhileTyping`.
 - **Never blocks the queue** — `JevClient` (injected `fetch`) hard-times-out each attempt
   (~2s default), retries once on 429/529 honouring `Retry-After` (capped, so a slow retry
-  can't itself stall things), then the caller (`advise`) falls back to `heuristicAdvice`
+  can't itself stall things) — and `requestJev` once more on an over-limit request — then the caller (`advise`) falls back to `heuristicAdvice`
   (today's `classifyTask`) with the error attached. The engine computes heuristic advice
   *synchronously* at task creation and only *fires* the Jev call — the queue pump skips a
   task while its `OrchestrationEngine.pendingAdvice` flag is set and picks an older queued
@@ -837,6 +847,7 @@ pnpm typecheck                 # tsc for node + web projects
 pnpm test                      # vitest
 pnpm package                   # electron-builder --dir (unpacked)
 pnpm dist                      # full installers for the current OS
+pnpm changeset                 # add a release note + bump type for this PR
 ```
 
 On Windows, `pnpm dist` can fail via the `pnpm build && …` prefix when pnpm re-runs
@@ -849,6 +860,35 @@ npm run build
 
 If packaging hits `EPERM: … rename 'release\win-unpacked'`, close any running Frontier
 Proxy instance and delete `release/win-unpacked*`, then re-run.
+
+## Releasing (Changesets)
+
+The version lives in `package.json` only. `%APP_VERSION%` in `src/renderer/index.html` is
+filled from it at build time by `electron.vite.config.ts` (`tests/release.test.ts` fails if a
+literal version creeps back in), and the site reads it from the releases API.
+
+- A PR with a user-facing change adds a changeset: `pnpm changeset` → `.changeset/*.md`.
+  Internal-only changes (CI, tests, refactors) need none. Do not bump the version by hand.
+- `.github/workflows/release.yml` runs on every push to `main`:
+  1. `changesets/action/select-mode` + `changesets/action/version` (v2, for Changesets 3)
+     roll pending changesets into a `chore: release` PR (`pnpm version-packages` →
+     `changeset version` edits only the version line and `CHANGELOG.md`, via
+     `@changesets/changelog-github`).
+  2. `detect` checks whether `v<package.json version>` is already tagged; if not (the
+     release PR was just merged), it hands that tag to the build.
+  3. It calls `build.yml` via `workflow_call` with `release-tag`. Its `release` job runs
+     `gh release create --target $GITHUB_SHA`, which creates the tag, attaches the
+     installers, and uses that version's `CHANGELOG.md` section as the notes (awk
+     extract; falls back to `--generate-notes`).
+- The build is **called**, not triggered by the tag, on purpose: a tag or PR created with
+  the workflow's `GITHUB_TOKEN` never starts another workflow. For the same reason CI does
+  not run on the release PR itself, which only touches the version and changelog.
+- `privatePackages: { version: true, tag: false }` — the app is private (never published to
+  npm); `changeset tag` is unused because the release job creates the tag.
+- Requires the repo setting **Actions → General → Allow GitHub Actions to create and approve
+  pull requests**, or the release PR cannot be opened.
+- `build.yml` still publishes a hand-pushed `v*` tag, and a release build is never
+  cancelled by a newer push (`cancel-in-progress` is off whenever `release-tag` is set).
 
 ## Conventions
 

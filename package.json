@@ -1,6 +1,6 @@
 {
   "name": "frontier-proxy",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "description": "A local-first desktop router for Codex, Claude Code, and open-source coding agents.",
   "author": {
@@ -18,7 +18,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "package": "pnpm build && electron-builder --dir",
-    "dist": "pnpm build && electron-builder"
+    "dist": "pnpm build && electron-builder",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
   },
   "build": {
     "appId": "dev.frontierproxy.app",
@@ -53,6 +55,8 @@
     "lucide": "^1.48.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.10.0",
     "electron": "^37.2.0",

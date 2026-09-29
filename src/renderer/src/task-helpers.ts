@@ -4,6 +4,8 @@ import type { ProxyTask, VerificationReport } from '../../shared/types'
 import { element } from './ui/dom'
 import { lamp, radar } from './ui/components'
 import { formatDuration } from './ui/format'
+import { checkLine } from '../../shared/review-agents'
+import { status } from './ui/components'
 
 export function taskIsBusy(task: ProxyTask): boolean {
   return task.status === 'running' || task.status === 'queued'
@@ -40,12 +42,10 @@ export function taskStatusIndicator(status: ProxyTask['status']): HTMLElement {
   return lamp('muted', 'Cancelled')
 }
 
-// A verification report in one chip. "not run" is deliberately distinct from
-// "passed": a repo with no detected checks has proved nothing about the branch.
+// A verification report as a dot and a word (a branch row, a bench lane). The text comes from the
+// pure `checkLine`; "no checks detected" is neutral, never a green tick.
 export function verificationChip(verification?: VerificationReport): HTMLElement | undefined {
   if (!verification) return undefined
-  if (!verification.ran) return element('span', 'check-chip none', 'no checks detected')
-  const failed = verification.checks.filter((check) => !check.ok)
-  return element('span', `check-chip ${failed.length ? 'fail' : 'pass'}`,
-    failed.length ? `checks failed: ${failed.map((check) => check.name).join(', ')}` : `checks passed: ${verification.checks.map((check) => check.name).join(', ')}`)
+  const line = checkLine(verification)
+  return status(line.tone, line.text)
 }

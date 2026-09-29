@@ -315,26 +315,22 @@
 
         <!-- Review: branches waiting to be merged -->
         <section id="review-view" class="view">
-          <div class="section-intro">
-            <div><p>Split &amp; delegate and Compare runs commit their work to isolated branches, leaving your checkout untouched. Review the changes here, then merge the ones you want.</p></div>
-          </div>
           <div class="review-layout">
-            <aside class="panel review-list-panel">
-              <div id="review-project-chip" class="project-chip-row"></div>
+            <aside class="review-pane review-list-pane" aria-label="Branches">
               <div id="review-list" class="review-list"></div>
             </aside>
-            <section class="panel review-detail-panel">
+            <section class="review-pane review-detail-pane" aria-label="Branch detail">
               <header class="review-detail-head">
                 <div class="review-detail-heading">
-                  <h2 id="review-branch-title">Select a branch</h2>
+                  <h2 id="review-branch-title" class="screen-title">Select a branch</h2>
                   <p id="review-branch-subtitle" class="review-detail-subtitle"></p>
                 </div>
                 <div id="review-branch-actions" class="review-branch-actions"></div>
               </header>
               <div id="review-checks" class="review-checks" hidden></div>
               <div class="review-detail-body">
-                <aside id="review-files" class="review-files"></aside>
-                <div id="review-diff" class="task-file-code"></div>
+                <div id="review-files" class="review-files"></div>
+                <div id="review-diff" class="diff review-diff" tabindex="0" role="region" aria-label="File diff"></div>
               </div>
             </section>
           </div>
@@ -342,29 +338,23 @@
 
         <!-- Agents: installed CLIs, as a table, with a detail drawer per row -->
         <section id="agents-view" class="view">
-          <div class="section-intro">
-            <div><p>Frontier runs the CLIs already installed and signed in on this machine. Coding agents always use their own login — Frontier never holds a key for them.</p></div>
+          <p class="agents-intro">Frontier runs the CLIs already installed and signed in on this machine. Coding agents always use their own login — Frontier never holds a key for them.</p>
+          <div id="agents-setup-guide" class="notice" role="note">
+            <span class="notice-text">New here? Install and sign in to each CLI (<code>opencode auth login</code> for OpenCode), then choose Check agents. For anything else, choose Add CLI.</span>
+            <button type="button" id="agents-setup-dismiss" class="btn btn-ghost btn-icon btn-sm" aria-label="Dismiss getting-started notice"><span data-icon="close" data-icon-size="14" aria-hidden="true"></span></button>
           </div>
-          <div id="agents-setup-guide" class="setup-guide-callout">
-            <button type="button" id="agents-setup-dismiss" class="icon-button" aria-label="Dismiss getting-started guide"><span data-icon="close" aria-hidden="true"></span></button>
-            <p class="eyebrow">GETTING STARTED</p>
-            <div class="setup-guide">
-              <div><span>01</span><strong>Hosted coding agents</strong><p>Codex, Claude Code, GitHub Copilot, and OpenCode are included. Install and sign in to each CLI (<code>opencode auth login</code> for OpenCode), then choose Check agents.</p></div>
-              <div><span>02</span><strong>Local models</strong><p>Start Ollama, pull the configured model, then enable Codex + Ollama or direct Ollama.</p></div>
-              <div><span>03</span><strong>Other agent CLIs</strong><p>Choose Add CLI, enter its executable and arguments, save, and confirm its status becomes Ready.</p></div>
-            </div>
-          </div>
-          <div id="agents-table"></div>
+          <div id="agents-table" class="agents-panel"></div>
         </section>
 
-        <dialog id="agent-drawer" class="drawer" aria-label="Agent details">
-          <div class="drawer-shell">
-            <header class="drawer-head">
-              <div><p class="eyebrow" id="agent-drawer-kind">AGENT</p><h2 id="agent-drawer-title">Agent</h2></div>
-              <button type="button" class="icon-button" id="agent-drawer-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
-            </header>
-            <div id="agent-drawer-body" class="drawer-body"></div>
-          </div>
+        <dialog id="agent-drawer" class="sheet" aria-labelledby="agent-drawer-title">
+          <header class="sheet-header">
+            <div class="agents-sheet-head">
+              <span id="agent-drawer-kind" class="tag">agent</span>
+              <h2 id="agent-drawer-title" class="screen-title">Agent</h2>
+            </div>
+            <button type="button" class="btn btn-ghost btn-icon" id="agent-drawer-close" aria-label="Close"><span data-icon="close" data-icon-size="16" aria-hidden="true"></span></button>
+          </header>
+          <div id="agent-drawer-body" class="sheet-body agents-sheet-body"></div>
         </dialog>
 
         <!-- Settings (ui-plan §6.3): a vertical tab list and one panel per tab. Routing, Context &

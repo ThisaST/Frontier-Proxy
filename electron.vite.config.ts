@@ -1,6 +1,15 @@
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import type { Plugin } from 'vite'
+
+// The version shown in the UI comes from package.json at build time, so the
+// release PR's `changeset version` bump is the only edit a release needs.
+const appVersion = (JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as { version: string }).version
+const injectAppVersion: Plugin = {
+  name: 'frontier-app-version',
+  transformIndexHtml: (html) => html.replaceAll('%APP_VERSION%', appVersion)
+}
 
 // Dev only: Vite injects CSS as an inline <style> tag, which the renderer's
 // `style-src 'self'` blocks — the app renders unstyled under `pnpm dev`. The
@@ -27,7 +36,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve('src/renderer'),
-    plugins: [devStyleCsp],
+    plugins: [devStyleCsp, injectAppVersion],
     build: { rollupOptions: { input: resolve('src/renderer/index.html') } }
   }
 })

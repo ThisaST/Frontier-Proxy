@@ -8,22 +8,22 @@ import { version } from "../lib/release";
 
 const tour = [
   {
-    id: "home",
-    label: "Home",
-    screen: "home" as const,
-    alt: "The Home screen's composer with a live route preview showing the chosen agent, model, and tier before the task is sent",
-    heading: "Composer-first",
+    id: "compose",
+    label: "Start",
+    screen: "tasks-compose" as const,
+    alt: "Tasks in compose state: a prompt box, a One agent / Split & delegate / Compare control, and a one-line route preview naming the agent, model, and tier before the task is sent",
+    heading: "One composer, one place to start",
     bullets: [
-      "Describe a task and watch a live route preview — agent · model · tier — before anything runs.",
-      "A small radar sweep plays while the route is being scored.",
-      "The project switcher scopes Home, Tasks, Review, and Workspaces to one repository at a time.",
+      "Describe a task and read a one-line route preview — agent · model · tier — before anything runs.",
+      "Run it on one agent, split it across several, or compare agents head to head from the same box.",
+      "The project switcher in the header scopes Tasks, Workspaces, and Review to one repository at a time.",
     ],
   },
   {
     id: "tasks",
     label: "Tasks",
     screen: "tasks" as const,
-    alt: "The Tasks screen split into three panes: the work queue, a streaming conversation, and the route inspector",
+    alt: "The Tasks screen split into three panes: the work queue, a conversation, and the route inspector",
     heading: "Three panes, not a modal",
     bullets: [
       "Work queue, conversation, and a collapsible route/files/activity inspector — one screen, nothing to double-click open.",
@@ -32,27 +32,27 @@ const tour = [
     ],
   },
   {
-    id: "routing",
-    label: "Routing",
-    screen: "routing" as const,
-    alt: "The Routing screen showing the Jev advisor's Off, Shadow, and Active modes, a write-only credential field, and the request payload preview",
-    heading: "An optional second opinion",
+    id: "workspaces",
+    label: "Workspaces",
+    screen: "workspaces" as const,
+    alt: "A workspace thread: a person and two named agents, @mentions rendered as chips, one reply with its review branch and one still working",
+    heading: "A room for your agents",
     bullets: [
-      "Off, Shadow, or Active — off by default, and Shadow changes nothing about what runs.",
-      "A write-only key field plus Test connection; the exact request payload is previewable before you ever send one.",
-      "The model catalog and a calibration view of how confidence tracked real outcomes.",
+      "One long-lived thread per repo. Only the agents you @mention reply, in parallel, and never each other.",
+      "A participant that writes files works on its own isolated branch, linked straight into Review.",
+      "A busy or unavailable agent is named in the thread, never silently skipped.",
     ],
   },
   {
     id: "agents",
     label: "Agents",
-    screen: "agent-drawer" as const,
-    alt: "The Agents table with login state and plan windows per CLI, and a detail drawer open on one row showing its full edit form",
+    screen: "agents" as const,
+    alt: "The Agents table: every configured CLI with its login state, version, models by tier, today's tokens, and plan window",
     heading: "Every CLI, one table",
     bullets: [
-      "Status lamp, login state, models by tier, and today's plan windows for every configured agent.",
-      "A detail drawer per row holds the full edit form instead of a separate settings page.",
-      "Ready means found, not signed in — the drawer is where you fix a logged-out CLI.",
+      "Login state, version, models by tier, and today's plan windows for every configured agent.",
+      "A row opens a side sheet with the full edit form instead of a separate settings page.",
+      "\"CLI found\" is not \"signed in\" — the Login column reads each CLI's own session, and the sheet is where you fix a logged-out one.",
     ],
   },
   {
@@ -65,6 +65,18 @@ const tour = [
       "Every frontier/* branch a delegated, benched, or workspace run left behind, listed per repository.",
       "Each branch carries the verification report from the project's own checks — never a green tick it didn't earn.",
       "Merge and delete both sit behind an explicit confirmation dialog.",
+    ],
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    screen: "settings-appearance" as const,
+    alt: "Settings, Appearance tab: three theme families (Neutral, Mono, Phosphor), and scheme, dock position, dock labels, density, and font size controls",
+    heading: "Make it yours, in one place",
+    bullets: [
+      "Three theme families, each in light and dark — Neutral is the default — plus dock position, density, and text size, applied live.",
+      "The Jev advisor, Context & Tools, Skills, and Verification are tabs here, next to General.",
+      "The privacy chip in the header names exactly what leaves your machine whenever an advisor is on.",
     ],
   },
 ];
@@ -161,8 +173,8 @@ const steps = [
         </ul>
       </div>
 
-      <!-- The real Tasks screen, framed as an app window: a bezel with corner
-           ticks and a titlebar, not a hand-built HTML mock-up. -->
+      <!-- The real Tasks screen, framed as an app window: a bordered frame with
+           a titlebar, not a hand-built HTML mock-up. -->
       <div class="app-frame panel">
         <div class="app-frame-titlebar">
           <span class="app-frame-dots" aria-hidden="true"><span></span><span></span><span></span></span>
@@ -171,7 +183,7 @@ const steps = [
         <div class="app-frame-screen screen">
           <Screenshot
             name="tasks"
-            alt="The Frontier Proxy desktop app's Tasks screen: a work queue on the left, a streaming conversation in the centre, and a route inspector open on the right showing the agent, model, and Jev's reasoning"
+            alt="The Frontier Proxy desktop app's Tasks screen: a work queue on the left, a conversation in the centre, and a route inspector open on the right showing the agent, model, and Jev's reasoning"
             eager
           />
         </div>
@@ -257,8 +269,8 @@ const steps = [
     <div class="wrap">
       <div class="section-head">
         <p class="eyebrow">Inside the app</p>
-        <h2>An instrument panel, not a chat window.</h2>
-        <p>Five screens, one console. See the <a href={url("docs/workspace")}>full walkthrough</a> in the docs.</p>
+        <h2>A calm workspace, not a chat window.</h2>
+        <p>Five sections, one dock. See the <a href={url("docs/workspace")}>full walkthrough</a> in the docs.</p>
       </div>
 
       <div class="tour">
@@ -369,8 +381,8 @@ const steps = [
         <p class="eyebrow">Supported agents</p>
         <h2>Bring the CLIs you already use.</h2>
         <p>
-          Frontier detects each CLI, reports its version, and shows a green <strong>Ready</strong> badge when the
-          binary is found. Authentication stays with the CLI's own login.
+          Frontier detects each CLI, reports its version, and shows <strong>CLI found</strong> when the binary is
+          located. Authentication stays with the CLI's own login, which the Agents table reads from disk, read-only.
         </p>
       </div>
 
@@ -419,10 +431,11 @@ const steps = [
         </table>
       </div>
 
-      <Callout title="Ready means found, not signed in">
+      <Callout title="Found is not the same as signed in">
         <p>
-          The Ready badge only runs <code>&lt;exe&gt; --version</code>. A CLI whose session has expired still shows
-          Ready and will fail the task — the fix is to log in with that CLI, never to paste an API key.
+          The CLI found status only runs <code>&lt;exe&gt; --version</code>. A CLI whose session has expired is still
+          found and will fail the task — the Login column shows what the CLI's own session says, and the fix is to log
+          in with that CLI, never to paste an API key.
           See <a href={url("docs/troubleshooting")}>troubleshooting</a>.
         </p>
       </Callout>
@@ -533,16 +546,13 @@ const steps = [
   .hero-trust li { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 12.5px; }
 
   /* ---- App frame: the real Tasks screenshot, framed as an app window ---- */
-  .app-frame { overflow: hidden; box-shadow: var(--e-2-shadow); padding: 0; }
-  /* Same corner-tick-vs-overflow-clip fix as DocsFigure.astro. */
-  .app-frame::before { top: 0; left: 0; }
-  .app-frame::after { top: 0; right: 0; }
+  .app-frame { overflow: hidden; box-shadow: var(--shadow-2); padding: 0; }
   .app-frame-titlebar {
     display: flex; align-items: center; gap: 10px; padding: 9px 13px;
-    background: var(--surface-2); border-bottom: 1px solid var(--bezel);
+    background: var(--surface-2); border-bottom: 1px solid var(--border);
   }
   .app-frame-dots { display: flex; gap: 6px; }
-  .app-frame-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--bezel-strong); }
+  .app-frame-dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
   .app-frame-title { margin-left: 4px; font-size: 11px; }
   .app-frame-screen { border: 0; border-radius: 0; }
   .app-frame-screen :global(img) { display: block; width: 100%; height: auto; }
@@ -552,16 +562,14 @@ const steps = [
   .steps.flow > li { padding-left: 0; padding-top: 40px; }
   .steps.flow > li::before { top: 0; }
 
-  .closing { border-top: 1px solid var(--bezel); }
+  .closing { border-top: 1px solid var(--border); }
 
   /* ---- Inside the app: segmented tour, real screenshots ---- */
   .tour { display: grid; gap: 22px; }
   .tour-tabs { align-self: start; }
   .tour-panel { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 0; overflow: hidden; }
   .tour-panel[hidden] { display: none; }
-  .tour-panel::before { top: 0; left: 0; }
-  .tour-panel::after { top: 0; right: 0; }
-  .tour-shot { border: 0; border-radius: 0; border-right: 1px solid var(--bezel); }
+  .tour-shot { border: 0; border-radius: 0; border-right: 1px solid var(--border); }
   .tour-shot :global(img) { display: block; width: 100%; height: auto; }
   .tour-copy { padding: 24px 26px; align-self: center; }
   .tour-copy h3 { margin-bottom: 12px; }
@@ -572,10 +580,10 @@ const steps = [
     .hero-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; }
     .hero { padding-top: 44px; }
     .tour-panel { grid-template-columns: minmax(0, 1fr); }
-    .tour-shot { border-right: 0; border-bottom: 1px solid var(--bezel); }
+    .tour-shot { border-right: 0; border-bottom: 1px solid var(--border); }
   }
   @media (max-width: 480px) {
-    /* Five tabs at 360px don't fit the segmented control's own width — scroll
+    /* Six tabs at 360px don't fit the segmented control's own width — scroll
        inside it rather than letting the page itself scroll horizontally. */
     .tour-tabs { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     .tour-tabs button { flex: 0 0 auto; }

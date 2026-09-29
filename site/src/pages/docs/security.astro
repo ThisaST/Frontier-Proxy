@@ -51,8 +51,8 @@ import { url } from "../../lib/site";
     </li>
   </ul>
   <p>
-    The sidebar's privacy line is derived from your actual settings and never says "local only" while an advisor is
-    active — it names what is on.
+    The privacy chip at the right of the header row is derived from your actual settings and never says "local" while an
+    advisor is active — it names Jev, the mode, and what is sent. It is on every screen.
   </p>
 
   <h2>How processes are launched</h2>
@@ -128,13 +128,13 @@ import { url } from "../../lib/site";
   <h2>macOS permissions</h2>
   <p>
     The normal folder chooser and projects under your home directory do <strong>not</strong> require Full Disk Access.
-    Choose <strong>New task → Choose folder… → Use this folder</strong>, or paste an absolute path. Full Disk Access is
+    Choose <strong>Add project…</strong> in the header's project switcher and pick the folder in the system dialog. Full Disk Access is
     only relevant for protected locations such as Mail, Messages, some system folders, or another user's data.
   </p>
   <p>
-    If a provider is Ready but later hits an operating-system permission error, grant access to <strong>Frontier
+    If a provider shows CLI found but later hits an operating-system permission error, grant access to <strong>Frontier
     Proxy</strong> and the relevant CLI host in <strong>System Settings → Privacy &amp; Security</strong>, then restart
-    the app. A provider that says <strong>Not detected</strong> is a PATH problem, not a filesystem permission problem.
+    the app. A provider that says <strong>CLI not detected</strong> is a PATH problem, not a filesystem permission problem.
   </p>
 
   <h2>Honest limits</h2>

@@ -20,14 +20,15 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://frontier.th
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical.href} />
     <link rel="icon" href={`${url("/")}favicon.svg`} type="image/svg+xml" />
-    <meta name="theme-color" content="#0b0d0c" />
+    <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131316" media="(prefers-color-scheme: dark)" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical.href} />
     <meta name="twitter:card" content="summary_large_image" />
-    <!-- Sets data-theme/data-effects before first paint, like the app's own
+    <!-- Sets data-scheme before first paint, like the app's own
          public/theme-init.js — see ThemeToggle.astro for the live control. -->
     <script is:inline src={`${url("/")}theme-init.js`}></script>
   </head>

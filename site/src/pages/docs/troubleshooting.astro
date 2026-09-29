@@ -26,17 +26,18 @@ import { ISSUES_URL, url } from "../../lib/site";
     </p>
   </Callout>
 
-  <h2>A provider shows Ready but tasks fail</h2>
+  <h2>A provider shows CLI found but tasks fail</h2>
   <p>
-    <strong>Ready</strong> only means <code>&lt;exe&gt; --version</code> succeeded — the binary was found. It says
-    nothing about whether the CLI has a valid session. Run the CLI yourself in a terminal; if it prompts you to log in,
+    <strong>CLI found</strong> only means <code>&lt;exe&gt; --version</code> succeeded — the binary was found. It says
+    nothing about whether the CLI has a valid session (the Login column reads it, but only when the CLI's own session
+    files can be read). Run the CLI yourself in a terminal; if it prompts you to log in,
     that is your answer.
   </p>
 
-  <h2>A provider shows Not detected</h2>
+  <h2>A provider shows CLI not detected</h2>
   <p>
-    Frontier could not locate the executable on PATH. Find the absolute path and paste it into that provider's
-    Executable field:
+    Frontier could not locate the executable on PATH. Find the absolute path and paste it into the Executable
+    field of that agent's sheet:
   </p>
   <pre><code>command -v codex
 command -v claude
@@ -59,7 +60,7 @@ command -v copilot</code></pre>
     Model ids are CLI-specific. Codex fails an entire run when handed a Claude model id such as
     <code>claude-opus-5</code> ("not supported when using Codex with a ChatGPT account"). Frontier tags the model you
     pick with the agent it came from and only ever hands it to that agent — every other provider runs its own model and
-    notes it in the transcript. If you see this error, the model was configured directly on the Codex provider card.
+    notes it in the transcript. If you see this error, the model was configured directly on the Codex agent's sheet.
   </p>
 
   <h2>Usage looks wrong or missing</h2>
@@ -108,7 +109,7 @@ command -v copilot</code></pre>
 
   <h2>Still stuck?</h2>
   <p>
-    Open an issue with your operating system, the Frontier version from the bottom of the sidebar, which agent failed,
+    Open an issue with your operating system, the Frontier version from the bottom of the Settings tab list, which agent failed,
     and the CLI's own output — <a href={ISSUES_URL} rel="noopener">github.com/ThisaST/Frontier-Proxy/issues</a>.
   </p>
 </Docs>

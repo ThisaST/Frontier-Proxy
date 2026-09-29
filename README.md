@@ -4,7 +4,7 @@
 
 Frontier Proxy is a local-first desktop orchestrator for **Codex CLI**, **Claude Code**, **GitHub Copilot CLI**, and **Ollama-backed coding models**. It sends work to executables already installed and authenticated on your computer; it never calls a model API or holds a key on a coding agent's behalf. The one narrow, opt-in exception is the **Jev routing advisor** — see [Routing advisor (Jev)](#routing-advisor-jev) below.
 
-The desktop UI is themed **Phosphor Console** — a retro-future instrument panel in dark **Console** or light **Daylight**, following your OS by default (Settings → Appearance).
+The desktop UI is calm and flat: a floating dock, one accent colour, and three theme families — **Neutral** (the default), **Mono** and **Phosphor** — each in light or dark, following your OS by default. Family, dock position, density and text size are in Settings → Appearance.
 
 Website and documentation: **https://frontier.thisara.me**
 
@@ -27,7 +27,7 @@ You still need at least one supported CLI installed and signed in — see [Provi
 - Balances recent task/token estimates across subscriptions and respects optional per-provider daily budgets.
 - Runs multiple independent tasks in parallel while respecting global and per-provider concurrency.
 - Streams provider output, keeps a local task history, supports cancellation, retries, and explicit provider switching between turns.
-- A composer-first **Home** with a live route preview, a **project switcher** scoping the app to one repo, three-pane **Tasks** (queue, conversation, route/files/activity inspector), a **Routing** screen for the advisor, and an **Agents** table with a per-provider detail drawer.
+- Five sections in a floating dock: three-pane **Tasks** (queue, conversation, route/files/activity inspector) that opens on a composer with a live route preview, **Workspaces**, **Review**, an **Agents** table with a per-agent detail sheet, and **Settings** (General, Appearance, Routing, Context & Tools, Skills, Verification). A **project switcher** in the header scopes the app to one repo.
 - Hosts collaborative workspaces: one long-lived conversation per repository with named agent participants you address by `@handle`, answering in parallel, each writing participant on its own review branch.
 - Accepts image attachments by picker, paste, or drag-and-drop, and resolves `@` file/folder references from the task's selected working directory.
 - Provides a keyboard-first command palette for navigation, common actions, and task lookup (`⌘K` on macOS or `Ctrl+K` elsewhere).
@@ -71,14 +71,14 @@ The version shown in the app is read from `package.json` at build time, so it up
 
 ## Provider setup
 
-In the app, open **Providers** in the left sidebar:
+In the app, open **Agents** in the dock:
 
-1. Codex, Claude Code, and GitHub Copilot are already registered; do not add them again. Leave the executable fields as `codex`, `claude`, and `copilot`, enable the providers you use, and select **Check providers**.
-2. A green **Ready** status confirms that the packaged app can locate the CLI. If it says **Not detected**, run `command -v codex`, `command -v claude`, or `command -v copilot` in Terminal and paste that absolute path into the provider's Executable field.
-3. Configure an optional model, tracked usage limit, and context-window size, then select **Save provider**. A CLI-reported context limit takes precedence over the configured fallback.
-4. Use **Add custom CLI** only for another locally installed agent executable.
+1. Codex, Claude Code, and GitHub Copilot are already registered; do not add them again. Leave the executable fields as `codex`, `claude`, and `copilot`, turn on the agents you use, and select **Check agents**.
+2. A **CLI found** status confirms that the packaged app can locate the CLI. If it says **CLI not detected**, run `command -v codex`, `command -v claude`, or `command -v copilot` in Terminal, click the agent's row, and paste that absolute path into the Executable field of its sheet. The **Login** column separately shows whether the CLI's own session looks signed in.
+3. In the sheet, configure an optional model, tracked usage limit, and context-window size, then select **Save agent**. A CLI-reported context limit takes precedence over the configured fallback.
+4. Use **Add CLI** only for another locally installed agent executable.
 
-Hover the Frontier mark at the top of the sidebar to see the app version. GitHub Copilot support requires v0.2.0 or newer.
+The app version is shown under the tab list in Settings. GitHub Copilot support requires v0.2.0 or newer.
 
 ### Codex
 
@@ -92,7 +92,7 @@ The task prompt is written to stdin. Image turns add Codex's native `--image <pa
 
 ### Claude Code
 
-Install and sign in to Claude Code, then leave the executable as `claude`. Frontier uses print/streaming mode with `acceptEdits`. Existing Claude Code login and settings are reused. Extra CLI flags, such as allowed tools, can be configured on the Providers screen.
+Install and sign in to Claude Code, then leave the executable as `claude`. Frontier uses print/streaming mode with `acceptEdits`. Existing Claude Code login and settings are reused. Extra CLI flags, such as allowed tools, can be configured in the agent's sheet on the Agents screen.
 
 ### GitHub Copilot
 
@@ -108,9 +108,9 @@ npm install -g @github/copilot
 copilot login
 ```
 
-Leave the provider executable as `copilot`, then enable it and select **Check providers**. Frontier sends prompts through stdin in Copilot's non-interactive silent mode. By default it grants file writes and common Git/package/build commands, but it does not grant `--allow-all`. Add or replace `--allow-tool` rules in Extra arguments if a project needs different tools. An optional model can be entered using a model name supported by your Copilot plan.
+Leave the provider executable as `copilot`, then turn it on and select **Check agents**. Frontier sends prompts through stdin in Copilot's non-interactive silent mode. By default it grants file writes and common Git/package/build commands, but it does not grant `--allow-all`. Add or replace `--allow-tool` rules in Extra arguments if a project needs different tools. An optional model can be entered using a model name supported by your Copilot plan.
 
-The provider card also lets you extend Copilot's built-in GitHub MCP server with selected toolsets or individual tools. Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset plus your selections.
+The agent's sheet also lets you extend Copilot's built-in GitHub MCP server with selected toolsets or individual tools. Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset plus your selections.
 
 ### OpenCode
 
@@ -143,7 +143,7 @@ Change the configured model to one installed on your Ollama instance.
 
 ### Other local agent CLIs
 
-Choose **Add custom CLI** in the provider registry. Configure the executable and its argument list; quoted arguments are supported. The prompt is sent over stdin by default. Use `{prompt}` in one argument only when a tool requires the prompt as an argv value, plus `{cwd}` and `{model}` for the selected working directory and configured model. Custom processes are still launched directly with no intermediary shell.
+Choose **Add CLI** on the Agents screen. Configure the executable and its argument list; quoted arguments are supported. The prompt is sent over stdin by default. Use `{prompt}` in one argument only when a tool requires the prompt as an argv value, plus `{cwd}` and `{model}` for the selected working directory and configured model. Custom processes are still launched directly with no intermediary shell.
 
 ## Routing
 
@@ -161,17 +161,17 @@ Only quota/unavailable failures automatically fail over. Intentional cancellatio
 
 **Jev** (TypeSafe's System One model) is an auxiliary service, not a coding agent — it never generates text and never runs on your behalf, which is why it is the one narrow, opt-in exception to "no API keys" (see [ADR 0002](docs/adr/0002-auxiliary-service-credentials.md)). Jev advises; the router still decides — its answers only ever become bounded, labelled routing factors and can never override eligibility, an explicit pick, or a user-picked model.
 
-- **Off by default.** Turning it on is explicit, in the **Routing** screen.
+- **Off by default.** Turning it on is explicit, in Settings → **Routing**.
 - **Modes:** `Off` (routing scores exactly as it would with no advisor), `Shadow` (Jev's pick is recorded next to the real route, changing nothing), `Active` (its answers become real, bounded factors that can influence the route).
 - **What's sent, when it's on:** the prompt text (trimmed to fit) and attachment *names* only, plus — when "share repo facts" is enabled (the default) — lightweight repository metadata (top languages, file count, manifest names, top-level folder names). Frontier never reads a file to send it. A split & delegate run also sends the planner's subtask titles and prompts, which can quote code the planner read.
 - **Credentials:** the API key is encrypted with Electron `safeStorage` (Keychain / DPAPI / OS keyring) and kept in the main process only; the renderer learns just `hasKey`, and the key is never written to logs, task output, or `frontier-state.json`.
 - **Never blocks the queue:** a confidence threshold ignores low-confidence answers, and every request is bounded by a hard ~3-second deadline; a slow, failed, or low-confidence response simply falls back to Frontier's own heuristic classifier.
 - **Per-subtask advice:** once an orchestrated plan has two or more subtasks, one extra Jev call can route each subtask independently by its own complexity, instead of every subtask inheriting one provider default.
-- **Calibration view:** the Routing screen buckets finished, Jev-advised tasks by answer confidence and reports completion/verification/agreement per bucket, so you can judge the advisor before switching it to active.
+- **Calibration view:** Settings → Routing buckets finished, Jev-advised tasks by answer confidence and reports completion/verification/agreement per bucket, so you can judge the advisor before switching it to active.
 
 ## Workspaces
 
-A workspace is a second conversation shape next to tasks: one repository, one long-lived thread, and the agents you invite into it. Open **Workspaces** in the sidebar, create one against a repository folder, then add participants — each has a display name, a unique `@handle`, a free-text role such as "Backend reviewer", the agent (provider) it runs on, an optional model for that agent, and its capabilities.
+A workspace is a second conversation shape next to tasks: one repository, one long-lived thread, and the agents you invite into it. Open **Workspaces** in the dock, create one against a repository folder, then add participants — each has a display name, a unique `@handle`, a free-text role such as "Backend reviewer", the agent (provider) it runs on, an optional model for that agent, and its capabilities.
 
 Addressing is explicit. Only participants you `@mention` run; a message with no mention is simply logged. Every mentioned participant starts at once and sees the same thread up to your message, not each other's replies. There is no routing and no failover: a participant that hits a quota wall, is turned off, or whose CLI is not detected produces a system message in the thread naming the reason, because rerouting the reply would put words in a named identity's mouth. Mentions inside code fences are treated as examples, and an `@mention` written by an agent renders as a chip without starting another run.
 
@@ -191,9 +191,9 @@ Multiple humans, `@here` fan-out, agent-to-agent conversation, and auto-routing 
 
 ## macOS permissions and folder selection
 
-The normal folder chooser and projects under your home directory do not require Full Disk Access. Choose **New task → Choose folder… → Use this folder**, or paste an absolute path into the field. Full Disk Access is only relevant for protected locations such as Mail, Messages, some system folders, or another user's data.
+The normal folder chooser and projects under your home directory do not require Full Disk Access. Choose **Add project…** in the header's project switcher (or **Choose project** in the composer), then pick the folder in the system dialog. Full Disk Access is only relevant for protected locations such as Mail, Messages, some system folders, or another user's data.
 
-If a provider is Ready but later receives an operating-system permission error, grant access to **Frontier Proxy** and the relevant CLI host in **System Settings → Privacy & Security**, then restart the app. A provider that says Not detected is normally a PATH/executable configuration issue, not a filesystem permission issue.
+If an agent shows CLI found but later receives an operating-system permission error, grant access to **Frontier Proxy** and the relevant CLI host in **System Settings → Privacy & Security**, then restart the app. An agent that says CLI not detected is normally a PATH/executable configuration issue, not a filesystem permission issue.
 
 ## Data and security
 

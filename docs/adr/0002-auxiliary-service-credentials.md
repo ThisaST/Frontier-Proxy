@@ -34,7 +34,7 @@ Narrow the rule instead of dropping it.
    - is never written to logs, task output, or `frontier-state.json`;
    - is redacted from every error message.
 4. **Auxiliary services are off by default.** Turning one on shows exactly what will leave the
-   machine. The sidebar privacy note is derived from settings and never claims "local only"
+   machine. The privacy chip in the header (the sidebar note, in the first UI) is derived from settings and never claims "local"
    while an advisor is active.
 5. **Auxiliary services only inform decisions.** Losing one (offline, invalid key, rate
    limited, slow) must leave Frontier behaving exactly as it did without it.

@@ -11,33 +11,42 @@ import { url } from "../../lib/site";
 >
   <h2>The interface at a glance</h2>
   <p>
-    <strong>Home</strong> is composer-first: describe a task and a live route preview shows which agent and model it
-    would take, with a small radar sweep while it's being scored, before you send anything. Below the composer sit
-    Running now, Needs your review, and your Agents at a glance — all scoped to whichever project you have selected.
+    A floating <strong>dock</strong> holds the five sections — Tasks, Workspaces, Review, Agents, and Settings — plus
+    New task and Search (⌘K). One header row above every screen carries the project switcher, the screen's actions, and a
+    privacy chip that says whether anything leaves your machine. <strong>Tasks</strong> opens on a composer: describe a
+    task and a one-line route preview shows which agent and model it would take before you send anything, with your
+    last few tasks listed underneath.
   </p>
+  <DocsFigure
+    name="tasks-compose"
+    alt="Tasks in compose state: a prompt box, a run-mode control, an Options row, a one-line route preview, and the queue on the left"
+    caption="Tasks, ready to start work: one composer, the queue beside it, and the dock along the bottom."
+  />
   <ul class="ticks">
     <li>
-      <strong>The project switcher</strong> in the sidebar scopes Home, the Tasks queue, Review, and Workspaces to one
-      repository at a time (or "All projects"), and pre-fills the working directory for new tasks and the ⌘N dialog.
+      <strong>The project switcher</strong> in the header scopes Tasks, Workspaces, and Review to one repository at a
+      time (or "All projects"), and pre-fills the working directory for new tasks. The New task button and ⌘N both open
+      the composer.
     </li>
     <li>
       <strong>Tasks</strong> is the three-pane screen described below: work queue, conversation, route inspector.
     </li>
     <li>
-      <strong>Routing</strong> is the Jev advisor console — mode (Off/Shadow/Active), credentials, the exact request
-      payload preview, the model catalog, and the calibration view. See <a href={url("docs/routing")}>routing &amp;
-      the Jev advisor</a>.
+      <strong>Settings</strong> holds General, Appearance, Routing (the Jev advisor: mode, credentials, the exact request
+      payload preview, the model catalog, and the calibration view), Context &amp; Tools, Skills, and Verification. See
+      <a href={url("docs/routing")}>routing &amp; the Jev advisor</a>.
     </li>
     <li>
-      <strong>Agents</strong> lists every configured CLI as a dense table — status lamp, capacity, today's usage —
-      with a detail drawer per row holding the full edit form instead of a separate settings page per provider.
+      <strong>Agents</strong> lists every configured CLI as a table — login state, models, today's tokens, plan window —
+      and a row opens a side sheet with the full edit form instead of a separate settings page per provider.
     </li>
   </ul>
 
   <h2>Every task is a conversation</h2>
   <p>
     Tasks are multi-turn, not one-shot. The initial prompt seeds a user turn and each run appends an assistant turn.
-    The output panel renders the thread with a composer at the bottom — press Enter to send a follow-up.
+    The conversation renders the thread with a reply box at the bottom — press Enter to send a follow-up. When a task is
+    stopped, a <strong>Change agent</strong> menu in its header picks who answers next.
   </p>
 
   <div class="table-wrap">
@@ -96,9 +105,10 @@ import { url } from "../../lib/site";
   <p>
     The Tasks screen is one view split into three panes: the <strong>work queue</strong> on the left (grouped into
     Running, Needs review, Done, and Failed/cancelled, filterable and scoped to the current project), the
-    <strong>conversation</strong> in the centre — the primary surface, with the composer at the bottom — and a
-    collapsible <strong>route/files/activity inspector</strong> on the right showing the route receipt, the live
-    activity feed, and the files an agent touched. Selecting a task never leaves the screen or opens a dialog.
+    <strong>conversation</strong> in the centre — the primary surface, with the reply box at the bottom, or the composer
+    when nothing is selected — and a collapsible <strong>inspector</strong> on the right with Route, Files changed,
+    Activity, Context, and Attempts sections: the route receipt, the files an agent touched, and the live activity feed.
+    Selecting a task never leaves the screen or opens a dialog.
   </p>
   <p>
     Opening a changed file from the inspector's "Files changed" section raises a <strong>file-viewer overlay</strong>
@@ -135,8 +145,8 @@ import { url } from "../../lib/site";
 
   <h2>Usage and plan windows</h2>
   <p>
-    The Usage view shows session and plan usage, reset countdowns, tracked tokens, and automatic-fallback state for
-    every provider. What it can show depends entirely on what each CLI reports:
+    The Agents table and each agent's sheet show session and plan usage, reset countdowns, tracked tokens, and
+    automatic-fallback state for every provider. What it can show depends entirely on what each CLI reports:
   </p>
 
   <div class="table-wrap">

@@ -847,6 +847,7 @@ pnpm typecheck                 # tsc for node + web projects
 pnpm test                      # vitest
 pnpm package                   # electron-builder --dir (unpacked)
 pnpm dist                      # full installers for the current OS
+pnpm changeset                 # add a release note + bump type for this PR
 ```
 
 On Windows, `pnpm dist` can fail via the `pnpm build && …` prefix when pnpm re-runs
@@ -859,6 +860,35 @@ npm run build
 
 If packaging hits `EPERM: … rename 'release\win-unpacked'`, close any running Frontier
 Proxy instance and delete `release/win-unpacked*`, then re-run.
+
+## Releasing (Changesets)
+
+The version lives in `package.json` only. `%APP_VERSION%` in `src/renderer/index.html` is
+filled from it at build time by `electron.vite.config.ts` (`tests/release.test.ts` fails if a
+literal version creeps back in), and the site reads it from the releases API.
+
+- A PR with a user-facing change adds a changeset: `pnpm changeset` → `.changeset/*.md`.
+  Internal-only changes (CI, tests, refactors) need none. Do not bump the version by hand.
+- `.github/workflows/release.yml` runs on every push to `main`:
+  1. `changesets/action/select-mode` + `changesets/action/version` (v2, for Changesets 3)
+     roll pending changesets into a `chore: release` PR (`pnpm version-packages` →
+     `changeset version` edits only the version line and `CHANGELOG.md`, via
+     `@changesets/changelog-github`).
+  2. `detect` checks whether `v<package.json version>` is already tagged; if not (the
+     release PR was just merged), it hands that tag to the build.
+  3. It calls `build.yml` via `workflow_call` with `release-tag`. Its `release` job runs
+     `gh release create --target $GITHUB_SHA`, which creates the tag, attaches the
+     installers, and uses that version's `CHANGELOG.md` section as the notes (awk
+     extract; falls back to `--generate-notes`).
+- The build is **called**, not triggered by the tag, on purpose: a tag or PR created with
+  the workflow's `GITHUB_TOKEN` never starts another workflow. For the same reason CI does
+  not run on the release PR itself, which only touches the version and changelog.
+- `privatePackages: { version: true, tag: false }` — the app is private (never published to
+  npm); `changeset tag` is unused because the release job creates the tag.
+- Requires the repo setting **Actions → General → Allow GitHub Actions to create and approve
+  pull requests**, or the release PR cannot be opened.
+- `build.yml` still publishes a hand-pushed `v*` tag, and a release build is never
+  cancelled by a newer push (`cancel-in-progress` is off whenever `release-tag` is set).
 
 ## Conventions
 

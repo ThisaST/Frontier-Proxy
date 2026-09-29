@@ -1,0 +1,104 @@
+name: Release
+
+# Every push to main does two things:
+#
+# 1. Pending changesets (.changeset/*.md) are rolled into a "chore: release"
+#    pull request that bumps package.json and writes CHANGELOG.md. Merging
+#    that pull request is how a release is cut — nobody edits the version by hand.
+# 2. The desktop apps are built. When package.json's version has no v<version>
+#    tag yet (i.e. the release pull request was just merged), the same run
+#    creates the tag and publishes a GitHub release with the installers and
+#    that version's CHANGELOG section.
+#
+# The build is called from here rather than triggered by the new tag because a
+# tag pushed with the workflow's own GITHUB_TOKEN never starts another workflow.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a run that may be publishing a release. Runs on main queue up
+# instead, so the next one sees the tag this one created.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-pr:
+    name: Open or update the release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+      - name: Check for pending changesets
+        id: mode
+        uses: changesets/action/select-mode@v2
+
+      - name: Create or update the release PR
+        if: steps.mode.outputs.mode == 'version'
+        uses: changesets/action/version@v2
+        with:
+          script: pnpm run version-packages
+          commit-message: "chore: release"
+          pr-title: "chore: release"
+        env:
+          # @changesets/changelog-github looks up each change's PR and author.
+          GITHUB_TOKEN: ${{ github.token }}
+
+  detect:
+    name: Check for an unreleased version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compare package.json with existing tags
+        id: version
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if git rev-parse --quiet --verify "refs/tags/$tag" >/dev/null; then
+            echo "$tag is already released; this run only builds."
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "$tag has no tag yet; this run publishes it."
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build
+    needs: detect
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build.yml
+    with:
+      release-tag: ${{ needs.detect.outputs.tag }}

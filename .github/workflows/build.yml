@@ -1,19 +1,28 @@
 name: Build desktop apps
 
+# Pushes to main reach this workflow through release.yml, which passes
+# `release-tag` when the version in package.json has not been released yet.
+# Pushing a v* tag by hand still builds and publishes that tag.
 on:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: Tag to create and publish (e.g. v0.9.4). Empty builds without releasing.
+        type: string
+        default: ""
   push:
-    branches:
-      - main
     tags:
       - "v*"
 
 permissions:
   contents: read
 
+# A newer build supersedes an unfinished one, except a release build: cancelling
+# that would leave a version with no installers.
 concurrency:
-  group: desktop-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: desktop-build-${{ github.ref }}-${{ inputs.release-tag }}
+  cancel-in-progress: ${{ !inputs.release-tag }}
 
 jobs:
   validate:
@@ -142,13 +151,16 @@ jobs:
 
   release:
     name: Publish GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TAG: ${{ inputs.release-tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out release tag
+      - name: Check out repository
         uses: actions/checkout@v5
 
       - name: Download packaged applications
@@ -156,21 +168,40 @@ jobs:
         with:
           path: release-artifacts
 
+      # The release notes are this version's CHANGELOG.md section, written by
+      # the release PR. A hand-pushed tag with no section falls back to
+      # GitHub's generated notes.
+      - name: Extract release notes
+        id: notes
+        run: |
+          version="${TAG#v}"
+          if [ -f CHANGELOG.md ]; then
+            awk -v heading="## $version" '$0 == heading { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > release-notes.md
+          else
+            : > release-notes.md
+          fi
+          if [ -s release-notes.md ] && grep -q '[^[:space:]]' release-notes.md; then
+            echo "source=changelog" >> "$GITHUB_OUTPUT"
+          else
+            echo "source=generated" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check for an existing release
         id: existing-release
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release view "${GITHUB_REF_NAME}"
+        run: gh release view "$TAG"
 
+      # --target creates the tag on this exact commit when it does not exist
+      # yet (the release.yml path); a hand-pushed tag already exists.
       - name: Create release
         if: steps.existing-release.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" release-artifacts/**/* --generate-notes --verify-tag
+        run: |
+          if [ "${{ steps.notes.outputs.source }}" = "changelog" ]; then
+            gh release create "$TAG" release-artifacts/**/* --target "$GITHUB_SHA" --title "Release $TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" release-artifacts/**/* --target "$GITHUB_SHA" --title "Release $TAG" --generate-notes
+          fi
 
       - name: Update release assets
         if: steps.existing-release.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" release-artifacts/**/* --clobber
+        run: gh release upload "$TAG" release-artifacts/**/* --clobber

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "ThisaST/Frontier-Proxy" }],
+  "commit": false,
+  "baseBranch": "main",
+  "access": "restricted",
+  "privatePackages": { "version": true, "tag": false },
+  "ignore": []
+}

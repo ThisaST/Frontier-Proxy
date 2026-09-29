@@ -6,19 +6,18 @@ import { bindTooltip } from './ui/tooltip'
 import { announce } from './ui/announce'
 import { initTheme } from './theme'
 import { reportError } from './ui/feedback'
-import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId } from './state'
+import { snapshot, setSnapshot, currentView, setCurrentView, selectedTaskId, applyTaskSurface } from './state'
 import { taskIsBusy } from './task-helpers'
 import { resolveView, type SettingsTab, type ViewId } from './nav'
 import { advisorDisclosure } from './advisor-disclosure'
-import { renderHome, initHomeView } from './views/home'
 import { renderTasks, applyQueueWidth, applyInspectorWidth, applyInspectorState, initTasksView } from './views/tasks'
+import { initComposeView } from './views/compose'
 import { renderReview, renderReviewBadge, loadReview, setReviewSelection, setReviewFilePath, initReviewView } from './views/review'
 import { renderAgentsView, refreshAgentDrawer, initAgentsView } from './views/agents'
 import { initControlView } from './views/control'
 import { initSkillsView } from './views/skills'
 import { renderRouting, initRoutingView } from './views/routing'
 import { renderSettings, initSettingsView, showSettingsTab, currentSettingsTab } from './views/settings'
-import { renderTaskProviderOptions, initNewTaskDialog } from './dialogs/new-task'
 import { initCommandPalette, openCommandPalette } from './command-palette'
 import { initComposerInputs } from './composer'
 import { initProjectSwitcher } from './project'
@@ -30,8 +29,7 @@ import { initProjectSwitcher } from './project'
 // project switcher applies. A later phase adds a header action by putting its button in that slot
 // and its id here.
 const HEADER: Record<ViewId, { title: string; actions?: string[]; project?: boolean }> = {
-  home: { title: 'Home', project: true },
-  tasks: { title: 'Tasks', project: true },
+  tasks: { title: 'Tasks', actions: ['clear-finished'], project: true },
   workspace: { title: 'Workspaces', actions: ['workspace-participants-button'], project: true },
   review: { title: 'Review', actions: ['review-refresh'], project: true },
   agents: { title: 'Agents', actions: ['health-check', 'add-provider'] },
@@ -62,29 +60,30 @@ function render(): void {
   // Every renderer below reads the snapshot. It arrives asynchronously, and the
   // user can click a dock item before it does.
   if (typeof snapshot === 'undefined') return
-  renderTasks(); renderTaskProviderOptions(); renderSettings(); renderAdvisorStatus(); renderReviewBadge()
-  if (currentView === 'home') renderHome()
+  renderTasks(); renderSettings(); renderAdvisorStatus(); renderReviewBadge()
   if (currentView === 'agents') renderAgentsView()
   if (currentView === 'review') renderReview()
   if (currentView === 'workspace') renderWorkspaceView(snapshot)
   if (currentView === 'settings' && currentSettingsTab === 'routing') renderRouting()
 }
 
-// Single code path for "open this branch in Review" — used by the bench-lane
-// chip, the home-screen waiting-review list, and the workspace turn's branch
-// chip, so all three land on the same diff instead of just the Review view.
+// Single code path for "open this branch in Review" — used by the lane and
+// inspector branch buttons and the workspace turn's branch chip, so they all
+// land on the same diff instead of just the Review view.
 export function openBranchInReview(cwd: string, branch: string): void {
   setReviewSelection({ cwd, branch })
   setReviewFilePath(undefined)
   switchView('review')
 }
 
-// Accepts every id nav.ts resolves: the five sections, legacy `home`, and a Settings tab id (the
-// old `routing`, `control` and `skills` screens included). `tab` picks a Settings tab explicitly.
+// Accepts every id nav.ts resolves: the five sections, legacy `home` (Tasks in compose state), and
+// a Settings tab id (the old `routing`, `control` and `skills` screens included). `tab` picks a
+// Settings tab explicitly.
 export function switchView(id: string, tab?: SettingsTab): void {
   const resolved = resolveView(id)
   if (!resolved) return
   const { view } = resolved
+  if (resolved.compose) applyTaskSurface({ kind: 'compose' })
   setCurrentView(view)
   document.querySelectorAll<HTMLElement>('.nav-item').forEach((item) => {
     const active = item.dataset.view === view
@@ -100,7 +99,6 @@ export function switchView(id: string, tab?: SettingsTab): void {
   if (view === 'settings') showSettingsTab(tab ?? resolved.tab)
   if (typeof snapshot === 'undefined') return
   if (view === 'agents') renderAgentsView()
-  if (view === 'home') renderHome()
   if (view === 'tasks') { renderTasks(); applyQueueWidth(); applyInspectorWidth(); applyInspectorState() }
   if (view === 'review') { renderReview(); void loadReview(true) }
   if (view === 'workspace') renderWorkspaceView(snapshot)
@@ -115,11 +113,10 @@ advisorChip.addEventListener('click', () => switchView('routing'))
 bindTooltip(advisorChip, () => disclosure)
 initProjectSwitcher()
 
-initHomeView()
 initReviewView()
 initTasksView()
+initComposeView()
 initAgentsView()
-initNewTaskDialog()
 initSkillsView()
 initCommandPalette()
 initComposerInputs()
@@ -155,13 +152,12 @@ window.frontier.onStream((event) => {
 window.frontier.onWorkspaceStream(handleWorkspaceStream)
 
 void window.frontier.getSnapshot()
-  .then((initial) => { setSnapshot(initial); switchView('home'); render(); void loadReview() })
+  .then((initial) => { setSnapshot(initial); switchView('tasks'); render(); void loadReview() })
   .catch((error) => reportError('Could not connect to the Frontier service', error))
 
 // Reset countdowns and expired-window state should keep moving even when no
 // provider emits a new snapshot.
 window.setInterval(() => {
   if (typeof snapshot === 'undefined') return
-  if (currentView === 'home') renderHome()
   if (currentView === 'agents') refreshAgentDrawer()
 }, 30_000)

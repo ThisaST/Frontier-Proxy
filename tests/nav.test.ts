@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { SETTINGS_TABS, VIEWS, isSettingsTab, resolveView } from '../src/renderer/src/nav'
+import { SETTINGS_TABS, VIEWS, isSettingsTab, nextTaskSurface, resolveView, type TaskSurface } from '../src/renderer/src/nav'
 
 describe('resolveView (ui-plan §5): every old id still lands somewhere', () => {
   it.each([
-    ['home', { view: 'home' }],
+    ['home', { view: 'tasks', compose: true }],
     ['tasks', { view: 'tasks' }],
     ['workspace', { view: 'workspace' }],
     ['review', { view: 'review' }],
@@ -32,13 +32,44 @@ describe('resolveView (ui-plan §5): every old id still lands somewhere', () => 
     expect(resolveView(id)).toBeUndefined()
   })
 
-  it('the dock carries exactly the five sections; home stays only until P4', () => {
-    expect(VIEWS.filter((view) => view !== 'home')).toEqual(['tasks', 'workspace', 'review', 'agents', 'settings'])
+  it('the dock carries exactly the five sections; home is not one of them since P4', () => {
+    expect(VIEWS).toEqual(['tasks', 'workspace', 'review', 'agents', 'settings'])
+    expect((VIEWS as readonly string[]).includes('home')).toBe(false)
   })
 
   it('isSettingsTab', () => {
     expect(isSettingsTab('control')).toBe(true)
     expect(isSettingsTab('tasks')).toBe(false)
     expect(isSettingsTab(undefined)).toBe(false)
+  })
+})
+
+describe('nextTaskSurface (ui-plan §10.1 row 1): the Tasks centre is the composer or one task, never neither', () => {
+  const composing: TaskSurface = { composing: true }
+  const onTask: TaskSurface = { composing: false, selectedTaskId: 't1' }
+
+  it('selecting a task leaves compose', () => {
+    expect(nextTaskSurface(composing, { kind: 'select', taskId: 't2' })).toEqual({ composing: false, selectedTaskId: 't2' })
+    expect(nextTaskSurface(onTask, { kind: 'select', taskId: 't2' })).toEqual({ composing: false, selectedTaskId: 't2' })
+  })
+
+  it('entering compose clears the selection', () => {
+    expect(nextTaskSurface(onTask, { kind: 'compose' })).toEqual({ composing: true })
+    expect(nextTaskSurface(composing, { kind: 'compose' })).toEqual({ composing: true })
+  })
+
+  it('reconciling never auto-selects a task while composing, however many tasks exist', () => {
+    expect(nextTaskSurface(composing, { kind: 'reconcile', taskIds: ['t1', 't2', 't3'] })).toEqual({ composing: true })
+    expect(nextTaskSurface(composing, { kind: 'reconcile', taskIds: [] })).toEqual({ composing: true })
+  })
+
+  it('reconciling keeps a selection that is still in scope', () => {
+    expect(nextTaskSurface(onTask, { kind: 'reconcile', taskIds: ['t0', 't1'] })).toBe(onTask)
+  })
+
+  it('a selection that left scope (cleared, deleted, other project) falls back to compose, not to another task', () => {
+    expect(nextTaskSurface(onTask, { kind: 'reconcile', taskIds: ['t2', 't3'] })).toEqual({ composing: true })
+    expect(nextTaskSurface(onTask, { kind: 'reconcile', taskIds: [] })).toEqual({ composing: true })
+    expect(nextTaskSurface({ composing: false }, { kind: 'reconcile', taskIds: ['t1'] })).toEqual({ composing: true })
   })
 })

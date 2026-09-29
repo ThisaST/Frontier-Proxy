@@ -10,7 +10,6 @@ import { baseName, formatDuration, timeAgo } from '../ui/format'
 import { highlightSourceLine, parseUnifiedDiff } from '../syntax'
 import { verificationChip } from '../task-helpers'
 import { onProjectChange, projectMatches } from '../project'
-import { renderHome } from './home'
 
 export let reviewRepos: BranchRepo[] = []
 export let reviewLoaded = false
@@ -34,7 +33,6 @@ export async function loadReview(showToastOnError = false): Promise<void> {
     renderedDiffKey = undefined
     renderReview()
     renderReviewBadge()
-    renderHome()
   } catch (error) {
     reviewLoaded = true
     if (showToastOnError) reportError('Could not read task branches', error)
@@ -185,7 +183,7 @@ function branchActions(branch: TaskBranch, repo: BranchRepo | undefined): HTMLEl
     try {
       reviewRepos = await window.frontier.deleteBranch(branch.cwd, branch.branch)
       reviewSelection = undefined; reviewFilePath = undefined
-      showToast('Branch deleted'); renderReview(); renderReviewBadge(); renderHome()
+      showToast('Branch deleted'); renderReview(); renderReviewBadge()
     } catch (error) { reportError('Could not delete branch', error) }
   })
   controls.append(remove)
@@ -203,7 +201,7 @@ function branchActions(branch: TaskBranch, repo: BranchRepo | undefined): HTMLEl
     )
     if (!confirmed) return
     merge.disabled = true
-    try { reviewRepos = await window.frontier.mergeBranch(branch.cwd, branch.branch); showToast(`Merged ${branch.branch}`); renderReview(); renderReviewBadge(); renderHome() }
+    try { reviewRepos = await window.frontier.mergeBranch(branch.cwd, branch.branch); showToast(`Merged ${branch.branch}`); renderReview(); renderReviewBadge() }
     catch (error) { reportError('Merge failed', error); merge.disabled = false }
   })
   controls.append(merge)

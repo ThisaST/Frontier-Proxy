@@ -37,8 +37,9 @@
             </button>
             <div id="project-switcher-menu" class="project-switcher-menu" role="listbox" aria-label="Choose a project" hidden></div>
           </div>
-          <h1 id="view-title" class="screen-title">Home</h1>
+          <h1 id="view-title" class="screen-title">Tasks</h1>
           <div class="app-header-actions" id="app-header-actions">
+            <button type="button" id="clear-finished" class="btn btn-ghost btn-sm" title="Remove completed, failed and cancelled tasks" hidden><span data-icon="trash" data-icon-size="14" aria-hidden="true"></span>Clear finished</button>
             <button type="button" id="review-refresh" class="btn btn-secondary btn-sm" hidden><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Refresh</button>
             <button type="button" id="health-check" class="btn btn-secondary btn-sm" title="Re-check which CLIs are installed" hidden><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Check agents</button>
             <button type="button" id="add-provider" class="btn btn-secondary btn-sm" hidden><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add CLI</button>
@@ -49,150 +50,148 @@
           </button>
         </header>
 
-        <!-- Home: composer-first, with a live route preview -->
-        <section id="home-view" class="view">
-          <div class="home-shell">
-            <section class="panel composer-panel" id="home-composer">
-              <div class="composer-panel-head">
-                <div><p class="eyebrow">START WORK</p><h2>What should an agent do?</h2></div>
-                <button type="button" id="home-project-field" class="project-field-chip"></button>
-              </div>
-
-              <div class="composer-draft home-composer-draft">
-                <div id="home-prompt-attachments" class="composer-attachments"></div>
-                <div class="composer-input-row">
-                  <button type="button" class="composer-attach" data-composer-input="home-prompt" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
-                  <textarea id="home-prompt" rows="4" placeholder="Implement the authentication flow…  Type @ to add project files or folders,  ⌘⏎ to start"></textarea>
-                  <div id="home-prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
-                </div>
-              </div>
-
-              <div class="run-mode-field">
-                <span class="field-label">How should this run?</span>
-                <div class="run-modes" id="home-run-modes" role="radiogroup" aria-label="Run mode">
-                  <button type="button" class="run-mode active" data-run-mode="single" role="radio" aria-checked="true"><strong>One agent</strong><small>Frontier picks the best available agent, and fails over if it hits a limit.</small></button>
-                  <button type="button" class="run-mode" data-run-mode="orchestrate" role="radio" aria-checked="false"><strong>Split &amp; delegate</strong><small>A planner breaks the work into subtasks, runs them in isolated branches, then reports back.</small></button>
-                  <button type="button" class="run-mode" data-run-mode="bench" role="radio" aria-checked="false"><strong>Compare agents</strong><small>Send the same prompt to several agents at once and compare their results side by side.</small></button>
-                </div>
-              </div>
-
-              <div id="home-bench-options" class="bench-options" hidden>
-                <span class="field-label">Which agents should compete? (choose two or more)</span>
-                <div id="home-bench-providers" class="bench-providers"></div>
-              </div>
-
-              <details class="composer-advanced">
-                <summary>Advanced</summary>
-                <div class="form-row" id="home-single-options">
-                  <label>Routing policy<select id="home-routing-mode"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></label>
-                  <label>Agent<select id="home-provider-override"><option value="">Automatic</option></select></label>
-                </div>
-                <label id="home-model-field">Model<select id="home-model-select"><option value="">Provider default</option></select><input id="home-model" class="task-model-custom" placeholder="Type a model id…" hidden /></label>
-                <details id="home-skills-field" class="task-skills-field">
-                  <summary id="home-skills-summary">Skills · 0 enabled</summary>
-                  <div id="home-skills-list" class="task-skills-list"></div>
-                </details>
-              </details>
-
-              <div id="home-route-preview" class="route-preview idle" role="status"><span>Type a prompt to see which agent Frontier would pick.</span></div>
-
-              <p id="home-form-error" class="form-error"></p>
-              <div class="composer-panel-actions">
-                <button type="button" id="home-start-task" class="primary-button" disabled>Start task</button>
-              </div>
-            </section>
-
-            <div class="home-columns">
-              <section class="home-column">
-                <div class="section-head"><div><p class="eyebrow">IN FLIGHT</p><h2>Running now</h2></div><button id="home-view-tasks" class="text-button">All tasks →</button></div>
-                <div id="home-active" class="home-active"></div>
-              </section>
-              <section class="home-column">
-                <div class="section-head"><div><p class="eyebrow">WAITING FOR YOU</p><h2>Needs your review</h2></div><button id="home-view-review" class="text-button">Open review →</button></div>
-                <div id="home-review" class="home-review"></div>
-              </section>
-              <section class="home-column">
-                <div class="section-head"><div><p class="eyebrow">CAPACITY</p><h2>Agents</h2></div></div>
-                <div id="home-agents" class="home-agents"></div>
-              </section>
-            </div>
-          </div>
-        </section>
-
-
-        <!-- Tasks: work queue, the conversation, and a route/files/activity inspector -->
+        <!-- Tasks (ui-plan §6.3, P4): the work queue, then the centre pane, which is either the
+             composer (compose state, the old Home) or one task's conversation, then the
+             route/files/activity inspector. views/tasks.ts and views/compose.ts own it. -->
         <section id="tasks-view" class="view">
           <div class="content-grid" id="content-grid">
-            <section class="panel task-panel">
-              <div class="panel-header">
-                <div><p class="eyebrow">WORK QUEUE</p><h2>Tasks</h2></div>
-                <div class="panel-header-actions"><input id="task-search" class="task-search" placeholder="Search…" aria-label="Search tasks" /><button id="clear-finished" class="text-button">Clear finished</button></div>
+            <section class="panel task-panel" aria-label="Work queue">
+              <div class="queue-top">
+                <div class="queue-search">
+                  <span class="queue-search-icon" data-icon="search" data-icon-size="14" aria-hidden="true"></span>
+                  <input id="task-search" class="input task-search" type="search" placeholder="Search tasks" aria-label="Search tasks" autocomplete="off" />
+                </div>
+                <button type="button" id="queue-new-task" class="btn btn-secondary btn-icon" aria-label="New task" title="New task (⌘N)"><span data-icon="plus" data-icon-size="16" aria-hidden="true"></span></button>
               </div>
-              <div id="tasks-project-chip" class="project-chip-row"></div>
               <div id="task-list" class="task-list" role="group" aria-label="Tasks" tabindex="0"></div>
             </section>
             <div class="grid-gutter" id="grid-gutter" title="Drag to resize"></div>
 
             <section class="panel task-surface" id="task-surface">
-              <header class="surface-header">
-                <div class="surface-heading">
-                  <h2 id="surface-title">Select a task</h2>
-                  <p id="surface-subtitle" class="surface-subtitle"></p>
-                </div>
-                <div class="surface-header-right">
-                  <span id="surface-status" class="status-pill muted">Idle</span>
-                  <button id="list-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse queue" aria-label="Collapse queue"><span data-icon="collapse" aria-hidden="true"></span></button>
-                  <button id="inspector-toggle" class="icon-button" type="button" aria-pressed="true" aria-expanded="true" title="Collapse inspector" aria-label="Collapse inspector"><span data-icon="panel-right-close" aria-hidden="true"></span></button>
-                  <button id="surface-focus" class="icon-button" type="button" aria-pressed="false" title="Focus this task" aria-label="Focus this task"><span data-icon="expand" aria-hidden="true"></span></button>
-                </div>
-              </header>
+              <!-- Compose state: one composer, one place to start work. -->
+              <div id="compose-pane" class="compose-pane">
+                <div class="compose-inner">
+                  <div class="compose-head">
+                    <button type="button" class="btn btn-ghost btn-icon btn-sm" data-pane-toggle="list" aria-label="Collapse queue"><span data-icon="panel-left" data-icon-size="16" aria-hidden="true"></span></button>
+                    <h2 class="compose-title" id="compose-title">What should an agent do?</h2>
+                    <button type="button" id="compose-project" class="btn btn-secondary btn-sm compose-project"></button>
+                  </div>
 
-              <div id="surface-meta" class="surface-meta"></div>
-              <div id="surface-actions" class="surface-actions"></div>
+                  <div class="card compose-card" id="compose-root">
+                    <div class="composer-draft compose-draft">
+                      <div id="compose-prompt-attachments" class="composer-attachments"></div>
+                      <div class="composer-input-row">
+                        <textarea id="compose-prompt" rows="4" aria-labelledby="compose-title" placeholder="Describe the change, question, or investigation. Type @ to add project files or folders."></textarea>
+                        <div id="compose-prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
+                      </div>
+                    </div>
 
-              <div id="surface-stages" class="surface-stages"></div>
-              <div id="surface-thread" class="surface-thread markdown"></div>
-              <div id="surface-composer" class="output-composer" hidden>
-                <div class="composer-draft">
-                  <div id="composer-input-attachments" class="composer-attachments"></div>
-                  <div class="composer-input-row">
-                    <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
-                    <textarea id="composer-input" rows="2" placeholder="Continue the conversation…  @ to add files"></textarea>
-                    <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
+                    <div class="compose-field">
+                      <span class="field-label" id="compose-mode-label">How should this run?</span>
+                      <div class="segmented compose-modes run-modes" role="radiogroup" aria-labelledby="compose-mode-label">
+                        <button type="button" class="run-mode active" data-run-mode="single" role="radio" aria-checked="true">One agent</button>
+                        <button type="button" class="run-mode" data-run-mode="orchestrate" role="radio" aria-checked="false">Split &amp; delegate</button>
+                        <button type="button" class="run-mode" data-run-mode="bench" role="radio" aria-checked="false">Compare</button>
+                      </div>
+                      <p id="compose-mode-help" class="compose-help">Frontier picks the best available agent, and fails over if it hits a limit.</p>
+                    </div>
+
+                    <div id="compose-bench-options" class="compose-field" hidden>
+                      <span class="field-label">Which agents should compete? Choose two or more.</span>
+                      <div id="compose-bench-providers" class="bench-providers compose-bench"></div>
+                    </div>
+
+                    <details class="compose-options" id="compose-options">
+                      <summary><span class="compose-options-chevron" data-icon="chevron-right" data-icon-size="14" aria-hidden="true"></span>Options<span id="compose-options-summary" class="compose-options-summary"></span></summary>
+                      <div class="compose-options-grid">
+                        <div id="compose-single-options" class="compose-options-pair">
+                          <div class="compose-option"><label class="field-label" for="compose-routing-mode">Routing policy</label><select id="compose-routing-mode" class="select"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></div>
+                          <div class="compose-option"><label class="field-label" for="compose-provider-override">Agent</label><select id="compose-provider-override" class="select"><option value="">Automatic</option></select></div>
+                        </div>
+                        <div class="compose-option" id="compose-model-field"><label class="field-label" for="compose-model-select">Model</label><select id="compose-model-select" class="select"><option value="">Provider default</option></select><input id="compose-model" class="input task-model-custom" placeholder="Type a model id" aria-label="Custom model id" hidden /></div>
+                        <div class="compose-option"><span class="field-label" id="compose-skills-label">Skills</span>
+                          <details id="compose-skills-field" class="task-skills-field compose-skills">
+                            <summary id="compose-skills-summary" aria-describedby="compose-skills-label">Not scanned yet</summary>
+                            <div id="compose-skills-list" class="task-skills-list"></div>
+                          </details>
+                        </div>
+                      </div>
+                    </details>
+
+                    <p id="compose-route" class="compose-route" role="status">Type a prompt to see which agent Frontier would pick.</p>
+                    <p id="compose-error" class="form-error compose-error" role="alert"></p>
+
+                    <div class="compose-actions">
+                      <button type="button" class="btn btn-ghost btn-icon composer-attach compose-attach" data-composer-input="compose-prompt" aria-label="Attach images" title="Attach images"><span data-icon="attach" data-icon-size="16" aria-hidden="true"></span></button>
+                      <span class="compose-hint" aria-hidden="true"><span class="kbd">⌘</span><span class="kbd">↵</span></span>
+                      <button type="button" id="compose-start" class="btn btn-primary" disabled>Start task</button>
+                    </div>
+                  </div>
+
+                  <section class="compose-recent" aria-labelledby="compose-recent-title">
+                    <h3 class="section-title" id="compose-recent-title">Recent</h3>
+                    <div id="compose-recent-list" class="compose-recent-list"></div>
+                  </section>
+                </div>
+              </div>
+
+              <!-- A selected task: one-line header, the thread, and the reply composer. -->
+              <div id="conversation-pane" class="conversation-pane" hidden>
+                <header class="surface-header">
+                  <div class="surface-top">
+                    <button type="button" id="list-toggle" class="btn btn-ghost btn-icon btn-sm" data-pane-toggle="list" aria-pressed="true" aria-expanded="true" title="Collapse queue" aria-label="Collapse queue"><span data-icon="panel-left" data-icon-size="16" aria-hidden="true"></span></button>
+                    <h2 id="surface-title" class="surface-title">Select a task</h2>
+                    <div class="surface-actions">
+                      <div id="surface-actions" class="surface-actions-slot"></div>
+                      <button type="button" id="surface-focus" class="btn btn-ghost btn-icon btn-sm" aria-pressed="false" title="Expand the conversation" aria-label="Expand the conversation"><span data-icon="expand" data-icon-size="16" aria-hidden="true"></span></button>
+                      <button type="button" id="inspector-toggle" class="btn btn-ghost btn-icon btn-sm" aria-pressed="true" aria-expanded="true" title="Collapse inspector" aria-label="Collapse inspector"><span data-icon="panel-right-close" data-icon-size="16" aria-hidden="true"></span></button>
+                    </div>
+                  </div>
+                  <div class="surface-meta-line"><span id="surface-status"></span><span id="surface-meta" class="surface-meta"></span></div>
+                  <div id="surface-stages" class="surface-stages"></div>
+                </header>
+                <div id="surface-thread" class="surface-thread"></div>
+                <div id="surface-composer" class="surface-reply" hidden>
+                  <div class="surface-reply-inner">
+                    <div class="composer-draft">
+                      <div id="composer-input-attachments" class="composer-attachments"></div>
+                      <div class="composer-input-row">
+                        <button type="button" class="composer-attach" data-composer-input="composer-input" aria-label="Attach images" title="Attach images"><span data-icon="attach" data-icon-size="16" aria-hidden="true"></span></button>
+                        <textarea id="composer-input" rows="2" aria-label="Reply" placeholder="Continue the conversation. @ to add files."></textarea>
+                        <div id="composer-input-mentions" class="composer-mentions" role="listbox" hidden></div>
+                      </div>
+                    </div>
+                    <button type="button" id="composer-send" class="btn btn-primary">Send</button>
                   </div>
                 </div>
-                <button id="composer-send" class="primary-button">Send</button>
               </div>
             </section>
 
             <div class="grid-gutter" id="inspector-gutter" title="Drag to resize"></div>
 
             <aside class="panel inspector" id="task-inspector" aria-label="Task inspector">
-              <div class="inspector-head">
-                <p class="eyebrow">INSPECTOR</p>
-              </div>
               <div id="inspector-body" class="inspector-body"></div>
             </aside>
           </div>
         </section>
 
-        <dialog id="task-file-overlay" class="file-overlay" aria-label="Files & changes">
+        <dialog id="task-file-overlay" class="file-overlay" aria-labelledby="overlay-file-task-title">
           <div class="file-overlay-shell">
             <header class="file-overlay-head">
-              <div><p class="eyebrow">FILES &amp; CHANGES</p><h2 id="overlay-file-task-title">Project files</h2></div>
-              <button type="button" class="icon-button" id="file-overlay-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
+              <div class="file-overlay-heading"><span class="field-label">Files and changes</span><h2 id="overlay-file-task-title" class="file-overlay-title">Project files</h2></div>
+              <button type="button" class="btn btn-ghost btn-icon" id="file-overlay-close" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button>
             </header>
             <div class="file-overlay-body">
               <aside class="task-file-sidebar">
-                <div class="task-file-sidebar-head"><p class="eyebrow" id="overlay-file-sidebar-summary">PROJECT WORKSPACE</p><h3>Project files</h3></div>
+                <div class="task-file-sidebar-head"><h3 class="section-title">Project files</h3><span class="field-label" id="overlay-file-sidebar-summary"></span></div>
                 <div id="overlay-file-list" class="task-detail-file-list"></div>
               </aside>
               <section class="task-file-viewer">
                 <header class="task-file-viewer-head">
-                  <div><p class="eyebrow" id="overlay-file-language">SOURCE</p><h3 id="overlay-file-title">Select a file</h3></div>
-                  <div class="task-file-mode" id="overlay-file-mode" hidden>
-                    <button data-file-mode="diff" class="active">Changes</button>
-                    <button data-file-mode="source">Current file</button>
+                  <div class="task-file-viewer-heading"><h3 id="overlay-file-title" class="task-file-viewer-title">Select a file</h3><span class="tag" id="overlay-file-language">source</span></div>
+                  <div class="segmented task-file-mode" id="overlay-file-mode" hidden>
+                    <button type="button" data-file-mode="diff" class="active" aria-pressed="true">Changes</button>
+                    <button type="button" data-file-mode="source" aria-pressed="false">Current file</button>
                   </div>
                 </header>
                 <div id="overlay-file-notice" class="task-file-notice">Choose any project file. Changed files are marked in the tree.</div>
@@ -513,60 +512,6 @@
         </section>
       </main>
     </div>
-
-    <dialog id="task-dialog" aria-labelledby="task-dialog-title">
-      <form id="task-form" method="dialog">
-        <div class="dialog-header"><div><p class="eyebrow">NEW WORK</p><h2 id="task-dialog-title">New task</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Close"><span data-icon="close" aria-hidden="true"></span></button></div>
-
-        <div class="task-prompt-field"><span class="field-label">What should the agent do?</span>
-          <div class="composer-draft dialog-composer">
-            <div id="prompt-attachments" class="composer-attachments"></div>
-            <div class="composer-input-row">
-              <button type="button" class="composer-attach" data-composer-input="prompt" aria-label="Attach images" title="Attach images"><span data-icon="attach" aria-hidden="true"></span></button>
-              <textarea id="prompt" rows="6" placeholder="Implement the authentication flow…  Type @ to add project files or folders"></textarea>
-              <div id="prompt-mentions" class="composer-mentions" role="listbox" hidden></div>
-            </div>
-          </div>
-        </div>
-
-        <label>Working directory<div class="path-control"><input id="cwd" required placeholder="/path/to/project" /><button type="button" id="choose-directory" class="secondary-button">Choose folder…</button></div></label>
-
-        <div class="run-mode-field">
-          <span class="field-label">How should this run?</span>
-          <div class="run-modes" id="run-modes" role="radiogroup" aria-label="Run mode">
-            <button type="button" class="run-mode active" data-run-mode="single" role="radio" aria-checked="true">
-              <strong>One agent</strong><small>Frontier picks the best available agent, and fails over if it hits a limit.</small>
-            </button>
-            <button type="button" class="run-mode" data-run-mode="orchestrate" role="radio" aria-checked="false">
-              <strong>Split &amp; delegate</strong><small>A planner breaks the work into subtasks, runs them in isolated branches, then reports back.</small>
-            </button>
-            <button type="button" class="run-mode" data-run-mode="bench" role="radio" aria-checked="false">
-              <strong>Compare agents</strong><small>Send the same prompt to several agents at once and compare their results side by side.</small>
-            </button>
-          </div>
-        </div>
-
-        <div class="form-row" id="single-options">
-          <label>Routing policy<select id="routing-mode"><option value="balanced">Balanced</option><option value="quality">Quality first</option><option value="saver">Token saver</option></select></label>
-          <label>Agent<select id="provider-override"><option value="">Automatic</option></select></label>
-        </div>
-
-        <div id="bench-options" class="bench-options" hidden>
-          <span class="field-label">Which agents should compete? (choose two or more)</span>
-          <div id="bench-providers" class="bench-providers"></div>
-        </div>
-
-        <label id="model-field">Model<select id="task-model-select"><option value="">Provider default</option></select><input id="task-model" class="task-model-custom" placeholder="Type a model id…" hidden /></label>
-
-        <details id="task-skills-field" class="task-skills-field">
-          <summary id="task-skills-summary">Skills · 0 enabled</summary>
-          <div id="task-skills-list" class="task-skills-list"></div>
-        </details>
-
-        <p id="form-error" class="form-error"></p>
-        <div class="dialog-actions"><button type="button" id="cancel-dialog" class="secondary-button">Cancel</button><button type="submit" class="primary-button">Start task</button></div>
-      </form>
-    </dialog>
 
     <dialog id="command-palette" class="command-palette" aria-label="Command palette">
       <div class="command-palette-shell">

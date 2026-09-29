@@ -4,7 +4,6 @@
 @import './fonts.css';
 @import './base.css';
 @import './components.css';
-@import './views/home.css';
 @import './views/tasks.css';
 @import './views/review.css';
 @import './views/agents.css';

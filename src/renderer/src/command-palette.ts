@@ -9,7 +9,7 @@ import { snapshot } from './state'
 import { switchView } from './main'
 import { setDock, setFamily } from './theme'
 import { openTask, toggleInspector, toggleTaskList } from './views/tasks'
-import { openTaskDialog, taskDialog } from './dialogs/new-task'
+import { enterCompose } from './views/compose'
 
 const commandPalette = byId<HTMLDialogElement>('command-palette')
 restoreFocusOnClose(commandPalette)
@@ -26,11 +26,11 @@ interface CommandPaletteEntry {
 
 function commandPaletteEntries(query: string): CommandPaletteEntry[] {
   const commands: CommandPaletteEntry[] = [
-    { icon: 'plus', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run', run: () => openTaskDialog() },
-    { icon: 'compare', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => openTaskDialog('bench') },
+    // Both open Tasks' composer; there is one place to start work.
+    { icon: 'plus', label: 'New task', detail: 'Send work to an agent', shortcut: '⌘N', keywords: 'create route agent run compose home', run: () => enterCompose() },
+    { icon: 'compare', label: 'Compare agents', detail: 'Run one prompt on several agents at once', keywords: 'bench head to head compare', run: () => enterCompose('bench') },
     // Navigation goes through switchView, which resolves every id with nav.ts: Routing, Context &
-    // Tools and Skills are Settings tabs now, and Home stays reachable here until P4 removes it.
-    { icon: 'home', label: 'Go to Home', detail: 'Start work and see what is running', keywords: 'navigate mission control composer', run: () => switchView('home') },
+    // Tools and Skills are Settings tabs now.
     { icon: 'tasks', label: 'Go to Tasks', detail: 'The work queue', keywords: 'navigate queue', run: () => switchView('tasks') },
     { icon: 'workspace', label: 'Go to Workspaces', detail: 'Long-lived, per-repo conversations', keywords: 'navigate collaborate participants', run: () => switchView('workspace') },
     { icon: 'review', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
@@ -108,17 +108,17 @@ export function initCommandPalette(): void {
   })
   commandPalette.addEventListener('click', (event) => { if (event.target === commandPalette) commandPalette.close() })
 
-  // Keyboard shortcuts: ⌘/Ctrl+K opens the command palette, ⌘/Ctrl+N a new task.
+  // Keyboard shortcuts: ⌘/Ctrl+K opens the command palette, ⌘/Ctrl+N the composer.
   window.addEventListener('keydown', (event) => {
     if (!(event.metaKey || event.ctrlKey)) return
     if (event.key.toLowerCase() === 'k') {
       event.preventDefault()
       if (commandPalette.open) commandPalette.close()
-      else if (!taskDialog.open) openCommandPalette()
+      else openCommandPalette()
     } else if (event.key.toLowerCase() === 'n') {
       event.preventDefault()
       if (commandPalette.open) commandPalette.close()
-      openTaskDialog()
+      enterCompose()
     }
   })
 }

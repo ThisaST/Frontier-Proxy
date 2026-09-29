@@ -17,7 +17,7 @@ describe('resolveAppearance: defaults', () => {
     expect(resolve({}).appearance.scheme).toBe('system')
   })
 
-  it('stays Phosphor until the P6 flip', () => expect(DEFAULT_FAMILY).toBe('phosphor'))
+  it('is Neutral since the P6 flip (ui-plan 7.3)', () => expect(DEFAULT_FAMILY).toBe('neutral'))
 })
 
 describe('resolveAppearance: fp-theme migration (ui-plan 7.3)', () => {
@@ -25,6 +25,19 @@ describe('resolveAppearance: fp-theme migration (ui-plan 7.3)', () => {
     ['console', 'dark'], ['daylight', 'light'], ['system', 'system'], [undefined, 'system'], ['junk', 'system'], ['constructor', 'system']
   ])('fp-theme %s -> scheme %s', (theme, scheme) => {
     expect(resolve({ 'fp-theme': theme }).appearance).toMatchObject({ family: DEFAULT_FAMILY, scheme })
+  })
+
+  it('lands a Console user on Neutral dark, a Daylight user on Neutral light, and a fresh profile on Neutral following the OS', () => {
+    for (const run of [(stored: Stored, dark: boolean) => resolve(stored, dark).attributes, (stored: Stored, dark: boolean) => runThemeInit(stored, dark, false).attributes]) {
+      for (const dark of [false, true]) {
+        expect(run({ 'fp-theme': 'console' }, dark)).toMatchObject({ 'data-family': 'neutral', 'data-scheme': 'dark' })
+        expect(run({ 'fp-theme': 'daylight' }, dark)).toMatchObject({ 'data-family': 'neutral', 'data-scheme': 'light' })
+        expect(run({}, dark)).toMatchObject({ 'data-family': 'neutral', 'data-scheme': dark ? 'dark' : 'light' })
+      }
+    }
+    expect(resolve({}).appearance).toMatchObject({ family: 'neutral', scheme: 'system' })
+    expect(resolve({ 'fp-theme': 'console' }).appearance).toMatchObject({ family: 'neutral', scheme: 'dark' })
+    expect(resolve({ 'fp-theme': 'daylight' }).appearance).toMatchObject({ family: 'neutral', scheme: 'light' })
   })
 
   it('never reads fp-theme once fp-family exists', () => {

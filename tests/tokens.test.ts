@@ -66,6 +66,13 @@ describe('token layer v2', () => {
     }
   })
 
+  it('the bare :root (first paint, before theme-init.js) is Neutral: light, and dark under prefers-color-scheme', () => {
+    const bare = rules.filter((rule) => rule.selector === ':root:where(:not([data-family]))' && '--bg' in rule.decls)
+    const decls = (scheme: string) => rules.find((rule) => rule.selector === `:is(:root, .app)[data-family="neutral"][data-scheme="${scheme}"]` && '--bg' in rule.decls)?.decls
+    expect(bare.map((rule) => rule.decls)).toEqual([decls('light'), decls('dark')]) // the second sits in the @media (prefers-color-scheme: dark) block
+    expect(readFileSync(TOKENS, 'utf8')).toMatch(/@media \(prefers-color-scheme: dark\) \{\s*:root:where\(:not\(\[data-family\]\)\) \{/)
+  })
+
   it('effects off removes every glow in every variant', () => {
     for (const attrs of VARIANTS) {
       const tokens = resolveTokens(rules, { ...attrs, 'data-effects': 'off' })
@@ -77,15 +84,15 @@ describe('token layer v2', () => {
 // Fixture: every v1 token as it resolved on main at 87f4673 (before the v2 layer), per state.
 // P1 promises the app looks identical, so each must resolve to the same value under Phosphor,
 // whether the page carries the v1 `data-theme`, the new family/scheme pair, or both (theme-init
-// sets both during the transition), and with no attribute at all (first paint).
+// sets both during the transition). The bare :root (first paint) is Neutral since the P6 flip.
 // One deliberate exception: --s-8 is 40px in the v2 scale (was 48px); nothing uses it.
 describe('Phosphor v1 tokens are unchanged', () => {
   const dark = { 'data-family': 'phosphor', 'data-scheme': 'dark' }
   const light = { 'data-family': 'phosphor', 'data-scheme': 'light' }
   const cases: [string, Record<string, string>[]][] = [
-    ['console', [{}, { 'data-theme': 'console' }, dark, { ...dark, 'data-theme': 'console' }, { ...dark, 'data-effects': 'on' }]],
+    ['console', [{ 'data-theme': 'console' }, dark, { ...dark, 'data-theme': 'console' }, { ...dark, 'data-effects': 'on' }]],
     ['daylight', [{ 'data-theme': 'daylight' }, light, { ...light, 'data-theme': 'daylight' }, { ...light, 'data-effects': 'on' }]],
-    ['console+effects-off', [{ 'data-effects': 'off' }, { 'data-theme': 'console', 'data-effects': 'off' }, { ...dark, 'data-effects': 'off' }, { ...dark, 'data-theme': 'console', 'data-effects': 'off' }]],
+    ['console+effects-off', [{ 'data-theme': 'console', 'data-effects': 'off' }, { ...dark, 'data-effects': 'off' }, { ...dark, 'data-theme': 'console', 'data-effects': 'off' }]],
     ['daylight+effects-off', [{ 'data-theme': 'daylight', 'data-effects': 'off' }, { ...light, 'data-effects': 'off' }, { ...light, 'data-theme': 'daylight', 'data-effects': 'off' }]]
   ]
 

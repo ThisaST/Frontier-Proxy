@@ -4,7 +4,8 @@
    Three families (neutral, mono, phosphor) x two schemes (light, dark). The app sets
    `data-family` / `data-scheme` on <html>; the `:is(:root, .app)` selectors let a nested
    `.app` carry its own pair, for preview tiles. With no `data-family` on <html> the
-   page is Phosphor dark, so a first paint before theme-init.js runs is unchanged; those
+   page is Neutral (dark under `prefers-color-scheme: dark`, light otherwise), the default
+   family, so a first paint before theme-init.js runs matches what it will set; those
    fallback selectors are `:where(:not([data-family]))`, so they can never leak into a
    family that is set.
 
@@ -59,7 +60,9 @@
 
 /* ---------- 2. Family x scheme: color tokens ---------- */
 
-/* NEUTRAL — cool-biased grays, one calm indigo accent. */
+/* NEUTRAL — cool-biased grays, one calm indigo accent. The default family, so also the bare :root
+   (light here, dark in the media block below it). */
+:root:where(:not([data-family])),
 :is(:root, .app)[data-family="neutral"][data-scheme="light"] {
   color-scheme: light;
   --bg: #f5f5f7; --surface: #ffffff; --surface-2: #f1f1f4; --surface-3: #e8e8ec;
@@ -91,6 +94,25 @@
   --shadow-dock: 0 12px 36px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .08);
   --code-bg: #212126; --diff-add: #1c3226; --diff-add-fg: #9fd9b6; --diff-del: #3d2220; --diff-del-fg: #f0a09a;
   --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+}
+/* The bare :root under a dark OS scheme: keep in step with the Neutral dark block above (tests/tokens.test.ts). */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-family])) {
+    color-scheme: dark;
+    --bg: #131316; --surface: #1a1a1e; --surface-2: #212126; --surface-3: #2a2a30;
+    --border: #2b2b32; --border-strong: #3c3c45;
+    --fg: #ececf0; --fg-muted: #a3a4ae; --fg-faint: #888891;
+    --accent: #8d9cee; --accent-fill: #8d9cee; --accent-hover: #a1adf2; --accent-fg: #10142f; --accent-soft: #262b46;
+    --ok: #7cc79b; --ok-soft: #1c3226; --warn: #d9a64a; --warn-soft: #3a2f16;
+    --danger: #ec7a72; --danger-soft: #3d2220; --info: #8d9cee; --info-soft: #262b46;
+    --focus: #8d9cee; --selection: rgb(141 156 238 / .25);
+    --hover: rgb(255 255 255 / .05); --pressed: rgb(255 255 255 / .09); --scrim: rgb(0 0 0 / .55);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / .4), 0 0 0 1px rgb(255 255 255 / .04);
+    --shadow-2: 0 12px 32px rgb(0 0 0 / .5), 0 0 0 1px rgb(255 255 255 / .06);
+    --shadow-dock: 0 12px 36px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .08);
+    --code-bg: #212126; --diff-add: #1c3226; --diff-add-fg: #9fd9b6; --diff-del: #3d2220; --diff-del-fg: #f0a09a;
+    --glow: none; --font-display: var(--font-sans); --tracking-label: 0; --label-transform: none;
+  }
 }
 
 /* MONO — warm stone and ink. The accent IS the ink: primary actions are ink-on-paper
@@ -132,9 +154,8 @@
 /* PHOSPHOR — the existing Console / Daylight palette, mapped onto the v2 token names so
    the same components render it. (Daylight's "soft" tints are 8%, not the 12% of docs/ui-calm/tokens.css:
    at 12% warn and accent text on their own tint measured 4.41 and 4.30, under 4.5:1.) The only family that has glow, Chakra Petch display
-   type, and uppercase tracked labels. Phosphor dark is also the bare :root, and
-   `data-theme='console'|'daylight'` resolves like its dark / light variant. */
-:root:where(:not([data-family])),
+   type, and uppercase tracked labels. `data-theme='console'|'daylight'` with no family
+   still resolves like its dark / light variant. */
 :root[data-theme='console']:where(:not([data-family])),
 :is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
   color-scheme: dark;
@@ -211,6 +232,7 @@
    Kept per family so the untouched views keep rendering until P7. Phosphor carries
    the exact v1 literals; the other families get a flat equivalent (no highlight,
    no scanline). */
+:root:where(:not([data-family])),
 :is(:root, .app)[data-family="neutral"][data-scheme="light"],
 :is(:root, .app)[data-family="mono"][data-scheme="light"] {
   --hairline-hi: transparent; --scanline: transparent;
@@ -221,7 +243,6 @@
   --hairline-hi: transparent; --scanline: transparent;
   --shadow-color: rgb(0 0 0 / .5); --e-2-shadow: var(--shadow-2);
 }
-:root:where(:not([data-family])),
 :root[data-theme='console']:where(:not([data-family])),
 :is(:root, .app)[data-family="phosphor"][data-scheme="dark"] {
   --hairline-hi: rgb(255 255 255 / .04); --scanline: rgb(255 255 255 / .03);

@@ -7,7 +7,7 @@
 // cannot import); tests/appearance.test.ts runs both against the same inputs. `data-theme` is
 // the v1 attribute the legacy stylesheets still read (retired in P7).
 (function () {
-  var DEFAULT_FAMILY = 'phosphor' // keep in step with DEFAULT_FAMILY in theme-model.ts
+  var DEFAULT_FAMILY = 'neutral' // keep in step with DEFAULT_FAMILY in theme-model.ts
   var root = document.documentElement
   // Not a setting: derived from navigator (platformAttribute in theme-model.ts), for the macOS traffic-light inset.
   try {

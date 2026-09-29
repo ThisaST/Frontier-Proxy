@@ -27,8 +27,8 @@ export function platformAttribute(nav: { platform?: string; userAgentData?: { pl
   return /mac/i.test(nav?.userAgentData?.platform || nav?.platform || '') ? 'mac' : 'other'
 }
 
-/** The family a user lands on when they never chose one. The P6 flip to 'neutral' is this one line (and theme-init.js). */
-export const DEFAULT_FAMILY: Family = 'phosphor'
+/** The family a user lands on when they never chose one, including v1 Console/Daylight users (ui-plan §7.3). Mirrored in theme-init.js. */
+export const DEFAULT_FAMILY: Family = 'neutral'
 
 export const APPEARANCE_KEYS = {
   family: 'fp-family', scheme: 'fp-scheme', dock: 'fp-dock', dockLabels: 'fp-dock-labels',

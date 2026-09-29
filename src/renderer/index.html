@@ -360,7 +360,8 @@
         <!-- Settings (ui-plan §6.3): a vertical tab list and one panel per tab. Routing, Context &
              Tools and Skills are the former screens, mounted here as panels (their ids kept) and
              only ever hidden, never removed: persistControlPlaneDraft() reads #cp-* from the DOM.
-             views/settings.ts owns tab selection; P5 restyles the panels' contents. -->
+             views/settings.ts owns tab selection. Each tab has one save model: switches and segmented
+             controls apply instantly, text fields share the tab's save bar (ui/dirty.ts). -->
         <section id="settings-view" class="view">
           <div class="settings-layout">
             <div class="settings-nav">
@@ -375,27 +376,27 @@
               <p class="settings-version">Frontier Proxy · v%APP_VERSION%</p>
             </div>
             <div class="settings-body" id="settings-body">
+              <!-- General: switches apply the moment they change; the text fields (scheduler numbers,
+                   memory) share one save bar. Every field is on views/settings.ts's dirty guard, so a
+                   streamed snapshot never overwrites an unsaved edit. -->
               <section id="settings-panel-general" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-general" data-settings-panel="general">
-                <div class="settings-grid">
-                  <section class="panel settings-card">
-                    <p class="eyebrow">SCHEDULER</p><h2>Concurrency &amp; failover</h2>
-                    <label>Maximum parallel tasks<input id="max-parallel" type="number" min="1" max="8" /></label>
-                    <label>Usage-limit cooldown (minutes)<input id="cooldown-minutes" type="number" min="1" max="1440" /></label>
-                    <button id="save-settings" class="primary-button">Save settings</button>
-                  </section>
-                  <section class="panel settings-card">
-                    <p class="eyebrow">FEEDBACK</p><h2>Notifications</h2>
-                    <label class="checkbox-row"><input id="notify-enabled" type="checkbox" /><span>Notify me when a task finishes</span></label>
-                    <label class="checkbox-row"><input id="notify-unfocused" type="checkbox" /><span>Only when Frontier is not focused</span></label>
-                    <button id="save-feedback" class="primary-button">Save preferences</button>
-                  </section>
-                  <section class="panel settings-card memory-card">
-                    <p class="eyebrow">FRONTIER MEMORY</p><h2>Persistent memory</h2>
-                    <p class="field-help">Injected as shared context into every new task and orchestration, so knowledge carries across tasks and continuations.</p>
-                    <label>Notes, conventions, decisions, gotchas<textarea id="memory-input" rows="9" placeholder="e.g. This repo uses pnpm. Auth is delegated to each CLI's own login. Never add API-key fields."></textarea></label>
-                    <button id="save-memory" class="primary-button">Save memory</button>
-                  </section>
-                </div>
+                <section class="settings-section">
+                  <h2 class="section-title">Scheduler</h2>
+                  <p class="settings-help">How many tasks run at once, and how long an agent rests after it hits a limit.</p>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="max-parallel">Maximum parallel tasks</label><div class="settings-row-help">Global cap across all agents. Each agent also has its own limit.</div></div><input class="input settings-num" id="max-parallel" type="number" min="1" max="8" /></div>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="cooldown-minutes">Usage-limit cooldown (minutes)</label><div class="settings-row-help">After a quota, rate-limit or unavailable failure, Frontier fails over and leaves that agent out of routing for this long.</div></div><input class="input settings-num" id="cooldown-minutes" type="number" min="1" max="1440" /></div>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Notifications</h2>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="notify-enabled">Notify me when a task finishes</label></div><label class="switch"><input type="checkbox" id="notify-enabled" /><span class="slider"></span></label></div>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="notify-unfocused">Only when Frontier is not focused</label><div class="settings-row-help" id="notify-unfocused-help">A task that finishes while you are watching does not need a notification.</div></div><label class="switch"><input type="checkbox" id="notify-unfocused" aria-describedby="notify-unfocused-help" /><span class="slider"></span></label></div>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Frontier memory</h2>
+                  <p class="settings-help">Injected as shared context into every new task and orchestration, so knowledge carries across tasks and continuations.</p>
+                  <div class="settings-field"><label class="field-label" for="memory-input">Notes, conventions, decisions, gotchas</label><textarea class="textarea" id="memory-input" rows="8" placeholder="e.g. This repo uses pnpm. Auth is delegated to each CLI's own login. Never add API-key fields."></textarea></div>
+                </section>
+                <div class="save-bar" id="general-save-bar"><span class="save-bar-hint" data-save-hint hidden>Unsaved changes</span><span class="save-bar-actions"><button type="button" class="btn btn-ghost" data-save-discard hidden>Discard</button><button type="button" class="btn btn-primary" id="save-settings" data-save>Save</button></span></div>
               </section>
 
               <!-- Appearance: every control applies live and is stored in this renderer only
@@ -432,66 +433,80 @@
 
               <section id="routing-view" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-routing" data-settings-panel="routing" hidden></section>
 
+              <!-- Context & Tools: one draft (views/control.ts), rendered on tab entry only and flushed
+                   by persistControlPlaneDraft() before every run, which reads these #cp-* inputs from the
+                   DOM, so this panel is only ever hidden, never removed. -->
               <section id="control-view" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-control" data-settings-panel="control" hidden>
-                <div class="section-intro">
-                  <div><p>Configure MCP servers, tool permissions, and context once. Frontier translates them into each CLI's native flags at launch — no per-agent setup.</p></div>
-                  <button id="save-control-plane" class="primary-button">Save configuration</button>
-                </div>
-                <div class="control-grid">
-                  <section class="panel control-card">
-                    <p class="eyebrow">CONTEXT</p><h2>System prompt &amp; directories</h2>
-                    <label>Shared system prompt (appended for every agent)<textarea id="cp-system-prompt" rows="5" placeholder="You are working inside the Frontier monorepo. Prefer pnpm. Never touch generated files…"></textarea></label>
-                    <label>Extra context directories (one per line)<textarea id="cp-add-dirs" rows="3" placeholder="/path/to/shared-docs"></textarea></label>
-                  </section>
-                  <section class="panel control-card">
-                    <p class="eyebrow">TOOL PERMISSIONS</p><h2>Allow &amp; deny</h2>
-                    <label>Allowed tools (one per line)<textarea id="cp-allowed" rows="4" placeholder="Bash(git *)&#10;Edit&#10;Read"></textarea></label>
-                    <label>Disallowed tools (one per line)<textarea id="cp-disallowed" rows="3" placeholder="Bash(rm *)&#10;WebFetch"></textarea></label>
-                    <label class="checkbox-row"><input type="checkbox" id="cp-strict-mcp" /> Strict MCP — use only these servers (Claude)</label>
-                  </section>
-                  <section class="panel control-card control-card-wide">
-                    <div class="control-card-head">
-                      <div><p class="eyebrow">MCP SERVERS</p><h2>Shared servers</h2></div>
-                      <div class="header-actions">
-                        <button id="cp-import-mcp" class="secondary-button">Import .mcp.json</button>
-                        <button id="cp-add-server" class="secondary-button"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add server</button>
-                      </div>
-                    </div>
-                    <input id="cp-import-file" type="file" accept=".json,application/json" hidden />
-                    <div id="cp-server-list" class="cp-server-list"></div>
-                  </section>
-                  <section class="panel control-card control-card-wide">
-                    <div class="control-card-head"><div><p class="eyebrow">PREVIEW</p><h2>Launch flags per agent</h2></div>
-                      <select id="cp-preview-provider" aria-label="Preview provider"></select></div>
-                    <pre id="cp-preview" class="cp-preview screen">Select an agent to preview the exact flags Frontier will inject.</pre>
-                  </section>
-                </div>
+                <section class="settings-section">
+                  <h2 class="section-title">Context</h2>
+                  <p class="settings-help">Configure MCP servers, tool permissions and context once. Frontier translates them into each CLI's native flags at launch, so there is no per-agent setup.</p>
+                  <div class="settings-stack">
+                    <div class="settings-field"><label class="field-label" for="cp-system-prompt">Shared system prompt (appended for every agent)</label><textarea class="textarea" id="cp-system-prompt" rows="4" placeholder="You are working inside the Frontier monorepo. Prefer pnpm. Never touch generated files…"></textarea></div>
+                    <div class="settings-field"><label class="field-label" for="cp-add-dirs">Extra context directories (one per line)</label><textarea class="textarea mono-text" id="cp-add-dirs" rows="2" placeholder="/path/to/shared-docs"></textarea></div>
+                  </div>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Tool permissions</h2>
+                  <p class="settings-help">Allow and deny lists use each CLI's own tool names, for example <code>Bash(git:*)</code>.</p>
+                  <div class="settings-columns">
+                    <div class="settings-field"><label class="field-label" for="cp-allowed">Allowed tools (one per line)</label><textarea class="textarea mono-text" id="cp-allowed" rows="4" placeholder="Bash(git *)&#10;Edit&#10;Read"></textarea></div>
+                    <div class="settings-field"><label class="field-label" for="cp-disallowed">Disallowed tools (one per line)</label><textarea class="textarea mono-text" id="cp-disallowed" rows="4" placeholder="Bash(rm *)&#10;WebFetch"></textarea></div>
+                  </div>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="cp-strict-mcp">Strict MCP</label><div class="settings-row-help" id="cp-strict-mcp-help">Use only the servers listed below (Claude Code).</div></div><label class="switch"><input type="checkbox" id="cp-strict-mcp" aria-describedby="cp-strict-mcp-help" /><span class="slider"></span></label></div>
+                </section>
+                <section class="settings-section">
+                  <div class="settings-section-head">
+                    <h2 class="section-title">MCP servers</h2>
+                    <span class="settings-section-actions">
+                      <button type="button" id="cp-import-mcp" class="btn btn-secondary btn-sm">Import .mcp.json</button>
+                      <button type="button" id="cp-add-server" class="btn btn-secondary btn-sm"><span data-icon="plus" data-icon-size="14" aria-hidden="true"></span>Add server</button>
+                    </span>
+                  </div>
+                  <p class="settings-help">Shared with every agent that applies this profile. A server's switch and fields are saved with the rest of this tab.</p>
+                  <input id="cp-import-file" type="file" accept=".json,application/json" hidden />
+                  <div id="cp-server-list" class="cp-server-list"></div>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Preview</h2>
+                  <p class="settings-help">The exact flags Frontier injects for one agent. Unsaved edits above are included.</p>
+                  <div class="cp-preview-picker"><select class="select" id="cp-preview-provider" aria-label="Preview agent"></select></div>
+                  <pre id="cp-preview" class="code cp-preview">Select an agent to preview the exact flags Frontier will inject.</pre>
+                </section>
+                <div class="save-bar" id="control-save-bar"><span class="save-bar-hint" data-save-hint hidden>Unsaved changes</span><span class="save-bar-actions"><button type="button" class="btn btn-ghost" data-save-discard hidden>Discard</button><button type="button" class="btn btn-primary" id="save-control-plane" data-save>Save</button></span></div>
               </section>
 
+              <!-- Skills: each switch applies immediately; the project field only picks which catalog to scan. -->
               <section id="skills-view" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-skills" data-settings-panel="skills" hidden>
-                <div class="section-intro">
-                  <div><p>Frontier reads the skills your CLIs already discover — <code>~/.claude/skills</code>, <code>.agents/skills</code>, and the other roots below — and never writes to those folders. Turning a skill off here only changes what Frontier tells each agent to use.</p></div>
-                </div>
-                <div class="skills-workspace">
-                  <label>Project directory<div class="path-control"><input id="skills-cwd" placeholder="/path/to/project" /><button type="button" id="skills-choose-directory" class="secondary-button">Choose folder…</button></div></label>
-                  <button id="skills-refresh" class="secondary-button"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Rescan</button>
-                </div>
-                <div id="skills-roots" class="skill-roots"></div>
-                <div id="skills-list" class="skill-list"></div>
+                <section class="settings-section">
+                  <h2 class="section-title">Skills</h2>
+                  <p class="settings-help">Frontier reads the skills your CLIs already discover (<code>~/.claude/skills</code>, <code>.agents/skills</code> and the other folders below) and never writes to those folders. Turning a skill off only changes what Frontier tells each agent to use.</p>
+                  <label class="field-label" for="skills-cwd">Project directory</label>
+                  <div class="settings-inline"><input class="input mono-text" id="skills-cwd" placeholder="/path/to/project" /><button type="button" id="skills-choose-directory" class="btn btn-secondary">Choose folder…</button><button type="button" id="skills-refresh" class="btn btn-secondary"><span data-icon="refresh" data-icon-size="14" aria-hidden="true"></span>Rescan</button></div>
+                  <div id="skills-list" class="settings-box"></div>
+                  <p class="settings-help settings-note">Turning a skill off is enforced for Claude Code and OpenCode. For Copilot and Codex it is a best-effort instruction in the prompt, not a guarantee.</p>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Scanned folders</h2>
+                  <p class="settings-help">Where Frontier looked for this project, and which CLIs find each folder on their own.</p>
+                  <div id="skills-roots" class="settings-box"></div>
+                </section>
               </section>
-
+              <!-- Verification: the switch applies immediately; the commands and timeout share the save bar. -->
               <section id="settings-panel-verification" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-verification" data-settings-panel="verification" hidden>
-                <div class="settings-grid">
-                  <section class="panel settings-card">
-                    <p class="eyebrow">VERIFICATION</p><h2>Check isolated branches</h2>
-                    <p class="field-help">After an agent finishes on its own branch — a split-and-delegate subtask, a comparison lane, or a workspace writing turn — Frontier runs this project's own checks against that worktree and reports the result in Review. Nothing is ever merged automatically.</p>
-                    <label class="checkbox-row"><input id="verify-enabled" type="checkbox" /><span>Run checks on isolated branches</span></label>
-                    <label>Commands (one per line, blank to auto-detect)<textarea id="verify-commands" rows="3" placeholder="pnpm test&#10;pnpm typecheck"></textarea></label>
-                    <p class="field-help">Auto-detect reads <code>package.json</code> scripts (<code>typecheck</code>, <code>lint</code>, <code>test</code>), then a <code>Makefile</code>, <code>Cargo.toml</code>, or <code>go.mod</code>. Commands run with no shell, in the worktree only.</p>
-                    <label>Timeout per check (seconds)<input id="verify-timeout" type="number" min="10" max="3600" /></label>
-                    <button id="save-verification" class="primary-button">Save verification</button>
-                  </section>
-                </div>
+                <section class="settings-section">
+                  <h2 class="section-title">Check isolated branches</h2>
+                  <p class="settings-help">After an agent finishes on its own branch (a split-and-delegate subtask, a comparison lane, or a workspace writing turn), Frontier runs this project's own checks against that worktree and reports the result in Review. Nothing is ever merged automatically.</p>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="verify-enabled">Run checks on isolated branches</label><div class="settings-row-help" id="verify-enabled-help">Only a run that committed changes is checked. A failing check never fails the agent's run.</div></div><label class="switch"><input type="checkbox" id="verify-enabled" aria-describedby="verify-enabled-help" /><span class="slider"></span></label></div>
+                </section>
+                <section class="settings-section">
+                  <h2 class="section-title">Commands</h2>
+                  <p class="settings-help">Leave blank to detect them: Frontier reads <code>package.json</code> scripts (<code>typecheck</code>, <code>lint</code>, <code>test</code>), then a <code>Makefile</code>, <code>Cargo.toml</code> or <code>go.mod</code>. Custom commands replace detection entirely, and run with no shell, in the worktree only. A branch with no checks is reported as “No checks detected”, never as passing.</p>
+                  <div class="settings-stack">
+                    <div class="settings-field"><label class="field-label" for="verify-commands">Commands (one per line, blank to auto-detect)</label><textarea class="textarea mono-text" id="verify-commands" rows="3" placeholder="pnpm test&#10;pnpm typecheck"></textarea></div>
+                  </div>
+                  <div class="settings-row"><div class="settings-row-text"><label class="settings-row-label" for="verify-timeout">Timeout per check (seconds)</label><div class="settings-row-help">A check that runs longer is stopped and reported as timed out.</div></div><input class="input settings-num" id="verify-timeout" type="number" min="10" max="3600" /></div>
+                </section>
+                <div class="save-bar" id="verification-save-bar"><span class="save-bar-hint" data-save-hint hidden>Unsaved changes</span><span class="save-bar-actions"><button type="button" class="btn btn-ghost" data-save-discard hidden>Discard</button><button type="button" class="btn btn-primary" id="save-verification" data-save>Save</button></span></div>
               </section>
             </div>
           </div>

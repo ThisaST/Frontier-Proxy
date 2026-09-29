@@ -1,14 +1,18 @@
-// Skills view — cwd-scoped catalog, enable/disable per skill.
-import type { SkillCatalog } from '../../../shared/types'
-import { byId, element, emptyState } from '../ui/dom'
+// Settings → Skills: the cwd-scoped catalog, each skill's switch applying the moment it changes.
+// Async and cwd-scoped, so it renders on tab entry and on a project change, never from a snapshot.
+import type { SkillCatalog, SkillScope } from '../../../shared/types'
+import { byId, element } from '../ui/dom'
+import { status, tag } from '../ui/components'
 import { reportError } from '../ui/feedback'
 import { snapshot, setSnapshot } from '../state'
+import { emptyRow, settingsTable, switchControl, tableRow } from './settings-parts'
 
 // Kinds whose CLI can be handed a skill selection at all (ollama/custom never
 // see the control plane, so they never see skills either). Exported for the
 // new-task dialog's own skills selector.
 export const SKILL_CAPABLE_KINDS = ['claude', 'copilot', 'codex', 'codex-oss', 'opencode'] as const
 export const SKILL_KIND_LABELS: Record<string, string> = { claude: 'Claude Code', copilot: 'GitHub Copilot', codex: 'Codex', 'codex-oss': 'Codex + Ollama', opencode: 'OpenCode' }
+const SCOPE_LABEL: Record<SkillScope, string> = { personal: 'Personal', project: 'Project' }
 
 function readStorage(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
 function writeStorage(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
@@ -18,7 +22,7 @@ let skillsCwd = readStorage(SKILLS_CWD_KEY) ?? ''
 let skillCatalog: SkillCatalog | undefined
 
 // Kinds among the configured providers that the catalog's per-source
-// `nativeFor` can be checked against — the badge is about the CLI, not any
+// `nativeFor` can be checked against — the tag is about the CLI, not any
 // one instance of it, so kinds are de-duplicated.
 function configuredSkillKinds(): string[] {
   const kinds = new Set(
@@ -29,67 +33,72 @@ function configuredSkillKinds(): string[] {
   return [...kinds]
 }
 
-export function skillBadges(sources: SkillCatalog['skills'][number]['sources']): HTMLElement {
-  const nativeFor = new Set(sources.flatMap((source) => source.nativeFor))
-  const badges = element('div', 'skill-badges')
+// Which configured CLIs enforce this skill's switch, and which only get a prompt instruction.
+// Native = enforced via the CLI's own flag (Claude's Skill(...)). OpenCode is enforced either way:
+// a root it does not scan joins through its config (`skills.paths`) and the per-skill permission
+// still applies. Everything else is only ever a prompt-injected suggestion (no flag can stop the
+// CLI from discovering the skill itself), so it is labelled best effort, never a guarantee.
+function skillReach(sources: SkillCatalog['skills'][number]['sources']): HTMLElement {
+  const nativeFor = new Set<string>(sources.flatMap((source) => source.nativeFor))
+  const enforced: string[] = [], bestEffort: string[] = []
   for (const kind of configuredSkillKinds()) {
-    const native = nativeFor.has(kind as typeof SKILL_CAPABLE_KINDS[number])
-    // Native = enforced via the CLI's own flag (Claude's Skill(...)). OpenCode
-    // is enforced either way: a root it does not scan joins through its config
-    // (`skills.paths`) and the per-skill permission still applies. Everything
-    // else is only ever a prompt-injected suggestion — no flag can stop the CLI
-    // from discovering the skill itself, so this must never read as a guarantee.
-    const viaConfig = !native && kind === 'opencode'
-    badges.append(element('span', `skill-badge ${native || viaConfig ? 'native' : 'injected'}`, `${SKILL_KIND_LABELS[kind] ?? kind} · ${native ? 'native' : viaConfig ? 'added via config' : 'prompt-injected · best effort'}`))
+    const label = SKILL_KIND_LABELS[kind] ?? kind
+    if (nativeFor.has(kind)) enforced.push(label)
+    else if (kind === 'opencode') enforced.push(`${label} (via config)`)
+    else bestEffort.push(label)
   }
-  return badges
+  const cell = element('div', 'skill-reach')
+  const tags = element('div', 'tag-list')
+  tags.append(...(enforced.length ? enforced.map(tag) : [element('span', 'cell-faint', 'None')]))
+  cell.append(tags)
+  if (bestEffort.length) cell.append(element('div', 'cell-note', `Prompt only, best effort: ${bestEffort.join(', ')}`))
+  return cell
 }
 
 function renderSkillRoots(): void {
   const container = byId('skills-roots')
-  if (!skillCatalog) { container.replaceChildren(); return }
-  container.replaceChildren(...skillCatalog.roots.map((root) => {
-    const item = element('div', `skill-root${root.exists ? '' : ' absent'}`)
-    const kinds = root.nativeFor.map((kind) => SKILL_KIND_LABELS[kind] ?? kind).join(', ')
-    item.append(
-      element('strong', undefined, root.root),
-      element('small', undefined, `${root.scope === 'personal' ? 'Personal' : 'Project'} · native for ${kinds}${root.exists ? '' : ' · not found'}`)
-    )
-    return item
-  }))
+  const { box, body } = settingsTable(['Folder', 'Scope', 'Found by', 'Status'])
+  if (!skillCatalog) body.append(emptyRow(4, 'Choose a project', 'Pick a working directory to see which folders are scanned.'))
+  else body.append(...skillCatalog.roots.map((root) => tableRow([
+    { content: root.root, className: 'cell-mono' },
+    tag(SCOPE_LABEL[root.scope]),
+    { content: root.nativeFor.map((kind) => SKILL_KIND_LABELS[kind] ?? kind).join(', '), className: 'cell-muted' },
+    root.exists ? status('ok', 'Found') : status('neutral', 'Not found')
+  ])))
+  container.replaceChildren(box)
 }
 
 function renderSkillList(): void {
   const list = byId('skills-list')
-  if (!skillCatalog) { list.replaceChildren(emptyState('Choose a project', 'Pick a working directory to scan for skills.')); return }
-  if (!skillCatalog.skills.length) { list.replaceChildren(emptyState('No skills found', 'No SKILL.md folders were found under the scanned roots for this project.')); return }
-  const disabled = new Set(snapshot.settings.skills.disabledIds)
-  list.replaceChildren(...skillCatalog.skills.map((skill) => {
-    const card = element('div', 'skill-card')
-    const top = element('div', 'skill-card-top')
-    const heading = element('div', 'skill-card-heading')
-    heading.append(element('strong', undefined, skill.name), element('p', undefined, skill.description || 'No description provided.'))
+  const { box, body } = settingsTable(['Skill', 'Scope', 'Enforced by', { label: 'Enabled', className: 'cell-end' }])
+  if (!skillCatalog) body.append(emptyRow(4, 'Choose a project', 'Pick a working directory to scan for skills.'))
+  else if (!skillCatalog.skills.length) body.append(emptyRow(4, 'No skills found', 'No SKILL.md folders were found under the scanned folders for this project.'))
+  else {
+    const disabled = new Set(snapshot.settings.skills.disabledIds)
+    body.append(...skillCatalog.skills.map((skill) => {
+      const about = element('div', 'skill-about')
+      about.append(element('div', 'cell-strong', skill.name), element('div', 'cell-note', skill.description || 'No description provided.'))
+      if (skill.sources.length > 1) about.append(element('div', 'cell-note cell-mono', `Defined in ${skill.sources.length} places: ${skill.sources.map((source) => source.root).join(', ')}`))
+      const scopes = element('div', 'tag-list')
+      scopes.append(...[...new Set(skill.sources.map((source) => source.scope))].map((scope) => tag(SCOPE_LABEL[scope])))
 
-    const toggle = document.createElement('input'); toggle.type = 'checkbox'; toggle.checked = !disabled.has(skill.id)
-    toggle.setAttribute('aria-label', `Enable ${skill.name}`)
-    const toggleWrap = document.createElement('label'); toggleWrap.className = 'switch small'
-    toggleWrap.append(toggle, element('span', 'slider'))
-    toggle.addEventListener('change', async () => {
-      toggle.disabled = true
-      const next = new Set(snapshot.settings.skills.disabledIds)
-      if (toggle.checked) next.delete(skill.id); else next.add(skill.id)
-      try { setSnapshot(await window.frontier.updateSettings({ skills: { disabledIds: [...next] } })) }
-      catch (error) { toggle.checked = !toggle.checked; reportError('Could not update skill', error) }
-      // Nothing else on the card depends on the disabled set, and the checkbox
-      // already shows the new state, so don't repaint the list — that replaces
-      // every node and drops focus mid-toggle for keyboard users.
-      finally { toggle.disabled = false }
-    })
-    top.append(heading, toggleWrap)
-    card.append(top, skillBadges(skill.sources))
-    if (skill.sources.length > 1) card.append(element('div', 'skill-source', `Defined in ${skill.sources.length} places: ${skill.sources.map((source) => source.root).join(', ')}`))
-    return card
-  }))
+      const toggle = switchControl(undefined, !disabled.has(skill.id), `Enable ${skill.name}`)
+      toggle.input.addEventListener('change', async () => {
+        const input = toggle.input
+        input.disabled = true
+        const next = new Set(snapshot.settings.skills.disabledIds)
+        if (input.checked) next.delete(skill.id); else next.add(skill.id)
+        try { setSnapshot(await window.frontier.updateSettings({ skills: { disabledIds: [...next] } })) }
+        catch (error) { input.checked = !input.checked; reportError('Could not update skill', error) }
+        // Nothing else in the row depends on the disabled set, and the switch already shows the
+        // new state, so don't repaint the table: that replaces every node and drops focus
+        // mid-toggle for keyboard users.
+        finally { input.disabled = false }
+      })
+      return tableRow([about, scopes, skillReach(skill.sources), { content: toggle.wrap, className: 'cell-end' }])
+    }))
+  }
+  list.replaceChildren(box)
 }
 
 async function loadSkillsView(refresh = false): Promise<void> {
@@ -107,7 +116,7 @@ async function loadSkillsView(refresh = false): Promise<void> {
   renderSkillList()
 }
 
-// Entry point from switchView — async and cwd-scoped, so (like renderControlPlane)
+// Entry point from showSettingsTab — async and cwd-scoped, so (like renderControlPlane)
 // it only runs on entry, never from the general snapshot-driven render().
 export async function renderSkills(): Promise<void> {
   if (!skillsCwd) skillsCwd = snapshot.tasks[0]?.cwd ?? ''

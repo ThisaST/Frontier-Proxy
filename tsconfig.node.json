@@ -10,5 +10,5 @@
     "allowSyntheticDefaultImports": true
   },
   "include": ["electron.vite.config.ts", "src/main/**/*.ts", "src/preload/**/*.ts", "src/shared/**/*.ts", "src/renderer/src/theme-model.ts", "src/renderer/src/nav.ts", "src/renderer/src/advisor-disclosure.ts", "tests/**/*.ts"],
-  "exclude": ["tests/components.test.ts"]
+  "exclude": ["tests/components.test.ts", "tests/dirty.test.ts"]
 }

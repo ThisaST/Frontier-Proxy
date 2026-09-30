@@ -17,7 +17,7 @@ A full pass on the desktop UI and the routing stack, landed as five phases on on
   `theme.ts`. No behavior change; see CLAUDE.md's new "Renderer architecture & design
   system" section for the module map.
 - **P1b — Phosphor Console.** A new visual identity: a retro-future instrument panel
-  (`docs/design-phosphor-console.md`) — semantic design tokens (`styles/tokens.css`),
+  (`docs/design-calm.md`) — semantic design tokens (`styles/tokens.css`),
   Console (dark) / Daylight (light) themes following `prefers-color-scheme`, Chakra
   Petch / IBM Plex Sans / JetBrains Mono bundled with `@fontsource` (no CDN), Lucide
   icons (`ui/icons.ts`), and a component kit (`ui/components.ts`) — bezel panels with

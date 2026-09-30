@@ -2,7 +2,7 @@
   <title>Frontier Proxy — amber radar scope on smoked glass</title>
 
   <defs>
-    <!-- Body surface: "smoked glass" vertical gradient, per docs/design-phosphor-console.md §2 -->
+    <!-- Body surface: "smoked glass" vertical gradient, per docs/design-calm.md §2 -->
     <linearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#1D2421"/>
       <stop offset="1" stop-color="#0B0D0C"/>

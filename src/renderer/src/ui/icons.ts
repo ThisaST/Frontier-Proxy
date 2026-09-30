@@ -1,5 +1,5 @@
 // Lucide icons — tree-shaken ESM, stroke 1.5, currentColor. Replaces every
-// Unicode glyph icon in the app (see docs/design-phosphor-console.md §5).
+// Unicode glyph icon in the app (see docs/design-calm.md §5).
 // Only the icons actually used are imported by name so the bundle only carries
 // those.
 import {

@@ -10,5 +10,5 @@
     "types": ["vite/client"],
     "allowSyntheticDefaultImports": true
   },
-  "include": ["src/renderer/**/*.ts", "src/shared/**/*.ts"]
+  "include": ["src/renderer/**/*.ts", "src/shared/**/*.ts", "tests/components.test.ts", "tests/dirty.test.ts", "tests/task-helpers.test.ts"]
 }

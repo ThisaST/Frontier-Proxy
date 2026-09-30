@@ -1,5 +1,5 @@
 // Composer draft state (attachments + @mentions), shared by the task surface's
-// follow-up composer and the new-task dialog's prompt field.
+// follow-up composer and Tasks' compose-state prompt.
 import type { ChatContextItem, SelectedImage, WorkspaceEntry } from '../../shared/types'
 import { byId } from './ui/dom'
 import { icon } from './ui/icons'
@@ -29,9 +29,8 @@ export function composerDraft(inputId: string): ComposerDraft {
 }
 
 export function composerCwd(inputId: string): string | undefined {
-  if (inputId === 'prompt') return byId<HTMLInputElement>('cwd').value.trim() || undefined
-  // Home's composer has no free-text folder field — it is always the current project.
-  if (inputId === 'home-prompt') return currentProject
+  // The composer has no free-text folder field: it always works in the current project.
+  if (inputId === 'compose-prompt') return currentProject
   return snapshot?.tasks.find((task) => task.id === selectedTaskId)?.cwd
 }
 
@@ -171,7 +170,7 @@ export function clearComposerDraft(inputId: string): void {
 // Wires the attach button, @mention autocomplete, and image paste/drop for both
 // composer surfaces. Must run exactly once, after the module has evaluated.
 export function initComposerInputs(): void {
-  for (const inputId of ['composer-input', 'prompt', 'home-prompt']) {
+  for (const inputId of ['composer-input', 'compose-prompt']) {
     const input = byId<HTMLTextAreaElement>(inputId)
     const attach = document.querySelector<HTMLButtonElement>(`.composer-attach[data-composer-input="${inputId}"]`)
     attach?.addEventListener('click', async () => {

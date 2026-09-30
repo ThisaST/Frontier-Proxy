@@ -1,8 +1,9 @@
 @import './tokens.css';
+@import './kit.css';
+@import './shell.css';
 @import './fonts.css';
 @import './base.css';
 @import './components.css';
-@import './views/home.css';
 @import './views/tasks.css';
 @import './views/review.css';
 @import './views/agents.css';

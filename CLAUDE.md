@@ -26,7 +26,7 @@ Jev routing advisor; forge APIs will follow. Such a credential is:
 - redacted from errors.
 
 The service is off by default, and losing it must leave routing exactly as it was without it.
-The sidebar privacy note must never say "local only" while an advisor is active.
+The header privacy chip must never say "local" while an advisor is active.
 
 ## How a task flows
 
@@ -51,7 +51,7 @@ It is a separate domain model on purpose; see *Collaborative workspaces* below.
 Frontier owns one CLI-agnostic profile (`AppSettings.controlPlane`, type
 `ControlPlaneProfile`) covering MCP servers, tool allow/deny lists, a shared
 system prompt, extra context dirs, and a strict-MCP flag. You configure it once
-in the **Context & Tools** screen; Frontier translates it into each CLI's native
+in Settings → **Context & Tools**; Frontier translates it into each CLI's native
 flags at spawn time — so you never edit `claude`/`copilot`/`codex` configs by hand.
 
 Translation lives in `src/main/controlplane.ts` (`controlPlaneInjection`) — a pure,
@@ -135,19 +135,19 @@ for a one-line activity detail. Activity is capped at the last 100 events per ta
 events whose tool label is in `FILE_TOOL_ACTIONS` (Write→create, Edit/MultiEdit/
 NotebookEdit→edit), de-duplicated by path. The UI shows a distinct "Files changed" panel.
 
-## MCP manager (Context & Tools screen)
+## MCP manager (Settings → Context & Tools)
 
 Each MCP server row edits `McpServerConfig` in the draft: name, transport (stdio/http/sse),
 command+args+**env** (stdio) or url+**headers** (http/sse). "Import .mcp.json" merges a
-standard `{ "mcpServers": {…} }` document via a file input. Each provider card has an
+standard `{ "mcpServers": {…} }` document via a file input. Each agent's sheet (Agents screen) has an
 **Apply shared Context & Tools profile** toggle bound to `useControlPlane` (shown only for
 claude/copilot/codex kinds). Remote servers can authenticate through browser OAuth; tokens
 are encrypted with Electron `safeStorage`, remain in the main process, refresh automatically,
 and reach provider processes through environment-backed header placeholders. Copilot's
-provider card also maps GitHub MCP tool/toolset selections to the CLI's per-session flags.
+sheet also maps GitHub MCP tool/toolset selections to the CLI's per-session flags.
 See `PLAN.md` for the full roadmap.
 
-## Skills manager (Skills screen)
+## Skills manager (Settings → Skills)
 
 Agent skills are `SKILL.md` folders the installed CLIs already discover on their own.
 Frontier surfaces them in one catalog, lets you enable/disable them globally and
@@ -233,7 +233,7 @@ instead of `execute(task)`:
    in the task cwd, and without that instruction it sees the subtasks' files "missing" (they
    are committed on their worktree branches) and redoes all the work in the main tree.
 `task.orchestrationStage` (planning→delegating→synthesizing→done) and `task.subtasks[]`
-drive the UI stage bar + subtask cards. `task.modelOverride` (from the New Task dialog)
+drive the UI stage bar + subtask cards. `task.modelOverride` (from the composer's Options)
 is applied to every run via `withModel`, but only on the agent that owns it.
 
 **Worktree isolation** (`src/main/worktree.ts`, integration-tested against real git): when
@@ -273,10 +273,12 @@ the decision ids (D1–D10) referenced in the source comments are that document'
 - **Participants, not provider kinds** (D2) — the snapshot exposes `ParticipantView =
   WorkspaceParticipant & { available, unavailableReason }`, computed in the main process
   from `ProviderRuntime` (disabled / not configured / CLI not detected / cooling down /
-  plan limit reached). **No `provider.kind` branching may appear under
-  `src/renderer/`** — adding a sixth provider kind must not touch the workspace UI. A
-  participant's `model` is only ever handed to its own `providerId`, enforced by
-  `resolveParticipantModel` (pure, unit-tested) reusing `resolveTaskModel`.
+  plan limit reached). **`workspace.ts` never reads a provider kind**
+  (no `provider.kind`, `ProviderKind` or kind literal) and only the files that configure or
+  describe a provider may anywhere else in `src/renderer/` — `tests/renderer-scan.test.ts`
+  holds the allowlist and fails on a new reader — so adding a sixth provider kind never touches
+  the workspace UI. A participant's `model` is only ever handed to its own `providerId`,
+  enforced by `resolveParticipantModel` (pure, unit-tested) reusing `resolveTaskModel`.
 - **Mentions are the only dispatch mechanism** (D3) — `parseMentions` in
   `src/shared/mentions.ts` is pure and shared by the renderer's autocomplete and the
   main-process dispatcher so the two cannot drift. Mentions inside fenced/inline code are
@@ -383,7 +385,7 @@ produced, so it is weighted highest. `outcomeFactor` (pure, unit-tested in
 `tests/router.test.ts`) folds them into **one labelled `RoutingFactor`**, bounded to
 ±14 points and silent below 3 runs, so a learned preference nudges the ranking and can
 never overrule configured priority, mode policy, or an explicit pick. It stays visible on
-the task's Route tab like every other factor. `AppSettings.learnFromOutcomes` turns it off,
+the inspector's Route section like every other factor. `AppSettings.learnFromOutcomes` turns it off,
 and with it off the router scores exactly as it did before. Cancelling a task records
 nothing — that is the user's decision, not a verdict on the agent. Deleting a branch that
 was already merged is housekeeping, not a rejection.
@@ -422,8 +424,8 @@ a user-picked model.
   top languages, file count, manifests, and top-level folder names from `git ls-files`.
   Frontier never reads a file in order to send it. The subtask-advice call is the exception
   to "prompt only": it sends the planner's subtask titles and prompts, and those can quote code
-  the planner read. Every disclosure surface must say so: the site, the README, the Routing
-  screen and the sidebar tooltip.
+  the planner read. Every disclosure surface must say so: the site, the README, Settings → Routing
+  and the header chip's tooltip.
 - **Token budget** — Jev caps the *whole request* (state + questions) at ~32k tokens
   (measured live). The first attempt trims state to `MAX_STATE_CHARS` (96k chars — fine for
   prose/code at ~3.6 chars/token); dense text overflows at that length (logs ~1.9, CJK ~0.9
@@ -513,9 +515,9 @@ a user-picked model.
   `completed`/`failed`, `verified`/`verifyFailed` (rolled up from a task's own subtasks —
   a plain task carries no verification of its own), and `agreedWithRoute` (the `target`
   choice's provider matched whoever actually ran it). It also returns the overall
-  `shadowAgreement`, reusing `routing.advisor.wouldChooseProviderId` the same way the Routing
-  screen's agreement summary already did. The Routing screen's "Would Jev have agreed?" card
-  (`src/renderer/src/views/routing.ts`) renders it as a small `.data-table`, honest about an
+  `shadowAgreement`, reusing `routing.advisor.wouldChooseProviderId` the same way Settings → Routing's
+  agreement summary already did. Its "Would Jev have agreed?" card
+  (`src/renderer/src/views/routing.ts`) renders it as a small `.table`, honest about an
   empty state, next to the existing agreement/disagreement list.
 - Tests: `tests/advisor.test.ts` (request shape/trimming, response parsing incl.
   malformed shapes, confidence gating, 401/422/429-then-success/timeout via a fake `fetch`,
@@ -562,8 +564,8 @@ appends a follow-up `user` turn and runs again **in-context**:
 - **Other CLIs / no session** — falls back to replaying the transcript (`transcript()`)
   as context before the new message.
 The UI renders the thread as user/assistant turns with a composer at the bottom of the
-output panel (Enter to send). When stopped, it also shows a **Next provider** selector backed
-by `engine.changeTaskProvider`; switching clears any provider-private resume session and the
+conversation (Enter to send). When stopped, the conversation header also shows a **Change agent**
+selector backed by `engine.changeTaskProvider`; switching clears any provider-private resume session and the
 next turn receives the full attributed transcript, including cancelled/partial turns.
 Intentional cancellation is terminal for the current run and never enters automatic failover.
 Without an explicit change, subsequent turns stay pinned to the most recently selected provider
@@ -573,66 +575,103 @@ even when that CLI has no resumable session id.
 
 The renderer is split by responsibility, not by screen alone — `src/renderer/src/`:
 
-- **`main.ts`** — bootstrap only: wires the IPC snapshot listener to `render()`, initializes
-  every view module (`init*View`), the theme, the command palette, and the project switcher,
-  and owns the one cross-cutting render each snapshot triggers (`renderMiniProviders`,
-  `renderTasks`, `renderAdvisorStatus`, …) before dispatching to the current view.
+- **`main.ts`** — bootstrap and the shell: wires the IPC snapshot listener to `render()`,
+  initializes every view module (`init*View`), the theme, the command palette and the project
+  switcher, and owns `switchView()` plus the `HEADER` table (each screen's title, which of the
+  header's action buttons it shows, whether the project switcher applies). Each snapshot runs the
+  cross-cutting renders (`renderTasks`, `renderSettings`, `renderAdvisorStatus`,
+  `renderReviewBadge`) and then repaints the current view.
+- **`nav.ts`** — pure, unit-tested: the five `VIEWS` (tasks, workspace, review, agents, settings),
+  the `SETTINGS_TABS`, `resolveView()` — the old ids still resolve (`home` → Tasks in compose
+  state, `routing`/`control`/`skills` → Settings plus that tab), so no `switchView` caller had to
+  change — and `nextTaskSurface()`, the rule for Tasks' centre pane (the composer or one task,
+  never neither; nothing selects a task on the user's behalf).
+- **`advisor-disclosure.ts`** — pure `advisorDisclosure(settings, hasKey)`: the label, tone and
+  sentence of the header's privacy chip (see "The privacy chip must stay truthful").
 - **`state.ts`** — the shared mutable slice every view reads: the latest `AppSnapshot`,
-  `currentView`, `selectedTaskId`. State only one view touches stays local to that view's
-  module instead of living here.
-- **`ui/`** — presentation primitives with no domain knowledge: `dom.ts` (element/byId
-  helpers), `format.ts` (number/cost/duration/time formatting), `feedback.ts` (toasts, error
-  reporting), `icons.ts` (Lucide, tree-shaken, `currentColor`), `components.ts` (the Phosphor
-  Console kit — `button`, `lamp`, `chip`, `panel`, `gaugeSeg`, `probabilityBars`, `radar`,
-  `dataTable`, `inspectorSection`, …, per `docs/design-phosphor-console.md` §6).
-- **`views/*.ts`** — one file per screen (`home`, `tasks`, `routing`, `agents`, `review`,
-  `control`, `skills`, `settings`), each owning its own render function and DOM event wiring.
-- **`task-form.ts`** — the task-creation form (prompt, mode, provider override, model,
-  skills) is shared, not duplicated, between Home's composer and the ⌘N New Task dialog;
-  both call `createTaskForm` with their own root selector and field ids.
-- **`project.ts`** — the project switcher: which cwd Home, Tasks, Review, and Workspaces are
-  scoped to (`currentProject`, `onProjectChange`, `projectMatches`), persisted to
-  `localStorage` and defaulting to "All projects" so it changes nothing for code that
-  predates it.
-- **`theme.ts`** — live Console/Daylight/effects switching for Settings → Appearance. The
-  before-first-paint choice is made separately by `public/theme-init.js` (a plain script,
-  not a module, so it can run before anything else parses) reading the same `localStorage`
-  keys; `theme.ts` takes over afterwards so a change applies without a reload. Renderer-only
+  `currentView`, and the Tasks surface (`composing`, `selectedTaskId`, changed only through
+  `applyTaskSurface`). State only one view touches stays local to that view's module.
+- **`ui/`** — presentation primitives with no domain knowledge: `dom.ts` (element/byId helpers),
+  `format.ts` (number/cost/duration/time formatting), `feedback.ts` (toasts, error reporting),
+  `icons.ts` (Lucide, tree-shaken, `currentColor`), `segmented.ts` (the radiogroup behind
+  `.segmented`), `tooltip.ts`, `dirty.ts` (the unsaved-edit guard, below), and `components.ts` —
+  the Calm kit factories `status`, `tag`, `meter`, `meterRow`, `avatar`, `sectionTitle`,
+  `fieldLabel`, plus `inspectorSection` and `dialogHandle`, per
+  `docs/design-calm.md` §4.
+- **`views/*.ts`** — one file per screen or Settings tab: `tasks`, `compose` (Tasks' compose
+  state), `agents`, `review`, `settings` (the tab list, General, Appearance, Verification),
+  and `routing`, `control` (Context & Tools) and `skills`, which are Settings tabs that render
+  into their own panels. Each owns its render function and DOM wiring. `views/settings-parts.ts`
+  holds the builders the TS-made tabs share (`settingsSection`, `settingsRow`, `settingsTable`,
+  `saveBar`) so they match the static markup of General. Workspaces is `workspace.ts`, at the top
+  level.
+- **`task-form.ts`** — the task-creation form (prompt, run mode, agent override, model, skills) is
+  a factory, `createTaskForm`, with injected element ids; `views/compose.ts` is its only caller.
+- **`project.ts`** — the project switcher: which cwd Tasks, Workspaces and Review are scoped to
+  (`currentProject`, `onProjectChange`, `projectMatches`), persisted to `localStorage` and
+  defaulting to "All projects" so it changes nothing for code that predates it.
+- **`theme-model.ts` / `theme.ts`** — appearance. `theme-model.ts` is pure (`resolveAppearance`,
+  the `fp-*` storage keys, `DEFAULT_FAMILY`); `theme.ts` applies it live from Settings →
+  Appearance and the palette. `public/theme-init.js` is a plain script, not a module, so it can
+  run before anything else parses: it sets the same attributes on `<html>` before first paint, and
+  `tests/appearance.test.ts` runs it against the same inputs as `resolveAppearance`. Renderer-only
   preference — never sent to the main process.
 
-**Design system rules**, enforced by convention (see `docs/design-phosphor-console.md` for
-the full spec):
-- Components use only the semantic tokens in `styles/tokens.css` (`--bg`, `--surface-*`,
-  `--amber`, `--cyan`, `--phosphor`, `--alarm`, `--caution`, …) — no raw hex or `rgb()`
-  literal outside that file.
-- Theme and motion are two independent flags on `<html>`: `data-theme="console|daylight"`
-  and `data-effects="on|off"` (off under `prefers-reduced-motion` too). Every glow/sweep/
-  blink/scanline reads `data-effects` rather than reimplementing the check.
-- Fonts (Chakra Petch, IBM Plex Sans, JetBrains Mono) are bundled via `@fontsource` and
-  imported from `styles/fonts.css` — the CSP is `default-src 'self'`, so no CDN.
-- `scripts/check-contrast.mjs` computes WCAG contrast ratios for the token pairs actually
-  used as text, in both themes, against the ratios `docs/design-phosphor-console.md` §8
-  requires; it duplicates the hex values deliberately so it keeps working even if the CSS
-  import graph breaks. Not yet wired into `pnpm` scripts or CI — run it directly when
-  touching tokens.
+**Layout.** The chrome is a floating **dock** (`nav.dock` in `index.html`:
+five `.nav-item[data-view]` buttons, then New task and Search) at the bottom, left or right, where
+`main` pads by `--dock-pad` on that side so nothing sits under it, and one 44px **header row**
+above every screen, which holds the project switcher (Tasks, Workspaces, Review only), the title, the
+screen's actions and the privacy chip. `styles/shell.css` owns both; `styles/kit.css` is the
+component kit (`.btn`, `.status`, `.tag`, `.meter`, `.row`, `.table`, `.vtabs`, `.sheet`,
+`.dialog`, …) that every screen's own CSS builds on.
+
+**Design system rules**, enforced by convention and by tests (see `docs/design-calm.md` for the
+full spec):
+- Components use only the semantic tokens in `styles/tokens.css` (`--bg`, `--surface`, `--fg`,
+  `--accent`, `--ok`, `--warn`, `--danger`, …) — no raw hex or `rgb()` literal outside that file,
+  and no `var(--x)` without a definition (`tests/tokens.test.ts`). Text, icons and links use
+  `--accent`; anything behind `--accent-fg` text uses `--accent-fill`.
+- Three families (`neutral`, `mono`, `phosphor`) × two schemes are attributes on `<html>`
+  (`data-family`, `data-scheme`) next to `data-dock`, `data-dock-labels`, `data-density`,
+  `data-font-size` and `data-effects`, all chosen in Settings → Appearance and applied live.
+  Neutral is the default family. The old UI's `fp-theme` is read once into a scheme and never
+  deleted. Every glow/pulse/animation reads `data-effects` (off under `prefers-reduced-motion`
+  too) rather than reimplementing the check.
+- Status is a dot and a word (`status()`), never a coloured pill; numbers, ids and paths are mono
+  and tabular; labels are sentence case (only Phosphor uppercases them, through
+  `--label-transform`).
+- Fonts (Inter and JetBrains Mono; Chakra Petch and IBM Plex Sans for Phosphor) are bundled via
+  `@fontsource` and imported from `styles/fonts.css` — the CSP is `default-src 'self'`, so no CDN.
+- `scripts/check-contrast.mjs` (`pnpm check:contrast`; `tests/contrast.test.ts` runs the same
+  check) computes WCAG ratios for every text token pair straight from `tokens.css`, in all six
+  variants, and fails below 4.5:1 — `--fg-faint` included.
 
 **Live snapshots must not clobber an unsaved form edit.** A streamed task run touches
 snapshot state continuously (see "Snapshot coalescing" below), and every view re-renders
-from that snapshot on each one. A form seeded from settings — the Routing screen's advisor
-form is the shipped example — therefore tracks its own dirty flag (`advisorFormDirty` /
-`markAdvisorDirty` / `clearAdvisorDirty`) the moment the user changes a control, and stops
-overwriting that control from the snapshot until the edit is explicitly saved or discarded.
-Without this, a value the user just typed snaps back to the last-saved one the instant an
+from that snapshot on each one. Every Settings form seeded from settings therefore goes through the
+shared guard in `ui/dirty.ts`: `createDirtyGuard(ids)` marks a field dirty on its first
+`input`/`change` and keeps it dirty until the edit is explicitly saved or discarded, and
+`reflect(id, value)` writes a snapshot value only into a field that is neither dirty nor focused.
+`bindSaveBar` gives the tab its "Unsaved changes · Discard · Save" bar. General and Verification
+(`views/settings.ts`), the Routing advisor form (`advisorForm` in `views/routing.ts`) and the
+Context & Tools draft (`controlForm` in `views/control.ts`) each hold a guard for their text
+fields and a second one for their switches, which apply the moment they change and stay guarded
+only until their own save resolves. The agent sheet keeps its own `drawerDirty` flag for the same
+reason. Without this, a value the user just typed snaps back to the last-saved one the instant an
 unrelated task streams a token, and Save silently persists the stale value. Any new
 settings-editing view needs the same guard.
 
-**The sidebar privacy line must stay truthful.** `renderAdvisorStatus()` (`main.ts`) reads
-`snapshot.settings.advisor` and `snapshot.advisor.hasKey` on every render and shows "Local
-process mode · Prompts stay between this app and your CLIs" only when no advisor is
-active; the moment Shadow or Active mode has a stored key, it names Jev, the mode, and
-exactly what leaves the machine ("Prompt text and repo facts are sent to TypeSafe" vs.
-"Prompt text is sent to TypeSafe"), per ADR 0002. It is computed from live settings, never
-hardcoded, so it cannot silently go stale as advisor state changes.
+**The privacy chip must stay truthful.** The chip at the right of the header row
+(`#advisor-status`; on every screen because the header is one element) is filled by
+`renderAdvisorStatus()` (`main.ts`) from `advisorDisclosure(settings, snapshot.advisor.hasKey)`
+(`advisor-disclosure.ts`, pure, `tests/disclosure.test.ts`) on every render. It reads "Local" —
+"Local process mode. Prompts stay between this app and your CLIs." — only when no advisor is
+active; the moment Shadow or Active mode has a stored key it reads "Jev · Shadow" / "Jev · Active"
+and names exactly what leaves the machine ("Prompt text, repo facts and split-run subtask prompts
+are sent to TypeSafe" vs. "Prompt text and split-run subtask prompts are sent to TypeSafe"), per
+ADR 0002. The sentence is the chip's accessible name and its tooltip (hover and keyboard focus),
+and a click opens Settings → Routing. It is computed from live settings, never hardcoded, so it
+cannot silently go stale as advisor state changes.
 
 ## Layout, context window & memory
 
@@ -641,10 +680,12 @@ hardcoded, so it cannot silently go stale as advisor state changes.
   ~60 ms trailing timer; state-changing paths (`persistAndEmit`, task completion) pass
   `{ immediate: true }`. Live text is unaffected: it arrives on the separate `stream`
   channel, which is never throttled.
-- **Fixed app shell** — `body`/`.shell`/`main` are `height:100vh; overflow:hidden`; the
-  Tasks view fills remaining height and its three panes scroll independently (no
-  full-page scroll). Other views scroll internally. See "Tasks is three panes" above for
-  the queue/inspector resize gutters.
+- **Fixed app shell** — `body`/`.shell`/`main` are `height:100vh; overflow:hidden`. `main` is a
+  column: the 44px header row, then the active view, padded by `--dock-pad` on the dock's side so
+  the dock never covers content (overlay panels position from `--header-h` and the
+  `--shell-pad-*` tokens). The Tasks view fills the remaining height and its panes scroll
+  independently (no full-page scroll); other views scroll internally. See "Tasks is three panes"
+  below for the queue/inspector resize gutters.
 - **Context window** — usage and context are separate streams. `parseClaudeLine` reads the
   latest `message_start` input/cache usage plus `message_delta` output usage for current
   conversation occupancy, then pairs it with the active model's `modelUsage[*].contextWindow`.
@@ -656,10 +697,16 @@ hardcoded, so it cannot silently go stale as advisor state changes.
   The UI labels estimates accordingly.
 - **Tasks is three panes, not a detail view** (`views/tasks.ts`) — the work queue (grouped
   into Running / Needs review / Done / Failed-cancelled, filterable, project-scoped), the
-  conversation (the primary surface, composer at the bottom), and a collapsible route/
-  files/activity **inspector**. Selecting a task swaps the centre and right panes in place;
-  there is no modal and no double-click-to-open. The old Conversation/Files/Route tabs are
-  gone — the inspector's sections (`inspectorSection` in `ui/components.ts`) replace them.
+  centre pane, and a collapsible **inspector**. The centre is either the **composer** (compose
+  state, `views/compose.ts`: the one place to start work — prompt, run mode, an Options row for
+  routing policy, agent, model and skills, a one-line route preview, Start task, and the last five
+  tasks as "Recent"; the inspector is not shown) or one task's conversation (the primary surface,
+  reply composer at the bottom). `nav.ts`'s `nextTaskSurface` decides which: nothing selects a
+  task automatically, and a selection that disappears falls back to compose. The dock's New
+  button, ⌘N, the queue's + button and the palette's New task / Compare agents all go through
+  `enterCompose()`. Selecting a task swaps the centre and right panes in place; there is no
+  modal and no double-click-to-open. The inspector's sections — Route, Files changed, Activity,
+  Context, Attempts (`inspectorSection` in `ui/components.ts`) — replace the old tabs.
   Two independent draggable gutters (`#grid-gutter`, `#inspector-gutter`) resize the queue
   and inspector columns (`applyQueueWidth` / `applyInspectorWidth`), each persisted to
   `localStorage` (`fp-wq-width` / `fp-inspector-width`) and re-clamped on resize so a width
@@ -687,8 +734,8 @@ accumulates these into `runtime.usage` and stores every distinct plan window in
 `runtime.sessions` instead of overwriting one window with another. `JsonStore` persists
 the current day's usage, up to 30 completed days of `history`, the reported windows, and
 `outcomes` in `providerRuntime`. At the local-date rollover a finished day **moves into
-`history`** instead of being discarded (empty days are dropped), so the Usage view charts a
-trend rather than only today. Reported tokens are also attributed per model
+`history`** instead of being discarded (empty days are dropped), so an agent's sheet on the Agents
+screen charts a trend rather than only today. Reported tokens are also attributed per model
 (`UsageDay.models`), because a CLI can switch models mid-plan.
 
 **Cost comes only from Claude and OpenCode** (per `step_finish`; free models report 0, which
@@ -696,9 +743,9 @@ leaves it "not reported"). Nothing else reports a figure, so `UsageDay.costRepor
 whether any cost was ever reported and the UI shows "not reported" instead of `$0.00` — a
 Codex-heavy day must not read as free.
 Context occupancy is deliberately task-scoped (`task.contextTokens/contextWindow`), shown on
-the task row and dedicated task workspace—not on provider Usage cards. A provider-level
+the task row and dedicated task workspace—not on the Agents screen's usage figures. A provider-level
 context-window value can still be configured as a fallback when its CLI does not report one.
-The Usage view shows session/plan usage, reset countdown, tracked tokens, and automatic-
+The Agents table and sheet show session/plan usage, reset countdown, tracked tokens, and automatic-
 fallback state for every provider.
 
 **What each CLI actually reports** (`src/shared/sessions.ts`, pure and unit-tested, shared by
@@ -753,10 +800,10 @@ stays a plain failure (failing over would silently run the task on an agent the 
 pick). `codexErrorMessage` unwraps Codex's verbatim `{"type":"error",…}` envelopes so the
 transcript shows the sentence instead of raw JSON.
 
-The **New Task** dialog's model field is a dropdown (`#task-model-select`) populated by
-`renderTaskModelOptions` from `runtime.models`, scoped to the chosen provider override
-(or grouped by provider under Automatic via `<optgroup>`). "Provider default" (blank) and
-"Custom model…" (reveals the `#task-model` free-text input for any id) bracket the list.
+The composer's Model option (Tasks' compose state) is a dropdown (`#compose-model-select`)
+populated by `renderModelOptions` in `task-form.ts` from `runtime.models`, scoped to the chosen
+agent (or grouped by agent under Automatic via `<optgroup>`). "Provider default" (blank) and
+"Custom model…" (reveals the `#compose-model` free-text input for any id) bracket the list.
 The selection flows through `CreateTaskInput.model` → `task.modelOverride` → `withModel`.
 
 **Model ids are CLI-specific and never travel between agents.** Codex fails the whole
@@ -790,9 +837,10 @@ is **empty** (only `lastLoggedInUser` present), the CLI is logged out and headle
 fail with *"No authentication information found."* Fix: run `copilot login`. This is a
 Copilot session-expiry issue, **not** something to solve with an API key field.
 
-The green **"Ready"** badge only runs `<exe> --version` — it confirms the binary is found,
-**not** that the CLI is authenticated. A provider can show "Ready" and still fail a task
-because its CLI is logged out.
+The **"CLI found"** status on the Agents screen only runs `<exe> --version` — it confirms the
+binary is found, **not** that the CLI is authenticated. A provider can show "CLI found" and still
+fail a task because its CLI is logged out; the table's separate **Login** column reads the CLI's
+own session state (see "Provider login state").
 
 ## Project layout
 
@@ -834,9 +882,12 @@ those same releases, and `docs/architecture.svg` is inlined from the repo.
 `astro.config.mjs` — inside the SSR bundle `import.meta.url` points at the bundle, not a
 source file. `SITE_OFFLINE=1` exercises the fallback path.
 
-`site/src/styles/theme.css` duplicates the design tokens from
-`src/renderer/src/styles.css` (palette, Georgia headings, brand mark, pills and dots).
-Changing the app's palette means changing both.
+`site/src/styles/theme.css` duplicates the Neutral family's light and dark tokens from
+`src/renderer/src/styles/tokens.css` (by design: the site cannot import the app's CSS), in
+Inter and JetBrains Mono. Changing the app's Neutral palette means changing both. The
+screenshots in `site/src/assets/screens/` show the app's default UI, in light and dark; re-shoot
+them with `site/scripts/screenshots/capture.js` when a screen changes (`docs/design-calm.md` is
+the spec they show).
 
 ## Commands
 
@@ -845,6 +896,7 @@ pnpm install
 pnpm dev                       # run in dev
 pnpm typecheck                 # tsc for node + web projects
 pnpm test                      # vitest
+pnpm check:contrast            # WCAG ratios for every text token pair, all six themes
 pnpm package                   # electron-builder --dir (unpacked)
 pnpm dist                      # full installers for the current OS
 pnpm changeset                 # add a release note + bump type for this PR

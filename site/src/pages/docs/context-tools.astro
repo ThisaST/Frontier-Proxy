@@ -11,7 +11,7 @@ import Callout from "../../components/Callout.astro";
   <p>
     Every coding CLI configures MCP servers and tool permissions differently, in its own config file, with its own
     flag names. Frontier owns a single profile covering all of them. You configure it once in the
-    <strong>Context &amp; Tools</strong> screen, and Frontier translates it into each CLI's native flags when it spawns
+    <strong>Settings → Context &amp; Tools</strong>, and Frontier translates it into each CLI's native flags when it spawns
     the process — so you never hand-edit a <code>claude</code>, <code>copilot</code>, or <code>codex</code> config again.
   </p>
 
@@ -41,7 +41,7 @@ import Callout from "../../components/Callout.astro";
 
   <Callout title="Preview before you save">
     <p>
-      The screen previews the exact flags each agent will receive, including your unsaved draft. Before creating,
+      The tab previews the exact flags each agent will receive, including your unsaved draft. Before creating,
       retrying, or continuing a task the app persists the current draft, so the process always launches with the
       configuration you can see.
     </p>
@@ -108,7 +108,7 @@ import Callout from "../../components/Callout.astro";
 
   <h2>Opting a provider out</h2>
   <p>
-    Every provider card for a Claude, Copilot, or Codex-kind agent has an <strong>Apply shared Context &amp; Tools
+    Every agent's sheet, for a Claude, Copilot, or Codex-kind agent, has an <strong>Apply shared Context &amp; Tools
     profile</strong> toggle. Turn it off and that agent runs with only its own configuration and whatever extra
     arguments you gave it.
   </p>
@@ -116,7 +116,7 @@ import Callout from "../../components/Callout.astro";
   <Callout tone="info" title="Injected before your own arguments">
     <p>
       Frontier splices the translated flags in ahead of each provider's configured extra arguments, so an explicit
-      flag you add on the provider card is the last word.
+      flag you add in the agent's sheet is the last word.
     </p>
   </Callout>
 </Docs>

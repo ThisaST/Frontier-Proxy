@@ -1,9 +1,9 @@
-// A single shared JS tooltip, appended to `<body>` — replaces per-element CSS
-// `::after` tooltips (design spec, collapsed sidebar) which get clipped by any
-// ancestor's `overflow: hidden/auto` (the sidebar itself, once it scrolls).
-// Also the one path for icon-only controls that used to rely on `title` alone
-// (capacity lamps, etc.): `title` gives no on-screen affordance under our own
-// theme and shows on mouse hover only, never on keyboard focus.
+// A single shared JS tooltip, appended to `<body>` — used instead of per-element
+// CSS `::after` tooltips wherever an ancestor's `overflow: hidden/auto` could clip
+// one (the dock's own labels are CSS: the dock is fixed and sits in no scroller).
+// Also the one path for icon-only controls and the header privacy chip: `title`
+// gives no on-screen affordance under our own theme and shows on mouse hover
+// only, never on keyboard focus.
 //
 // Usage: `bindTooltip(el, () => text)` once per element. The element must
 // already carry its accessible name via `aria-label` — this only adds a
@@ -19,7 +19,7 @@ const TOOLTIP_ID = 'fp-tooltip'
 
 function ensureTooltip(): HTMLElement {
   if (tooltipEl) return tooltipEl
-  tooltipEl = element('div', 'ui-tooltip')
+  tooltipEl = element('div', 'tooltip ui-tooltip')
   tooltipEl.id = TOOLTIP_ID
   tooltipEl.setAttribute('role', 'tooltip')
   tooltipEl.hidden = true
@@ -31,9 +31,9 @@ function positionTooltip(target: HTMLElement): void {
   const tip = ensureTooltip()
   const rect = target.getBoundingClientRect()
   tip.style.top = ''; tip.style.bottom = ''; tip.style.left = ''; tip.style.right = ''
-  // Prefer the side with more room — the collapsed sidebar sits at the left
-  // edge, so its items open to the right; most other icon-only controls have
-  // room below.
+  // Prefer the side with more room — a control at the left edge opens to the
+  // right; everything else (the header row included) opens below, clamped so a
+  // control at the right edge (the privacy chip) keeps its tooltip on screen.
   const spaceRight = window.innerWidth - rect.right
   if (rect.left < 120 && spaceRight > 140) {
     tip.style.left = `${Math.round(rect.right + 10)}px`
@@ -41,8 +41,8 @@ function positionTooltip(target: HTMLElement): void {
     tip.classList.add('ui-tooltip-right')
     tip.classList.remove('ui-tooltip-below')
   } else {
-    const left = Math.min(Math.max(8, rect.left), window.innerWidth - 8)
-    tip.style.left = `${Math.round(left)}px`
+    const left = Math.min(Math.max(8, rect.left), window.innerWidth - tip.offsetWidth - 8)
+    tip.style.left = `${Math.round(Math.max(8, left))}px`
     tip.style.top = `${Math.round(rect.bottom + 8)}px`
     tip.classList.add('ui-tooltip-below')
     tip.classList.remove('ui-tooltip-right')
@@ -72,7 +72,7 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape') hi
 
 // Binds hover + keyboard-focus tooltip behaviour to `target`. `text()` is
 // read fresh on every show, so the label can depend on live state (capacity,
-// collapsed-nav data-label, …). Returns an unbind function.
+// the advisor disclosure, …). Returns an unbind function.
 export function bindTooltip(target: HTMLElement, text: () => string): () => void {
   const onShow = (): void => { const value = text(); if (value) showTooltip(target, value) }
   const onHide = (): void => hideTooltip()

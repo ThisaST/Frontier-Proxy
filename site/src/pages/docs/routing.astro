@@ -74,7 +74,7 @@ import { url } from "../../lib/site";
           </td>
         </tr>
         <tr>
-          <td><span class="pill" style="color:var(--alarm)">Agent failure</span></td>
+          <td><span class="pill" style="color:var(--danger)">Agent failure</span></td>
           <td>
             <strong>Stops the task.</strong> Re-running a partially completed coding task through another agent could
             duplicate or conflict with edits already on disk.
@@ -157,7 +157,7 @@ import { url } from "../../lib/site";
         <tr>
           <td><strong>Shadow</strong></td>
           <td class="muted">
-            Jev is asked and its pick is recorded next to the real route — visible on the Route tab and in the
+            Jev is asked and its pick is recorded next to the real route — visible in the inspector's Route section and in the
             calibration view below — but it changes nothing about what actually runs.
           </td>
         </tr>
@@ -192,15 +192,9 @@ import { url } from "../../lib/site";
     got no advice, or any failure of the extra call, simply keeps today's default behaviour.
   </p>
 
-  <DocsFigure
-    name="routing"
-    alt="The Routing screen showing the Jev advisor's Off/Shadow/Active mode selector, a write-only key field with Test connection, and the request payload preview"
-    caption="The Routing screen: mode, credentials, the exact request payload, and the model catalog."
-  />
-
   <h3>The calibration view</h3>
   <p>
-    The Routing screen buckets every finished, Jev-advised task by the confidence of its best-fit answer
+    Settings → Routing buckets every finished, Jev-advised task by the confidence of its best-fit answer
     (<code>&lt; 0.5</code>, <code>0.5 – 0.8</code>, <code>≥ 0.8</code>) and reports, per bucket, how many tasks ran,
     how many completed, how many passed your own repo's verification checks, and whether Jev's pick agreed with
     whoever actually ran the task — so you can see whether higher-confidence answers actually correlate with better

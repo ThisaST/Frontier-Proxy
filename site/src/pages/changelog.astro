@@ -72,7 +72,7 @@ const entries = await Promise.all(
   .releases { list-style: none; padding: 0; margin: 34px 0 0; }
   .release {
     display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 30px;
-    padding: 30px 0; border-top: 1px solid var(--bezel);
+    padding: 30px 0; border-top: 1px solid var(--border);
   }
   .release:first-child { border-top: 0; padding-top: 6px; }
   .release-meta { display: grid; gap: 8px; align-content: start; justify-items: start; position: sticky; top: calc(var(--nav-h) + 26px); }
@@ -83,7 +83,7 @@ const entries = await Promise.all(
   .notes :global(ul) { padding-left: 20px; margin: 0 0 16px; }
   .notes :global(li) { color: var(--fg-muted); margin-bottom: 6px; }
   .notes :global(h2),
-  .notes :global(h3) { font-size: 15px; font-family: var(--font-body); font-weight: 650; margin: 22px 0 8px; }
+  .notes :global(h3) { font-size: 15px; font-family: var(--font-sans); font-weight: 650; margin: 22px 0 8px; }
   .notes :global(p) { color: var(--fg-muted); }
   .notes :global(a) { word-break: break-word; }
   .notes :global(hr) { margin: 20px 0; }

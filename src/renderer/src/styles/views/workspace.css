@@ -1,91 +1,167 @@
-/* ---------- Workspaces ---------- */
-.workspace-empty-state { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
-.workspace-empty-glyph { color: var(--amber); margin-bottom: 8px; display: flex; }
-.workspace-empty-state p { max-width: 40ch; }
-.workspace-empty-state button { margin-top: 10px; }
+/* ---------- Workspaces (Calm) ----------
+   Built on the kit (kit.css): .row, .avatar(-group), .status, .btn*, .input/.select/.textarea,
+   .switch, .segmented, .dialog, .empty, .section-title, .field-label. Colours are tokens only;
+   there are no eyebrows, no uppercase and no coloured pills. `.mention` is the one accent-tinted
+   element: an inline pill for an @handle, in a message, a system line or the addressing hint.
+   The participant roster is a dialog opened from the header row, not a pane. */
 
-/* The roster moved into a dialog, so the conversation gets the rest. The list keeps a
-   modest default share rather than the .75fr it had when it was one of three columns. */
-.workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(220px, .34fr)) 7px minmax(420px, 1fr); gap: 0; flex: 1 1 auto; min-height: 0; }
-.workspace-list-panel, .workspace-conversation-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.workspace-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px; }
-.workspace-item { width: 100%; display: block; text-align: left; padding: 10px 11px; border: 0; border-radius: var(--r-md); background: transparent; }
-.workspace-item:hover { background: var(--surface-2); }
-.workspace-item.selected { background: var(--surface-2); box-shadow: inset 2px 0 var(--amber); }
-.workspace-item strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-item-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--fg-muted); font-size: 9px; }
-.workspace-item-online { display: inline-flex; align-items: center; gap: 5px; color: var(--phosphor); white-space: nowrap; }
-.workspace-repo-context { flex: 0 0 auto; margin: 10px; padding: 12px 13px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); display: grid; gap: 6px; }
-.workspace-repo-context p { margin: 0; color: var(--fg-muted); font-size: 9px; font-family: var(--font-mono); overflow-wrap: anywhere; }
-.workspace-repo-context .text-button { justify-self: start; padding-top: 2px; }
+/* An authored `display` on a class beats the UA `[hidden]` rule at equal specificity, and the kit's
+   `.input`/`.btn` set one, so hidden states inside this view are spelled out once, here. */
+#workspace-view [hidden] { display: none; }
+#workspace-view .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+#workspace-view .field { letter-spacing: 0; font-size: var(--fs-13); }
 
-.workspace-conv-header { flex: 0 0 auto; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 15px 18px 13px; border-bottom: 1px solid var(--bezel); }
+/* The header-row "Participants" action shows its count in mono. */
+.ws-count { margin-left: var(--s-1); color: var(--fg-muted); font: var(--fw-regular) var(--fs-12)/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- Empty ---------- */
+.workspace-empty-state { flex: 1 1 auto; justify-content: center; gap: var(--s-2); }
+.workspace-empty-glyph { display: flex; margin-bottom: var(--s-1); color: var(--fg-faint); }
+.ws-empty-title { color: var(--fg); font: var(--fw-semibold) var(--fs-18)/var(--lh-tight) var(--font-display); }
+.workspace-empty-state p, .workspace-thread .empty p { margin: 0; max-width: 40ch; }
+.workspace-empty-state .btn { margin-top: var(--s-2); }
+
+/* ---------- Layout: list | thread ---------- */
+.workspace-grid { display: grid; grid-template-columns: var(--ws-list-col, minmax(200px, .3fr)) 12px minmax(320px, 1fr); flex: 1 1 auto; min-height: 0; padding-top: var(--s-1); }
+.workspace-grid > .panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--border); border-radius: var(--r-3); background: var(--surface); overflow: hidden; }
+.workspace-grid > .grid-gutter { position: relative; margin: 0; border-radius: 0; background: transparent; cursor: col-resize; }
+.workspace-grid > .grid-gutter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; border-radius: 1px; background: transparent; transition: background var(--t-fast) var(--ease); }
+.workspace-grid > .grid-gutter:hover, .workspace-grid > .grid-gutter.dragging { background: transparent; }
+.workspace-grid > .grid-gutter:hover::after, .workspace-grid > .grid-gutter.dragging::after { background: var(--border-strong); }
+
+/* ---------- List ---------- */
+.ws-list-head { flex: none; display: flex; align-items: center; justify-content: space-between; padding: var(--s-3) var(--s-2) var(--s-2) var(--s-4); }
+.workspace-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: var(--s-1) var(--s-2) var(--s-2); }
+.workspace-item { flex: none; width: 100%; min-width: 0; align-items: flex-start; border: 0; background: transparent; color: var(--fg); font-family: var(--font-sans); text-align: left; }
+.ws-item-main { display: flex; flex-direction: column; gap: var(--s-1); }
+.ws-item-name { overflow: hidden; color: var(--fg); font-size: var(--fs-13); font-weight: var(--fw-semibold); text-overflow: ellipsis; white-space: nowrap; }
+.ws-item-path { overflow: hidden; font-size: var(--fs-12); text-overflow: ellipsis; white-space: nowrap; }
+.ws-item-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-1) var(--s-2); min-width: 0; }
+.ws-item-foot .status { min-width: 0; font-size: var(--fs-12); white-space: nowrap; }
+/* Plain gaps, not the kit's overlap: the overlap ring is the surface colour, which would show as a
+   halo on a selected row. */
+.workspace-item .avatar-group { gap: 2px; }
+.workspace-item .avatar-group .avatar + .avatar { margin-left: 0; box-shadow: none; }
+
+.workspace-repo-context { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-1); padding: var(--s-3) var(--s-4); border-top: 1px solid var(--border); color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); }
+.workspace-repo-context:empty { display: none; }
+.ws-context-path { font-size: var(--fs-12); overflow-wrap: anywhere; }
+.workspace-repo-context .btn { margin-left: calc(-1 * var(--s-2)); }
+
+/* ---------- Conversation header ---------- */
+.workspace-conv-header { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); }
 .workspace-conv-heading { min-width: 0; }
-.workspace-conv-heading h2 { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-conv-actions { flex: 0 0 auto; display: flex; gap: 10px; align-items: center; }
-.workspace-thread { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.ws-title { margin: 0; overflow: hidden; color: var(--fg); font: var(--fw-semibold) var(--fs-15)/var(--lh-tight) var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.ws-subtitle { margin: 2px 0 0; overflow: hidden; color: var(--fg-muted); font: var(--fw-regular) var(--fs-12)/var(--lh-ui) var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.workspace-conv-actions { flex: none; display: flex; align-items: center; gap: var(--s-1); }
 
-.ws-message { flex: 0 0 auto; border: 1px solid var(--bezel); border-radius: var(--r-lg); overflow: hidden; background: var(--surface-1); }
-.ws-message.human { margin-left: 14%; background: var(--surface-2); }
-.ws-message.system { border-style: dashed; background: transparent; }
-.ws-message.failed { border-color: color-mix(in srgb, var(--alarm) 30%, transparent); }
-.ws-message.cancelled { opacity: .75; }
-.ws-message-head { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border-bottom: 1px solid var(--bezel); }
-.ws-message.system .ws-message-head { border-bottom-color: transparent; }
-.ws-avatar-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--fg-muted); }
-.ws-message-head strong { font-size: 11px; }
-.ws-message-head small { color: var(--fg-muted); font-size: 8px; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; white-space: nowrap; }
-.ws-message-status { display: inline-flex; align-items: center; gap: 5px; color: var(--amber); font-size: 9px; white-space: nowrap; }
-.ws-message.failed .ws-message-status { color: var(--alarm); }
-.ws-message-body { padding: 12px 15px; color: var(--fg); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
-.ws-message-body.markdown { white-space: normal; }
-.ws-message.system .ws-message-body { color: var(--fg-muted); font-size: 11px; padding: 4px 13px 11px; }
-.ws-message-activity { margin: 0 15px 12px; display: grid; gap: 5px; }
-.ws-turn-foot { display: flex; align-items: center; gap: 10px; padding: 0 15px 13px; }
-.ws-turn-foot:empty { display: none; }
+/* ---------- Thread ---------- */
+.workspace-thread { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: var(--s-5); padding: var(--s-5) var(--s-6); }
+.wmsg { flex: none; align-self: center; width: 100%; max-width: 760px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: var(--s-3); }
+.wmsg > .avatar { margin-top: 1px; }
+.wmsg-main { min-width: 0; }
+.wmsg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1) var(--s-2); min-width: 0; margin-bottom: var(--s-1); }
+.wmsg-name { color: var(--fg); font: var(--fw-semibold) var(--fs-13)/var(--lh-ui) var(--font-sans); }
+.wmsg-role { color: var(--fg-muted); font-size: var(--fs-12); }
+.wmsg-tail { min-width: 0; margin-left: auto; }
+.wmsg-tail .status { min-width: 0; font-size: var(--fs-12); line-height: var(--lh-ui); }
+.wmsg-time { color: var(--fg-faint); font: var(--fw-regular) var(--fs-11)/1 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wmsg-body { color: var(--fg); font-size: var(--fs-14); line-height: var(--lh-body); overflow-wrap: anywhere; white-space: pre-wrap; }
+.wmsg-body.markdown { font: var(--fw-regular) var(--fs-14)/var(--lh-body) var(--font-sans); white-space: normal; }
+.wmsg-body.markdown > :last-child { margin-bottom: 0; }
 
-.workspace-addressing-hint { flex: 0 0 auto; margin: 0; padding: 0 18px 12px; color: var(--fg-muted); font-size: 10px; }
-.workspace-addressing-hint.addressed { color: var(--phosphor); }
+/* Code inside a message: flat on --code-bg, no border or uppercase language tag. */
+.wmsg-body .md-code-inline, .ws-code, .ws-sys .ws-code { padding: 1px 5px; border: 0; border-radius: var(--r-1); background: var(--code-bg); color: var(--fg); font: var(--fw-regular) .88em/1.4 var(--font-mono); }
+.wmsg-body .md-code, .ws-code-block { border: 0; border-radius: var(--r-2); background: var(--code-bg); }
+.wmsg-body .md-code-head { background: transparent; border-bottom: 1px solid var(--border); }
+.wmsg-body .md-code-head span { color: var(--fg-faint); font: var(--fw-regular) var(--fs-11)/1.3 var(--font-mono); letter-spacing: 0; text-transform: none; }
+.wmsg-body .md-pre { background: transparent; }
+.ws-code-block { display: block; margin: var(--s-2) 0; padding: var(--s-3); overflow-x: auto; color: var(--fg); font: var(--fw-regular) var(--fs-12)/1.5 var(--font-mono); white-space: pre; }
 
-/* Lives inside #participants-dialog-body now, whose own padding/scroll applies —
-   this just lays out the groups within it. */
-#participants-dialog { width: min(460px, calc(100vw - 40px)); }
-.workspace-roster { display: grid; gap: 14px; }
-.workspace-roster-group .eyebrow { margin-bottom: 8px; }
-.workspace-roster-list { display: grid; gap: 8px; }
-.workspace-roster-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); }
-.workspace-roster-row.suggested { border-style: dashed; background: transparent; }
-.workspace-roster-row-body { min-width: 0; flex: 1 1 auto; }
-.workspace-roster-row-body strong { display: block; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-roster-row-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-roster-row-body .ws-unavailable-reason { color: var(--alarm); white-space: normal; }
-.ws-roster-menu-button { flex: 0 0 auto; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--fg-muted); display: grid; place-items: center; }
-.ws-roster-menu-button:hover { color: var(--fg); }
-.ws-roster-menu { position: absolute; z-index: 20; top: 34px; right: 8px; display: grid; border: 1px solid var(--bezel); border-radius: var(--r-md); background: var(--surface-2); box-shadow: var(--e-2); overflow: hidden; }
-.ws-roster-menu button { border: 0; border-radius: 0; padding: 8px 13px; background: transparent; color: var(--fg); font-size: 11px; text-align: left; white-space: nowrap; }
-.ws-roster-menu button:hover { background: var(--surface-3); }
-.workspace-roster-footer { margin-top: auto; padding: 12px 10px 4px; color: var(--fg-muted); font-size: 9px; line-height: 1.5; border-top: 1px solid var(--bezel); }
-.ws-add-button { flex: 0 0 auto; }
+/* An @handle naming a participant. Display only: a mention in a reply starts nothing (ADR D4). */
+.mention { display: inline; padding: 0 4px; border-radius: var(--r-1); background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-medium); }
 
-/* Participant editor */
-.ws-kind-modes { grid-template-columns: 1fr 1fr; }
-.ws-accent-field { display: grid; gap: 6px; }
-.ws-accent-picker { display: flex; gap: 8px; }
-.ws-accent-swatch { width: 26px; height: 26px; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); }
-.ws-accent-swatch.selected { border-color: var(--fg); }
-.ws-capabilities-field { display: grid; gap: 8px; }
-.ws-cap-edit-note { margin: -2px 0 4px 26px; }
-.ws-cap-edit-note code { background: var(--surface-2); border: 1px solid var(--bezel); border-radius: var(--r-sm); padding: 0 4px; font: 10px var(--font-mono); }
-.ws-capability-chips { display: flex; gap: 8px; margin-top: 3px; }
-.ws-capability-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 9px; }
+/* System lines: the thread saying why something did not happen. */
+.ws-sys { flex: none; align-self: center; max-width: min(760px, 100%); color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); text-align: center; overflow-wrap: anywhere; }
+.ws-sys .mention { font-weight: var(--fw-medium); }
 
-/* An authored `display` on the same class always beats the `[hidden]` UA rule
-   at equal specificity (author origin wins), so any class below that sets its
-   own `display` needs the override spelled out — same reason `.form-row[hidden]`
-   and `#model-field[hidden]` already exist further up this file. */
-.workspace-empty-state[hidden], .workspace-grid[hidden], .ws-capabilities-field[hidden], #ws-workspace-cwd-field[hidden], .output-composer[hidden] { display: none; }
+/* Live tool activity for a running turn. */
+.ws-activity { display: grid; gap: var(--s-1); margin-top: var(--s-2); color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); }
+.ws-activity-row { display: flex; align-items: flex-start; gap: var(--s-2); min-width: 0; }
+.ws-activity-row .icon { margin-top: 2px; color: var(--fg-faint); }
+.ws-activity-body { display: flex; flex-wrap: wrap; gap: 0 var(--s-2); min-width: 0; }
+.ws-activity-label { color: var(--fg); font-weight: var(--fw-medium); }
+.ws-activity-detail { overflow-wrap: anywhere; }
 
-@media (max-width: 1280px) {
-  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(360px, 1fr); }
-  .workspace-gutter-list, #workspace-gutter-list { display: none; }
+.ws-turn-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-2); }
+.ws-turn-foot .btn { min-width: 0; max-width: 100%; }
+.ws-turn-foot .btn .mono { overflow: hidden; font-size: var(--fs-12); text-overflow: ellipsis; }
+
+/* ---------- Composer ---------- */
+.ws-composer { flex: none; padding: var(--s-3) var(--s-4); border-top: 1px solid var(--border); }
+.ws-composer-in { max-width: 760px; margin: 0 auto; }
+.ws-composer-box { position: relative; display: flex; align-items: flex-end; gap: var(--s-2); }
+.ws-composer .textarea { flex: 1 1 auto; min-height: 40px; max-height: 140px; resize: none; }
+.ws-composer-box > .btn { flex: none; height: 40px; }
+.ws-addressing { min-height: 16px; margin: var(--s-2) 0 0; color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); }
+
+/* @-mention autocomplete: `.row` items in a floating list above the composer. */
+.ws-menu { position: absolute; z-index: 45; left: 0; bottom: calc(100% + var(--s-2)); width: min(400px, 100%); max-height: 280px; overflow-y: auto; padding: var(--s-1); border-radius: var(--r-3); background: var(--surface); box-shadow: var(--shadow-2); }
+.ws-menu-item { width: 100%; border: 0; background: transparent; color: var(--fg); font-family: var(--font-sans); text-align: left; }
+.ws-menu-item .status { flex: none; align-items: flex-start; max-width: 46%; font-size: var(--fs-12); line-height: 1.3; text-align: left; }
+.ws-menu-item .status::before { margin-top: 4px; }
+.ws-menu-title { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
+.ws-menu-name { overflow: hidden; color: var(--fg); font-size: var(--fs-13); font-weight: var(--fw-semibold); text-overflow: ellipsis; white-space: nowrap; }
+.ws-handle { flex: none; color: var(--fg-muted); font-size: var(--fs-12); }
+.ws-menu-empty { padding: var(--s-3); color: var(--fg-muted); font-size: var(--fs-12); }
+
+/* ---------- Dialogs (.dialog, 480px) ----------
+   The shared form layout (padding, gap, scroll) is `#participant-form, #workspace-form,
+   #participants-dialog-body` in components.css. */
+.ws-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
+.ws-dialog-head .dialog-title { min-width: 0; margin: 0; padding: 0; }
+.ws-help { color: var(--fg-muted); font: var(--fw-regular) var(--fs-12)/var(--lh-ui) var(--font-sans); letter-spacing: 0; }
+#workspace-view .form-error { min-height: 0; margin: 0; color: var(--danger); font-size: var(--fs-12); line-height: var(--lh-ui); }
+#workspace-view .form-error:empty { display: none; }
+.ws-kind { display: flex; }
+.ws-kind button { flex: 1 1 0; }
+
+/* Participants roster */
+.workspace-roster { display: grid; gap: var(--s-4); }
+.workspace-roster-group { display: grid; gap: var(--s-2); }
+.workspace-roster-list { display: grid; gap: var(--s-1); }
+.ws-roster-row { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: start; gap: var(--s-3); padding: var(--s-2); border-radius: var(--r-2); }
+.ws-roster-row:hover { background: var(--hover); }
+.ws-roster-row > .avatar { margin-top: 1px; }
+.ws-roster-body { display: grid; justify-items: start; gap: 2px; min-width: 0; }
+.ws-roster-body .status { font-size: var(--fs-12); line-height: var(--lh-ui); }
+.ws-cap-line { color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-ui); }
+.ws-roster-row .ws-add-button { align-self: center; }
+.ws-roster-menu-button { align-self: start; }
+.ws-roster-menu { position: absolute; z-index: 20; top: 36px; right: var(--s-2); display: grid; min-width: 168px; padding: var(--s-1); border-radius: var(--r-3); background: var(--surface); box-shadow: var(--shadow-2); }
+.ws-roster-menu button { padding: var(--s-2) var(--s-3); border: 0; border-radius: var(--r-2); background: transparent; color: var(--fg); font: var(--fw-medium) var(--fs-13)/var(--lh-ui) var(--font-sans); text-align: left; white-space: nowrap; }
+.ws-roster-menu button:hover { background: var(--hover); }
+.ws-roster-menu button.danger { color: var(--danger); }
+.ws-roster-menu button.danger:hover { background: var(--danger-soft); }
+.workspace-roster-footer { margin: 0; padding-top: var(--s-3); border-top: 1px solid var(--border); color: var(--fg-muted); font-size: var(--fs-12); line-height: var(--lh-body); }
+
+/* Capabilities: plain switches. */
+.ws-capabilities-field { display: grid; gap: 0; }
+.ws-capabilities-field > .field-label { margin-bottom: var(--s-1); }
+.ws-cap { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-4); padding: var(--s-3) 0; letter-spacing: 0; cursor: pointer; }
+.ws-cap + .ws-cap { border-top: 1px solid var(--border); }
+.ws-cap-copy { display: grid; gap: 2px; min-width: 0; }
+.ws-cap-title { color: var(--fg); font-size: var(--fs-13); font-weight: var(--fw-medium); line-height: var(--lh-ui); }
+.ws-cap-sub { color: var(--fg-muted); font-size: var(--fs-12); font-weight: var(--fw-regular); line-height: var(--lh-body); }
+.ws-cap-sub code { padding: 0 4px; border-radius: var(--r-1); background: var(--code-bg); color: var(--fg); font: var(--fw-regular) var(--fs-12) var(--font-mono); }
+.ws-cap-sub strong { color: var(--fg); font-weight: var(--fw-semibold); }
+.ws-cap .switch { margin-top: 1px; }
+
+/* The window minimum is 720 wide, so the list and thread stay side by side (200 + 12 + 320 fits even
+   beside a side dock). Only a narrower viewport stacks them. */
+@media (max-width: 640px) {
+  .workspace-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(96px, 30%) minmax(0, 1fr); row-gap: var(--s-2); }
+  .workspace-grid > .grid-gutter { display: none; }
+  .workspace-repo-context { display: none; }
 }
+@media (max-width: 900px) { .workspace-thread { padding: var(--s-4) var(--s-3); } }

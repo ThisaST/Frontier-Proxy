@@ -9,47 +9,48 @@ import { url } from "../../lib/site";
   title="Provider setup"
   description="Register the CLI agents on your machine, confirm Frontier can find them, and understand what each one is allowed to do."
 >
-  <h2>The Providers screen</h2>
+  <h2>The Agents screen</h2>
   <ol class="steps">
     <li>
       <h4>Do not re-add the built-in agents</h4>
       <p class="muted">
         Codex, Claude Code, GitHub Copilot, and OpenCode are already registered. Leave their executable fields as
-        <code>codex</code>, <code>claude</code>, <code>copilot</code>, and <code>opencode</code>, enable the ones you use, and choose
-        <strong>Check providers</strong>.
+        <code>codex</code>, <code>claude</code>, <code>copilot</code>, and <code>opencode</code>, turn on the ones you use, and choose
+        <strong>Check agents</strong>.
       </p>
     </li>
     <li>
-      <h4>Resolve anything that says Not detected</h4>
+      <h4>Resolve anything that says CLI not detected</h4>
       <p class="muted">
         Run <code>command -v codex</code> (or <code>claude</code> / <code>copilot</code>) in a terminal and paste the
-        absolute path into that provider's Executable field. "Not detected" is a PATH problem, not a permissions problem.
+        absolute path into the Executable field of that agent's sheet (click its row). "Not detected" is a PATH problem, not a permissions problem.
       </p>
     </li>
     <li>
       <h4>Configure the optional fields</h4>
       <p class="muted">
-        Model, tracked usage limit, and context-window size, then <strong>Save provider</strong>. A context limit
+        Model, tracked usage limit, and context-window size, then <strong>Save agent</strong>. A context limit
         reported by the CLI always takes precedence over the configured fallback.
       </p>
     </li>
     <li>
       <h4>Add other agents only if you have them</h4>
-      <p class="muted">Use <strong>Add custom CLI</strong> for any other locally installed agent executable.</p>
+      <p class="muted">Use <strong>Add CLI</strong> for any other locally installed agent executable.</p>
     </li>
   </ol>
 
   <DocsFigure
     name="agents"
-    alt="The Agents screen listing every configured CLI as a table with a status lamp, login state, models by tier, and today's plan-window usage"
+    alt="The Agents screen listing every configured CLI as a table with its login state, version, models by tier, today's tokens, and plan window"
     caption="The Agents table: login state, models by tier, and plan windows for every configured CLI."
   />
 
-  <Callout tone="warn" title="Ready means found, not signed in">
+  <Callout tone="warn" title="Found is not the same as signed in">
     <p>
-      The green <strong>Ready</strong> badge runs <code>&lt;exe&gt; --version</code> and nothing more. It confirms the
-      packaged app can locate the binary — not that the CLI has a valid session. A provider can show Ready and still
-      fail a task because its login expired. See <a href={url("docs/troubleshooting")}>troubleshooting</a>.
+      The <strong>CLI found</strong> status runs <code>&lt;exe&gt; --version</code> and nothing more. It confirms the
+      packaged app can locate the binary — not that the CLI has a valid session. A provider can be found and still
+      fail a task because its login expired; the table's <strong>Login</strong> column reads the CLI's own session
+      state from disk (read-only) and says so. See <a href={url("docs/troubleshooting")}>troubleshooting</a>.
     </p>
   </Callout>
 
@@ -68,7 +69,7 @@ import { url } from "../../lib/site";
   <p>
     Claude Code is the one agent whose sessions Frontier can resume: the session id from its
     <code>system/init</code> event is stored on the task, so follow-up turns continue the real CLI conversation with
-    <code>--resume</code> rather than replaying a transcript. Extra CLI flags can be configured on the provider card.
+    <code>--resume</code> rather than replaying a transcript. Extra CLI flags can be configured in the agent's sheet.
   </p>
 
   <h2>GitHub Copilot CLI</h2>
@@ -86,13 +87,13 @@ copilot login</code></pre>
 copilot login</code></pre>
 
   <p>
-    Leave the executable as <code>copilot</code>, enable it, and choose <strong>Check providers</strong>. Frontier sends
+    Leave the executable as <code>copilot</code>, turn it on, and choose <strong>Check agents</strong>. Frontier sends
     prompts through stdin in Copilot's non-interactive silent mode. By default it grants file writes plus common Git,
     package, and build commands — it does <em>not</em> grant <code>--allow-all</code>. Add or replace
     <code>--allow-tool</code> rules in Extra arguments if a project needs different tools.
   </p>
   <p>
-    The provider card also extends Copilot's built-in GitHub MCP server with selected toolsets or individual tools.
+    The agent's sheet also extends Copilot's built-in GitHub MCP server with selected toolsets or individual tools.
     Enabling every GitHub MCP tool is available as an explicit override; otherwise Copilot keeps its default CLI subset
     plus your selections.
   </p>
@@ -140,7 +141,7 @@ ollama serve</code></pre>
 
   <h2>Other local agent CLIs</h2>
   <p>
-    Choose <strong>Add custom CLI</strong> and configure the executable and its argument list; quoted arguments are
+    Choose <strong>Add CLI</strong> and configure the executable and its argument list; quoted arguments are
     supported. The prompt goes over stdin by default. Use <code>{"{prompt}"}</code> in a single argument only when a
     tool requires the prompt as an argv value, plus <code>{"{cwd}"}</code> and <code>{"{model}"}</code> for the working
     directory and configured model. Custom processes are launched directly, with no intermediary shell.
@@ -153,7 +154,7 @@ ollama serve</code></pre>
     curated set of sensible defaults. The provider's own configured model is always folded in.
   </p>
   <p>
-    The New Task dialog's model field is a dropdown scoped to the chosen agent, with <strong>Provider default</strong>
+    The composer's Model option is a dropdown scoped to the chosen agent, with <strong>Provider default</strong>
     and <strong>Custom model…</strong> bracketing the list.
   </p>
 

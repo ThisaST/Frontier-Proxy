@@ -37,10 +37,25 @@ shows expected asset names, and the changelog links out to GitHub instead.
 
 ## Theme
 
-`src/styles/theme.css` carries the same design tokens as the desktop app
-(`src/renderer/src/styles.css`) — background, surfaces, lines, the `#a9ef72` green, the
-Georgia headings, the brand mark. **Keep the two in sync**: if the app's palette changes,
-change it here too.
+`src/styles/theme.css` carries the desktop app's **Neutral** family, light and dark
+(`src/renderer/src/styles/tokens.css`: the same token names and values), set in Inter and
+JetBrains Mono. **Keep the two in sync**: if the app's Neutral palette changes, change it
+here too. `public/theme-init.js` and `ThemeToggle.astro` resolve `fp-scheme`
+(`system`, `light` or `dark`) to `data-scheme` on `<html>`, like the app does.
+
+## Screenshots
+
+`src/assets/screens/*.png` (six screens, light and dark) are shot from the real built
+renderer against a canned fixture, never from a real profile. To re-shoot after a UI change:
+
+```bash
+pnpm build                                                  # repo root: builds out/renderer
+./node_modules/.bin/electron site/scripts/screenshots/capture.js
+```
+
+`capture.js` serves `out/renderer` itself (`demo.js` is the fixture and stubs `window.frontier`),
+sets `fp-family`, `fp-scheme` and `fp-agents-setup-dismissed`, walks the dock, and writes the
+files at 1920 px wide. `src/lib/screens.ts` lists the names the pages can use.
 
 ## Configuration
 

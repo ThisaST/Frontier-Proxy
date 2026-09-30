@@ -29,11 +29,6 @@ export function textArea(value: string, rows = 2): HTMLTextAreaElement {
   const area = document.createElement('textarea'); area.rows = rows; area.value = value; return area
 }
 
-export function metaChip(label: string, value: string, className = ''): HTMLElement {
-  const chip = element('div', `meta-chip ${className}`.trim())
-  chip.append(element('span', 'meta-label', label), element('strong', undefined, value))
-  return chip
-}
 
 // Diff/source code line rendering, shared by the task Files tab and the Review
 // branch diff viewer.

@@ -1,34 +1,33 @@
 ---
-// System / Console / Daylight segmented control — the site's equivalent of
-// Settings → Appearance in the app (src/renderer/index.html's #appearance-theme,
-// src/renderer/src/theme.ts). Same localStorage key (`fp-theme`), same
+// System / Light / Dark segmented control — the site's equivalent of Settings →
+// Appearance → Scheme in the app (src/renderer/index.html's #appearance-scheme,
+// src/renderer/src/theme.ts). Same localStorage key (`fp-scheme`), same
 // radiogroup pattern (roving tabindex + arrow keys, ui/segmented.ts), same
-// before-paint resolution (public/theme-init.js). The site has no separate
-// "reduce effects" switch — `data-effects` here follows prefers-reduced-motion
-// only, computed by theme-init.js and kept in sync on change below.
+// before-paint resolution (public/theme-init.js). The site has one theme
+// family, so this only chooses the scheme.
 ---
 
-<div class="theme-toggle segmented" id="site-theme-toggle" role="radiogroup" aria-label="Theme">
-  <button type="button" data-theme-choice="system" role="radio" aria-checked="false">System</button>
-  <button type="button" data-theme-choice="console" role="radio" aria-checked="false">Console</button>
-  <button type="button" data-theme-choice="daylight" role="radio" aria-checked="false">Daylight</button>
+<div class="theme-toggle segmented" id="site-theme-toggle" role="radiogroup" aria-label="Colour scheme">
+  <button type="button" data-scheme-choice="system" role="radio" aria-checked="false">System</button>
+  <button type="button" data-scheme-choice="light" role="radio" aria-checked="false">Light</button>
+  <button type="button" data-scheme-choice="dark" role="radio" aria-checked="false">Dark</button>
 </div>
 
 <script>
-  const THEME_KEY = "fp-theme";
+  const SCHEME_KEY = "fp-scheme";
 
-  function readTheme(): string {
+  function readScheme(): string {
     try {
-      const stored = localStorage.getItem(THEME_KEY);
-      return stored === "console" || stored === "daylight" ? stored : "system";
+      const stored = localStorage.getItem(SCHEME_KEY);
+      return stored === "light" || stored === "dark" ? stored : "system";
     } catch {
       return "system";
     }
   }
 
-  function writeTheme(value: string): void {
+  function writeScheme(value: string): void {
     try {
-      localStorage.setItem(THEME_KEY, value);
+      localStorage.setItem(SCHEME_KEY, value);
     } catch {
       /* private mode / disabled storage */
     }
@@ -38,34 +37,27 @@
     return typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
 
-  function prefersReducedMotion(): boolean {
-    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  }
-
-  function applyTheme(): void {
-    const theme = readTheme();
-    const resolved = theme === "system" ? (prefersDark() ? "console" : "daylight") : theme;
-    document.documentElement.setAttribute("data-theme", resolved);
-    document.documentElement.setAttribute("data-effects", prefersReducedMotion() ? "off" : "on");
-    syncGroup(theme);
+  function applyScheme(): void {
+    const scheme = readScheme();
+    const resolved = scheme === "system" ? (prefersDark() ? "dark" : "light") : scheme;
+    document.documentElement.setAttribute("data-scheme", resolved);
+    syncGroup(scheme);
   }
 
   const group = document.getElementById("site-theme-toggle");
   const options = () => [...(group?.querySelectorAll<HTMLButtonElement>('[role="radio"]') ?? [])];
 
-  function syncGroup(theme: string): void {
+  function syncGroup(scheme: string): void {
     for (const el of options()) {
-      const checked = el.dataset.themeChoice === theme;
+      const checked = el.dataset.schemeChoice === scheme;
       el.setAttribute("aria-checked", String(checked));
-      el.classList.toggle("active", checked);
       el.tabIndex = checked ? 0 : -1;
     }
   }
 
   function select(el: HTMLButtonElement): void {
-    const theme = el.dataset.themeChoice ?? "system";
-    writeTheme(theme);
-    applyTheme();
+    writeScheme(el.dataset.schemeChoice ?? "system");
+    applyScheme();
   }
 
   if (group) {
@@ -91,23 +83,20 @@
     });
   }
 
-  applyTheme();
+  applyScheme();
 
   if (typeof window.matchMedia === "function") {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (readTheme() === "system") applyTheme(); });
-    window.matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", applyTheme);
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (readScheme() === "system") applyScheme(); });
   }
 </script>
 
 <style>
   /* Compact enough to sit on one line next to the rest of the nav at 1280,
      and to fit the mobile disclosure menu at 390 — the app's own segmented
-     control (Settings → Appearance) has more room to breathe than a topbar. */
+     control (Settings → Appearance) has more room to breathe than a top nav. */
   .theme-toggle { flex: 0 0 auto; }
   .theme-toggle button {
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    padding: 7px 9px;
-    font-size: 10px;
+    padding: 5px 9px;
+    font-size: 12px;
   }
 </style>

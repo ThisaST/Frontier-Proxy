@@ -1,98 +1,67 @@
-// Phosphor Console component factories (design spec §4, §6): lamps, the
-// segmented gauge, the radar sweep, and probability bars. Panels/dialogs get
-// their bezel + corner-tick motif from CSS alone (`.panel`, `dialog`) since no
-// markup change is needed for those.
-import { element, emptyState } from './dom'
+// The Calm kit's component factories (styles/kit.css, docs/ui-calm/spec.md section 4): status,
+// tag, meter, avatar and labels, plus the inspector section and dialog helpers.
+import { element } from './dom'
 import { icon } from './icons'
 
-export type Tone = 'amber' | 'cyan' | 'phosphor' | 'caution' | 'alarm' | 'muted'
+export type StatusTone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral' | 'running'
+export type MeterTone = 'ok' | 'warn' | 'danger' | 'accent'
 
-// Small pill label (design spec §6) — tier badges, the advisor source badge,
-// and anywhere else a one-word status needs a colour without a full lamp.
-export function chip(tone: Tone, label: string): HTMLElement {
-  return element('span', `chip tone-${tone}`, label)
-}
+const STATUS_NAMES: Record<StatusTone, string> = { ok: 'OK', warn: 'Warning', danger: 'Error', info: 'Info', neutral: 'Idle', running: 'Running' }
 
-// Round LED. `blink` is for "needs you" only, and is neutralised in CSS under
-// `data-effects="off"` / `prefers-reduced-motion`.
-export function lamp(tone: Tone, label: string, blink = false): HTMLElement {
-  const node = element('span', `lamp lamp-${tone}${blink ? ' blink' : ''}`)
-  node.setAttribute('role', 'img')
-  node.setAttribute('aria-label', label)
-  node.title = label
+// A dot and a word. With no text it is a dot-only status (queue rows), so the dot itself
+// carries the accessible name: `opts.ariaLabel`, else the tone's plain word.
+export function status(tone: StatusTone, label: string, opts: { ariaLabel?: string; title?: string } = {}): HTMLElement {
+  const node = element('span', `status ${tone}`, label)
+  if (!label) { node.setAttribute('role', 'img'); node.setAttribute('aria-label', opts.ariaLabel ?? STATUS_NAMES[tone]) }
+  if (opts.title) node.title = opts.title
   return node
 }
 
-// Ten discrete segments by default. Replaces every continuous meter (plan
-// windows, context occupancy, tracked budget). A `meter`/`progressbar` role
-// requires `aria-valuenow` (axe: aria-required-attr) — when the value is
-// genuinely unknown ("No plan limit reported") this renders as a plain
-// labelled image instead of a value-less meter.
-export function gaugeSeg(percent: number | undefined, tone: Tone = 'phosphor', label?: string, segments = 10): HTMLElement {
-  const node = element('div', `gauge-seg tone-${tone}`)
-  if (percent === undefined) {
+// Small neutral text tag (kinds, tiers, file actions). Text is shown as given, never uppercased.
+export function tag(label: string): HTMLElement { return element('span', 'tag', label) }
+
+// A 4px meter. `--value` is set through the CSSOM (`style.setProperty`), never an inline
+// `style` attribute, because the CSP is `style-src 'self'`. A `meter` role
+// needs `aria-valuenow`, so an unknown value renders as a labelled image instead.
+export function meter(percent: number | undefined, tone?: MeterTone, label?: string): HTMLElement {
+  const node = element('div', `meter${tone ? ` ${tone}` : ''}`)
+  const track = element('div', 'meter-track'), fill = element('div', 'meter-fill')
+  track.append(fill); node.append(track)
+  if (percent === undefined || !Number.isFinite(percent)) {
     node.setAttribute('role', 'img')
-    node.setAttribute('aria-label', label ? `${label} — no data reported` : 'No data reported')
-    for (let index = 0; index < segments; index += 1) node.append(element('span', 'seg'))
+    node.setAttribute('aria-label', label ? `${label}: not reported` : 'Not reported')
     return node
   }
-  const clamped = Math.min(100, Math.max(0, percent))
-  const lit = Math.round((clamped / 100) * segments)
+  const clamped = Math.min(100, Math.max(0, percent)), rounded = Math.round(clamped)
+  node.style.setProperty('--value', `${clamped}%`)
   node.setAttribute('role', 'meter')
-  node.setAttribute('aria-valuemin', '0')
-  node.setAttribute('aria-valuemax', '100')
-  node.setAttribute('aria-valuenow', String(Math.round(clamped)))
-  node.setAttribute('aria-valuetext', `${Math.round(clamped)}%${label ? ` — ${label}` : ''}`)
+  node.setAttribute('aria-valuemin', '0'); node.setAttribute('aria-valuemax', '100'); node.setAttribute('aria-valuenow', String(rounded))
+  node.setAttribute('aria-valuetext', `${rounded}%${label ? `: ${label}` : ''}`)
   if (label) node.setAttribute('aria-label', label)
-  for (let index = 0; index < segments; index += 1) node.append(element('span', index < lit ? 'seg lit' : 'seg'))
   return node
 }
 
-// A 16–40px circular scope with a rotating sweep, shown while a task is
-// queued for routing. Effects off / reduced motion: the sweep stops and the
-// centre dot pulses gently instead (still governed by the global
-// reduced-motion kill-switch in base.css).
-export function radar(size: 16 | 24 | 32 = 16, label = 'Queued for routing'): HTMLElement {
-  const node = element('span', 'radar')
-  node.style.setProperty('--radar-size', `${size}px`)
-  node.setAttribute('role', 'img')
-  node.setAttribute('aria-label', label)
-  node.title = label
-  return node
-}
-
-// One routing factor as a horizontal segmented bar plus its numeric readout —
-// the Tasks inspector's Route section factor rows (also used on the Routing
-// screen's payload preview). `maxAbs` bounds the scale the bar is drawn
-// against (router factors are bounded, see CLAUDE.md's routing sections).
-export function probabilityBar(label: string, points: number, maxAbs = 20): HTMLElement {
-  const row = element('div', `probability-bar ${points < 0 ? 'negative' : 'positive'}`)
-  row.append(element('span', 'probability-bar-label', label))
-  const track = element('div', 'probability-bar-track')
-  const fillPercent = Math.min(100, (Math.abs(points) / maxAbs) * 100)
-  const fill = element('div', 'probability-bar-fill')
-  fill.style.width = `${fillPercent}%`
-  track.append(fill)
-  row.append(track, element('span', 'probability-bar-value readout', `${points > 0 ? '+' : ''}${Math.round(points)}`))
+// Label + meter + mono readout on one row (routing factors, advisor best fit, plan windows).
+export function meterRow(label: string, percent: number | undefined, readoutText: string, tone?: MeterTone): HTMLElement {
+  const row = element('div', 'meter-row')
+  row.append(element('span', 'meter-label', label), meter(percent, tone, label), element('span', 'meter-readout', readoutText))
   return row
 }
 
-// A probability distribution (0..1 shares) as a stack of bars with a percent
-// readout — Jev's task-type probabilities and its `target` (provider · model)
-// choice in the Route section's advisor panel.
-export function probabilityBars(entries: Array<{ label: string; value: number }>, tone: Tone = 'cyan'): HTMLElement {
-  const wrap = element('div', 'probability-bars')
-  for (const { label, value } of entries) {
-    const row = element('div', `probability-bar tone-${tone}`)
-    row.append(element('span', 'probability-bar-label', label))
-    const track = element('div', 'probability-bar-track')
-    const fill = element('div', 'probability-bar-fill')
-    fill.style.width = `${Math.round(Math.min(1, Math.max(0, value)) * 100)}%`
-    track.append(fill)
-    row.append(track, element('span', 'probability-bar-value readout', `${Math.round(value * 100)}%`))
-    wrap.append(row)
-  }
-  return wrap
+// Two-letter initials in a neutral circle. Decorative unless a `name` is given.
+export function avatar(initials: string, name?: string): HTMLElement {
+  const node = element('span', 'avatar', initials.trim().slice(0, 2).toUpperCase())
+  if (name) { node.setAttribute('role', 'img'); node.setAttribute('aria-label', name) } else node.setAttribute('aria-hidden', 'true')
+  return node
+}
+
+export function sectionTitle(text: string, tagName: 'h2' | 'h3' | 'h4' | 'div' = 'h3'): HTMLElement { return element(tagName, 'section-title', text) }
+
+// A `label` when it names a control (`forId`), otherwise a plain span.
+export function fieldLabel(text: string, forId?: string): HTMLElement {
+  const node = element(forId ? 'label' : 'span', 'field-label', text)
+  if (forId) node.setAttribute('for', forId)
+  return node
 }
 
 // A collapsible header + body — the Tasks inspector's Route/Files/Activity/
@@ -125,58 +94,6 @@ export function inspectorSection(id: string, title: string, body: HTMLElement | 
   })
   section.append(header, content)
   return section
-}
-
-// ---------- Data table (spec §6) — Agents grid, Routing's model catalog ----------
-export interface DataTableColumn<T> {
-  label: string
-  render(row: T): Node | string
-  className?: string
-}
-
-export interface DataTableOptions<T> {
-  onRowClick?(row: T, index: number, rowElement: HTMLTableRowElement): void
-  rowClassName?(row: T): string
-  emptyTitle?: string
-  emptyDetail?: string
-}
-
-export function dataTable<T>(columns: Array<DataTableColumn<T>>, rows: T[], options: DataTableOptions<T> = {}): HTMLElement {
-  const wrap = element('div', 'table-wrap')
-  const table = document.createElement('table'); table.className = 'data-table'
-  const thead = document.createElement('thead')
-  const headRow = document.createElement('tr')
-  for (const column of columns) { const th = document.createElement('th'); th.textContent = column.label; headRow.append(th) }
-  thead.append(headRow)
-  const tbody = document.createElement('tbody')
-  if (!rows.length) {
-    const tr = document.createElement('tr')
-    const td = document.createElement('td'); td.colSpan = columns.length
-    td.append(emptyState(options.emptyTitle ?? 'Nothing here', options.emptyDetail ?? 'Nothing to show yet.'))
-    tr.append(td); tbody.append(tr)
-  } else {
-    rows.forEach((row, index) => {
-      const tr = document.createElement('tr')
-      if (options.rowClassName) tr.className = options.rowClassName(row)
-      if (options.onRowClick) {
-        tr.classList.add('clickable')
-        tr.tabIndex = 0
-        tr.addEventListener('click', () => options.onRowClick!(row, index, tr))
-        tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); options.onRowClick!(row, index, tr) } })
-      }
-      for (const column of columns) {
-        const td = document.createElement('td')
-        if (column.className) td.className = column.className
-        const rendered = column.render(row)
-        if (typeof rendered === 'string') td.textContent = rendered; else td.append(rendered)
-        tr.append(td)
-      }
-      tbody.append(tr)
-    })
-  }
-  table.append(thead, tbody)
-  wrap.append(table)
-  return wrap
 }
 
 // ---------- Drawer / overlay dialogs (spec §6) ----------

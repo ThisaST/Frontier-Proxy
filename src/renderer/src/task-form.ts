@@ -1,6 +1,7 @@
-// Shared New Task form logic — run mode, bench picker, per-task skills
-// selector, model picker, and the create-task submit flow. Used identically
-// by the ⌘N dialog and Home's composer (P3b) so the two forms cannot drift.
+// The task-creation form logic — run mode, bench picker, per-task skills
+// selector, model picker, and the create-task submit flow. Since P4 there is one
+// composer (Tasks' compose state, views/compose.ts) and so one instance; the ids
+// stay injectable so the form carries no knowledge of the page around it.
 import type { CreateTaskInput, ProxyTask, SkillCatalog } from '../../shared/types'
 import { byId, element, emptyState } from './ui/dom'
 import { initRadioGroup, syncRadioGroupTabIndex } from './ui/segmented'
@@ -11,9 +12,8 @@ import { snapshot } from './state'
 export type RunMode = 'single' | 'orchestrate' | 'bench'
 
 export interface TaskFormIds {
-  // Scopes the `.run-mode` buttons this instance owns — without it, two forms
-  // on screen at once (Home's composer and the ⌘N dialog) would each react to
-  // clicks on the other's run-mode chips.
+  // Scopes the `.run-mode` buttons this instance owns, so no other run-mode
+  // control on the page (the participant editor's) is picked up by accident.
   root: string
   promptInput: string
   singleOptions?: string
@@ -26,6 +26,8 @@ export interface TaskFormIds {
   providerOverrideSelect: string
   skillsSummary?: string
   skillsList?: string
+  // Told after every run-mode change (click, arrow key, or setRunMode).
+  onRunModeChange?(mode: RunMode): void
 }
 
 export interface TaskForm {
@@ -34,6 +36,8 @@ export interface TaskForm {
   setRunMode(mode: RunMode): void
   renderProviderOptions(): void
   renderModelOptions(): void
+  renderBenchProviders(): void
+  selectedBenchProviders(): string[]
   selectedModel(): string | undefined
   selectedModelProvider(): string | undefined
   loadSkills(cwd: string): Promise<void>
@@ -57,7 +61,8 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
 
   function updateTaskSkillsSummary(): void {
     if (!ids.skillsSummary) return
-    byId(ids.skillsSummary).textContent = `Skills · ${taskSkillsSelection.size} enabled${runMode === 'bench' ? ' · applies to every lane' : ''}`
+    const count = !taskSkillsCatalog ? 'Not scanned yet' : taskSkillsCatalog.skills.length ? `${taskSkillsSelection.size} of ${taskSkillsCatalog.skills.length} enabled` : 'None found'
+    byId(ids.skillsSummary).textContent = `${count}${runMode === 'bench' && taskSkillsCatalog?.skills.length ? ' · every lane' : ''}`
   }
 
   function renderTaskSkillsField(): void {
@@ -116,13 +121,15 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
     if (!ids.benchProviders) return
     const container = byId(ids.benchProviders)
     const eligible = snapshot.providers.filter((provider) => provider.enabled && provider.runtime.available)
+    // A live snapshot re-renders this list; the ticks the user already made survive it.
+    const checked = new Set(selectedBenchProviders())
     if (eligible.length < 2) {
       container.replaceChildren(element('p', 'field-help', 'At least two installed, signed-in agents are needed for a comparison.'))
       return
     }
     container.replaceChildren(...eligible.map((provider) => {
       const label = document.createElement('label'); label.className = 'bench-provider'
-      const input = document.createElement('input'); input.type = 'checkbox'; input.value = provider.id
+      const input = document.createElement('input'); input.type = 'checkbox'; input.value = provider.id; input.checked = checked.has(provider.id)
       const body = element('span', 'bench-provider-body')
       body.append(element('strong', undefined, provider.name), element('small', undefined, provider.model ?? provider.kind))
       label.append(input, body)
@@ -147,7 +154,10 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
     if (ids.benchOptions) byId(ids.benchOptions).hidden = mode !== 'bench'
     if (ids.modelField) byId(ids.modelField).hidden = mode === 'bench'
     if (mode === 'bench') renderBenchProviders()
-    resetTaskSkillsState()
+    // The skills catalog belongs to the project, not the run mode, so a mode change keeps it
+    // (and any ticks already made); only the summary's "every lane" note changes.
+    updateTaskSkillsSummary()
+    ids.onRunModeChange?.(mode)
   }
 
   function renderProviderOptions(): void {
@@ -252,6 +262,8 @@ export function createTaskForm(ids: TaskFormIds): TaskForm {
     setRunMode,
     renderProviderOptions,
     renderModelOptions,
+    renderBenchProviders,
+    selectedBenchProviders,
     selectedModel,
     selectedModelProvider,
     loadSkills: loadTaskSkills,

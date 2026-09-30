@@ -37,6 +37,8 @@ export default defineConfig({
   renderer: {
     root: resolve('src/renderer'),
     plugins: [devStyleCsp, injectAppVersion],
-    build: { rollupOptions: { input: resolve('src/renderer/index.html') } }
+    // Every asset stays a file: Vite would otherwise inline the small @fontsource subsets as
+    // `data:` URLs, which `default-src 'self'` blocks (fonts fall under it; only img-src allows data:).
+    build: { assetsInlineLimit: 0, rollupOptions: { input: resolve('src/renderer/index.html') } }
   }
 })

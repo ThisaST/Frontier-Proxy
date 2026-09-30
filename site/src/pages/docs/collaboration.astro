@@ -1,6 +1,7 @@
 ---
 import Docs from "../../layouts/Docs.astro";
 import Callout from "../../components/Callout.astro";
+import DocsFigure from "../../components/DocsFigure.astro";
 import { url, REPO_URL } from "../../lib/site";
 ---
 
@@ -15,12 +16,18 @@ import { url, REPO_URL } from "../../lib/site";
     nothing is routed on your behalf.
   </p>
 
+  <DocsFigure
+    name="workspaces"
+    alt="A workspace thread with a person and two named agents: @mentions render as chips, one reply carries its review branch, and one participant is still working"
+    caption="A workspace: one thread per repo, replies from the agents you addressed, and a branch chip on the one that wrote files."
+  />
+
   <h2>Create a workspace</h2>
   <ol class="steps">
     <li>
       <h4>Point it at a repository</h4>
       <p class="muted">
-        Open <strong>Workspaces</strong> in the sidebar, choose <strong>＋</strong>, and give the workspace a name and
+        Open <strong>Workspaces</strong> in the dock, choose <strong>＋</strong>, and give the workspace a name and
         a folder. Every participant works in that folder.
       </p>
     </li>

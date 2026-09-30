@@ -10,7 +10,8 @@ Status: **accepted** (2026-09-24). Priority order: **UI** and **Jev routing** fi
   The Routing screen shows the exact payload.
 - Forges (§3) are **deferred**. The first cut is routing + UI only.
 - Theme: a **visual rebrand** with an uncommon identity is in scope. The chosen direction is
-  **Phosphor Console**, specified in [design-phosphor-console.md](design-phosphor-console.md).
+  **Phosphor Console**, specified then in `design-phosphor-console.md` (since replaced by
+  [design-calm.md](design-calm.md), where Phosphor is one theme family).
   P1 is split into **P1a** (theme-neutral renderer split) and **P1b** (design system +
   Phosphor Console re-skin of the current layout).
 - Implementation: Sonnet 5 subagents implement each phase in isolated worktrees; the lead

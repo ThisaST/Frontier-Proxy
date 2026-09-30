@@ -1,6 +1,6 @@
 // A single polite `aria-live` region (`#live-status` in index.html) for
 // state changes that have no other text equivalent on screen the moment they
-// happen — a task finishing, the Home route preview settling. Throttled and
+// happen — a task finishing, the compose route preview settling. Throttled and
 // de-duplicated per `topic` so a streaming run (which touches task state many
 // times a second — see CLAUDE.md's "Snapshot coalescing") never spams it;
 // only the next distinct message per topic is ever announced, at most once

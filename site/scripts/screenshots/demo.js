@@ -44,7 +44,33 @@ const tasks = [
 ]
 const settings = { maxParallelTasks: 2, quotaCooldownMinutes: 20, memory: '', skills: { disabledIds: [] }, verification: { enabled: true, commands: [], timeoutSeconds: 300 }, notifications: { enabled: true, onlyWhenUnfocused: true }, learnFromOutcomes: true,
   controlPlane: { systemPrompt: '', addDirs: [], allowedTools: [], disallowedTools: [], mcpServers: [], strictMcp: false }, providers, advisor: { mode: 'active', model: 'jev-latest', minConfidence: 0.5, shareRepoFacts: true, previewWhileTyping: false } }
-window.__fixture = { tasks, providers, settings, mcpAuth: [], workspaces: [], advisor: { hasKey: true, lastCheckedAt: iso(2) } }
+// One workspace: a human and two agents, each reply already finished except one that is still working.
+const person = (id, handle, name, role, providerId, capabilities, model) => ({ id, handle, name, kind: providerId ? 'agent' : 'human', role, providerId, model, capabilities, enabled: true, available: true })
+const wsMsg = (id, seq, m, participantId, text, addressed = []) => ({ id, seq, author: 'human', participantId, text, createdAt: iso(m), addressed })
+const wsTurn = (id, messageId, participantId, providerId, m, extra) => ({ id, workspaceId: 'w1', messageId, participantId, providerId, startedAt: iso(m - 1), ...extra })
+const workspaces = [{
+  id: 'w1', name: 'todo-api', cwd: CWD, createdAt: iso(1500), nextSeq: 4,
+  participants: [
+    person('p0', '@jamie', 'Jamie', 'Owner', undefined, []),
+    person('p1', '@claude', 'Claude', 'Backend implementer', 'claude', ['read-repo', 'edit-files'], 'claude-sonnet-5'),
+    person('p2', '@codex', 'Codex', 'Reviewer', 'codex', ['read-repo'], 'gpt-5-codex')
+  ],
+  messages: [
+    wsMsg('m1', 1, 40, 'p0', '@claude add rate limiting to `POST /login`: five attempts per minute per IP, then a 429 with a Retry-After header.', ['p1']),
+    wsMsg('m2', 2, 22, 'p0', '@codex can you review that branch for races before I merge it?', ['p2']),
+    wsMsg('m3', 3, 3, 'p0', '@claude fold in the notes from @codex, and keep the limiter behind the existing middleware.', ['p1'])
+  ],
+  turns: [
+    wsTurn('wt1', 'm1', 'p1', 'claude', 40, { status: 'completed', finishedAt: iso(31), model: 'claude-sonnet-5', branch: 'frontier/ws-todo-api/1-claude', committed: true,
+      filesChanged: [{ path: 'src/auth/rate-limit.ts', action: 'create', at: iso(33) }, { path: 'src/routes/login.ts', action: 'edit', at: iso(32) }],
+      output: 'Added a fixed-window limiter in `src/auth/rate-limit.ts` and wired it into the login route: five attempts per minute per IP, then a `429` with `Retry-After`. Tests cover the boundary at five and six attempts.' }),
+    wsTurn('wt2', 'm2', 'p2', 'codex', 22, { status: 'completed', finishedAt: iso(15), model: 'gpt-5-codex',
+      output: 'One thing to fix before merge: `hit()` reads and writes the counter in separate steps, so two parallel requests can both pass at attempt five. Use a single atomic increment.' }),
+    wsTurn('wt3', 'm3', 'p1', 'claude', 3, { status: 'running', model: 'claude-sonnet-5', output: '',
+      activity: [{ kind: 'tool', label: 'Read', detail: 'src/auth/rate-limit.ts', at: iso(2) }, { kind: 'tool', label: 'Edit', detail: 'src/auth/rate-limit.ts', at: iso(1) }] })
+  ]
+}]
+window.__fixture = { tasks, providers, settings, mcpAuth: [], workspaces, advisor: { hasKey: true, lastCheckedAt: iso(2) } }
 const vr = (ok) => ({ ran: true, ok, at: iso(60), checks: [{ name: 'typecheck', command: 'pnpm typecheck', ok: true, exitCode: 0, durationMs: 8200, output: '' }, { name: 'test', command: 'pnpm test', ok, exitCode: ok ? 0 : 1, durationMs: 23100, output: ok ? '' : '1 failed' }] })
 const branches = [
   { cwd: CWD, branch: 'frontier/t3/1-email-provider', taskId: 't3', subject: 'Extract email provider', committedAt: iso(66), ahead: 1, merged: false, files: [{ path: 'src/notify/email.ts', action: 'create', additions: 84, deletions: 0 }, { path: 'src/notify/index.ts', action: 'edit', additions: 6, deletions: 41 }], verification: vr(true) },

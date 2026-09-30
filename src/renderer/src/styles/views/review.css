@@ -1,47 +1,79 @@
-/* ---------- Review inbox ---------- */
-.review-layout { display: grid; grid-template-columns: minmax(280px, .75fr) minmax(420px, 1.6fr); gap: 14px; flex: 1 1 auto; min-height: 0; }
-.review-list-panel { display: flex; flex-direction: column; min-height: 0; }
-.review-list { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 6px; }
-.review-repo { padding: 12px 10px 7px; }
-.review-repo strong { display: block; font-size: 12px; font-weight: 600; }
-.review-repo small { display: block; margin-top: 3px; color: var(--fg-muted); font-size: 9px; }
-.review-branch { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 11px; border: 1px solid transparent; border-radius: var(--r-md); background: transparent; text-align: left; }
-.review-branch:hover { background: var(--surface-2); }
-.review-branch.active { background: var(--surface-2); border-color: var(--bezel); box-shadow: inset 2px 0 var(--amber); }
-.review-branch.merged { opacity: .6; }
-.review-branch-body { min-width: 0; flex: 1 1 auto; }
-.review-branch-body strong { display: block; font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-branch-body small { display: block; margin-top: 3px; color: var(--fg-muted); font-size: 9px; }
-.review-merged-chip { border: 1px solid var(--bezel); border-radius: 20px; padding: 2px 7px; color: var(--fg-muted); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
-.review-detail-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.review-detail-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 15px 18px; border-bottom: 1px solid var(--bezel); }
-.review-detail-heading { min-width: 0; }
-.review-detail-heading h2 { margin: 0; font: 600 17px var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-detail-subtitle { margin: 4px 0 0; color: var(--fg-muted); font: 9px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ---------- Review inbox: repo-grouped list, then checks, files and diff ---------- */
+.review-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--s-3); flex: 1 1 auto; min-height: 0; }
+.review-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; }
+.review-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s-2); }
+.review-note { margin: 0; padding: var(--s-3); color: var(--fg-muted); font-size: var(--fs-13); line-height: var(--lh-body); }
+.review-empty-title { color: var(--fg); font-weight: var(--fw-medium); }
+.review-empty-title + p { margin: 0; }
+
+/* Repo heading: name, then "on main" in mono. */
+.review-repo { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-1) var(--s-2); padding: var(--s-2) var(--s-3) var(--s-1); }
+.review-repo-name { font: var(--fw-semibold) var(--fs-13)/var(--lh-ui) var(--font-display); letter-spacing: var(--tracking-label); text-transform: var(--label-transform); }
+.review-repo-branch { color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); }
+.review-repo-dirty { font-size: var(--fs-12); }
+
+/* Branch row: title, one meta line, one check line. */
+.review-branch { align-items: flex-start; width: 100%; margin-bottom: 2px; border: 0; background: none; text-align: left; font-family: var(--font-sans); }
+.review-branch .row-main { display: flex; flex-direction: column; gap: 3px; }
+.review-branch .row-title { font-weight: var(--fw-medium); }
+.review-meta { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.review-branch .status { align-items: flex-start; font-size: var(--fs-12); }
+.review-branch .status::before { margin-top: 5px; }
+.review-branch > .tag { flex: none; margin-top: 2px; }
+
+/* Detail header. The merge button is the screen's one primary action. */
+.review-detail-head { flex: none; display: flex; align-items: flex-start; flex-wrap: wrap; gap: var(--s-3) var(--s-4); padding: var(--s-4); border-bottom: 1px solid var(--border); }
+.review-detail-heading { flex: 1 1 200px; min-width: 0; }
+.review-detail-heading .screen-title { overflow-wrap: anywhere; letter-spacing: var(--tracking-label); text-transform: var(--label-transform); }
+.review-detail-subtitle { margin: var(--s-1) 0 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); overflow-wrap: anywhere; }
 .review-branch-actions { flex: 0 0 auto; }
-.review-detail-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
-.review-files { overflow-y: auto; min-height: 0; border-right: 1px solid var(--bezel); padding: 6px; }
-.review-file { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px 9px; border: 0; border-radius: var(--r-sm); background: transparent; text-align: left; }
-.review-file:hover, .review-file.active { background: var(--surface-2); }
-.review-file-body { min-width: 0; }
-.review-file-body strong { display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-file-body small { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-file-stat { color: var(--fg-muted); font: 9px var(--font-mono); white-space: nowrap; }
+.review-actions { display: flex; align-items: center; gap: var(--s-2); }
 
-/* Verification report for the branch being reviewed. */
-.review-checks { border-bottom: 1px solid var(--bezel); padding: 12px 18px; display: flex; flex-direction: column; gap: 7px; }
-.review-checks-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; }
-.review-checks-empty { color: var(--fg-muted); font-size: 10px; line-height: 1.55; }
-.review-check summary { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 10px; padding: 4px 0; list-style: none; }
-.review-check summary::-webkit-details-marker { display: none; }
-.review-check summary code { font: 9px/1.4 var(--font-mono); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.review-check-meta { margin-left: auto; color: var(--fg-muted); font-size: 9px; white-space: nowrap; }
-.review-check-output { margin: 4px 0 8px; padding: 9px 11px; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--bezel); border-radius: var(--r-sm); font: 10px/1.5 var(--font-mono); color: var(--fg-muted); white-space: pre-wrap; }
+/* Checks: dot, name, command, duration. */
+.review-checks { flex: none; max-height: 40%; overflow-y: auto; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); }
+.review-checks-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-1); }
+.review-checks .review-note { padding: var(--s-2) 0 0; }
+.review-check-row { display: grid; grid-template-columns: 8px minmax(72px, auto) minmax(0, 1fr) auto; align-items: center; gap: var(--s-3); padding: 6px 0; font-size: var(--fs-13); }
+summary.review-check-row { cursor: pointer; list-style: none; }
+summary.review-check-row::-webkit-details-marker { display: none; }
+summary.review-check-row:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.review-check-name { font-weight: var(--fw-medium); }
+/* A check with output is expandable; the caret is the only affordance a <summary> grid row has. */
+summary.review-check-row .review-check-name::after { content: "›"; display: inline-block; margin-left: var(--s-2); color: var(--fg-faint); transition: transform var(--t-fast) var(--ease); }
+details[open] > summary.review-check-row .review-check-name::after { transform: rotate(90deg); }
+.review-check-command, .review-check-time { color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+.review-check-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-check-time { text-align: right; white-space: nowrap; }
+.review-check-output { margin: var(--s-1) 0 var(--s-2); max-height: 220px; overflow: auto; color: var(--fg-muted); white-space: pre-wrap; }
 
-/* Branch list and diff stack vertically once the two-column floor (280 +
-   420 + gap) no longer fits. */
+/* Files, then the diff. */
+.review-detail-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.review-files { min-height: 0; overflow-y: auto; padding: var(--s-2); border-right: 1px solid var(--border); }
+.review-file { display: flex; flex-direction: column; align-items: stretch; gap: 2px; width: 100%; border: 0; background: none; text-align: left; font-family: var(--font-sans); }
+.review-file-top { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.review-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--fw-medium); }
+.review-file-stat, .review-file-path { color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); font-variant-numeric: tabular-nums; }
+.review-file-stat { white-space: nowrap; }
+.review-file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.review-diff { min-width: 0; min-height: 0; overflow: auto; border-radius: 0; }
+.review-diff .review-note, .review-diff .empty { font-family: var(--font-sans); }
+.review-diff .empty { padding: var(--s-8) var(--s-4); }
+/* Nothing selected: one calm area instead of an empty file column beside an empty diff. */
+.review-detail-body.is-empty { grid-template-columns: 1fr; }
+.review-detail-body.is-empty .review-files { display: none; }
+.review-detail-body.is-empty .review-diff { background: none; }
+.review-diff .empty p { margin: 0; }
+.diff-in { min-width: max-content; padding: var(--s-2) 0; }
+.diff-row.hunk .diff-code { padding-block: var(--s-1); color: var(--fg-muted); }
+
+/* One column once the two-column floor (list, detail, gap) no longer fits: the list on top, and the
+   whole layout scrolls so the checks, files and diff keep their natural heights. */
 @media (max-width: 900px) {
-  .review-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 34vh) minmax(0, 1fr); }
-  .review-detail-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 180px) minmax(0, 1fr); }
-  .review-files { border-right: 0; border-bottom: 1px solid var(--bezel); }
+  .review-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .review-list-pane { flex: none; max-height: 34vh; }
+  .review-detail-pane { flex: none; overflow: visible; }
+  .review-checks { max-height: none; }
+  .review-detail-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(240px, 60vh); }
+  .review-files { max-height: 140px; border-right: 0; border-bottom: 1px solid var(--border); }
 }

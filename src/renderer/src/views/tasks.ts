@@ -1,22 +1,24 @@
-// Tasks — three panes: the work queue (grouped by status), the conversation
-// (the primary surface), and a collapsible route/files/activity inspector.
-// The Files tab lives on in the file-viewer overlay, opened from the
-// inspector's "Files changed" section.
-import type { ChatContextItem, ConversationTurn, ProxyTask, RoutingCandidate, SubTask, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../../shared/types'
+// Tasks — three panes: the work queue (grouped by status), the centre pane,
+// and a collapsible route/files/activity inspector. The centre pane is either
+// the composer (compose state, views/compose.ts; it replaced Home in P4) or one
+// task's conversation, never neither (nav.ts, nextTaskSurface). The old Files
+// tab lives on in the file-viewer overlay, opened from "Files changed".
+import type { ChatContextItem, ConversationTurn, ProxyTask, RoutingCandidate, RoutingFactor, SubTask, TaskFileContent, TaskWorkspaceSnapshot, WorkspaceEntry } from '../../../shared/types'
 import { renderMarkdown } from '../markdown'
-import { byId, codeLine, element, emptyState, metaChip, renderDiffInto } from '../ui/dom'
-import { chip, dialogHandle, gaugeSeg, inspectorSection, lamp, probabilityBar, probabilityBars, type Tone } from '../ui/components'
+import { byId, codeLine, element, emptyState, renderDiffInto } from '../ui/dom'
+import { dialogHandle, inspectorSection, meterRow, status, tag, type MeterTone, type StatusTone } from '../ui/components'
 import { icon, type IconName } from '../ui/icons'
 import { errorMessage, reportError, showToast } from '../ui/feedback'
 import { baseName, formatCost, formatDuration, formatNumber, timeAgo } from '../ui/format'
 import { providerName, providerSelectableForTask } from '../providers-view-model'
-import { taskElapsed, taskIsBusy, taskKindLabel, taskStatusIndicator, taskTokens, verificationChip } from '../task-helpers'
-import { snapshot, selectedTaskId, setSelectedTaskId, currentView } from '../state'
+import { queueGroups, taskElapsed, taskIsBusy, taskKindLabel, taskNeedsReview, taskStatusIndicator, taskTokens, verificationChip, type TaskGroupId } from '../task-helpers'
+import { snapshot, selectedTaskId, applyTaskSurface, composing, currentView } from '../state'
 import { attachmentPreviewCache, composerDraft, messageContext, clearComposerDraft, renderDraftImages } from '../composer'
 import { persistControlPlaneDraft } from '../views/control'
-import { currentProject, onProjectChange, projectMatches, renderProjectChipInto } from '../project'
+import { currentProject, onProjectChange, projectMatches } from '../project'
 import { openBranchInReview, switchView } from '../main'
-import { desiredTier } from '../../../shared/model-profiles'
+import { renderCompose } from './compose'
+import { desiredTier, tierFor } from '../../../shared/model-profiles'
 
 function readLS(key: string): string | undefined { try { return localStorage.getItem(key) ?? undefined } catch { return undefined } }
 function writeLS(key: string, value: string): void { try { localStorage.setItem(key, value) } catch { /* private mode / disabled storage */ } }
@@ -25,104 +27,66 @@ function removeLS(key: string): void { try { localStorage.removeItem(key) } catc
 let taskQuery = ''
 let focusMode = false
 
-// --- Task list grouping ---
+// --- Work queue ---
 
-type TaskGroupId = 'running' | 'needs-review' | 'done' | 'failed'
-const GROUPS: Array<{ id: TaskGroupId; label: string }> = [
-  { id: 'running', label: 'Running' },
-  { id: 'needs-review', label: 'Needs review' },
-  { id: 'done', label: 'Done' },
-  { id: 'failed', label: 'Failed / cancelled' }
-]
 const GROUP_COLLAPSE_KEY = 'fp-task-groups-collapsed'
 function loadCollapsedGroups(): Set<TaskGroupId> {
   try { const raw = readLS(GROUP_COLLAPSE_KEY); return raw ? new Set(JSON.parse(raw) as TaskGroupId[]) : new Set() } catch { return new Set() }
 }
 let collapsedGroups = loadCollapsedGroups()
 
-// "Needs review" is completed work that left something to look at: a
-// committed isolated branch, or — when that is hard to tell for a plain
-// single-agent run — any recorded file change.
-function taskNeedsReview(task: ProxyTask): boolean {
-  if (task.status !== 'completed') return false
-  if (task.subtasks?.some((lane) => lane.branch && lane.committed)) return true
-  return Boolean(task.filesChanged?.length)
-}
+function scopedTasks(): ProxyTask[] { return snapshot.tasks.filter((task) => projectMatches(task.cwd)) }
 
-function taskGroup(task: ProxyTask): TaskGroupId {
-  if (task.status === 'running' || task.status === 'queued') return 'running'
-  if (task.status === 'failed' || task.status === 'cancelled') return 'failed'
-  return taskNeedsReview(task) ? 'needs-review' : 'done'
-}
-
-function taskMatchesQuery(task: ProxyTask): boolean {
-  if (!taskQuery) return true
-  const haystack = `${task.prompt} ${task.type} ${task.mode} ${task.status} ${providerName(task.selectedProviderId)}`.toLowerCase()
-  return haystack.includes(taskQuery)
-}
-
+// Keyboard order: the rows actually on screen, group by group.
 function orderedVisibleTasks(scoped: ProxyTask[]): ProxyTask[] {
-  const visible = scoped.filter(taskMatchesQuery)
-  const result: ProxyTask[] = []
-  for (const group of GROUPS) {
-    if (collapsedGroups.has(group.id)) continue
-    for (const task of visible) if (taskGroup(task) === group.id) result.push(task)
-  }
-  return result
+  return queueGroups(scoped, taskQuery, providerName).filter((group) => !collapsedGroups.has(group.id)).flatMap((group) => group.tasks)
 }
 
-function taskRowId(taskId: string): string { return `task-row-${taskId}` }
+// A comparison has no single agent; everything else names the one that ran (or is routing).
+function taskAgentLabel(task: ProxyTask): string {
+  return task.bench ? `Compare · ${task.subtasks?.length ?? 0} agents` : providerName(task.selectedProviderId)
+}
+
+function selectTask(taskId: string): void {
+  applyTaskSurface({ kind: 'select', taskId })
+  renderTasks()
+}
 
 function taskRow(task: ProxyTask): HTMLElement {
-  const row = element('div', `task-row ${task.id === selectedTaskId ? 'selected' : ''}`)
-  row.id = taskRowId(task.id)
+  const selected = !composing && task.id === selectedTaskId
+  const row = element('div', 'task-row row')
+  row.id = `task-row-${task.id}`
   row.dataset.taskId = task.id
   row.setAttribute('role', 'option')
-  row.setAttribute('aria-selected', String(task.id === selectedTaskId))
-  const body = element('div')
-  body.append(element('div', 'task-title', task.prompt))
-  const meta = element('div', 'task-meta')
-  meta.append(element('span', 'task-provider', providerName(task.selectedProviderId)))
-  if (task.bench) meta.append(element('span', 'tag-orchestrated', 'compare'))
-  else if (task.orchestrated) meta.append(element('span', 'tag-orchestrated', 'split'))
-  if (task.filesChanged?.length) meta.append(element('span', undefined, `${task.filesChanged.length} file${task.filesChanged.length === 1 ? '' : 's'}`))
-  if (task.contextWindow && task.contextTokens !== undefined) {
-    const percent = Math.min(100, Math.max(0, (task.contextTokens / task.contextWindow) * 100))
-    meta.append(element('span', 'tag-context', `${Math.round(percent)}% ctx`))
-  }
-  body.append(meta)
-  row.append(taskStatusIndicator(task.status), body, element('span', 'task-time', timeAgo(task.createdAt)))
-  row.addEventListener('click', () => { setSelectedTaskId(task.id); renderTasks() })
-  row.addEventListener('dblclick', () => openTask(task.id))
+  row.setAttribute('aria-selected', String(selected))
+  const files = task.filesChanged?.length ?? 0
+  const main = element('div', 'row-main')
+  main.append(
+    element('div', 'task-title', task.prompt),
+    element('div', 'task-meta', [taskAgentLabel(task), timeAgo(task.createdAt), files ? `${files} file${files === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · '))
+  )
+  row.append(taskStatusIndicator(task.status, { needsReview: taskNeedsReview(task) }), main)
+  row.addEventListener('click', () => {
+    // A queue floating over a narrow window has done its job once a row is clicked.
+    if (listOverlayOpen) { listOverlayOpen = false; applyInspectorState() }
+    selectTask(task.id)
+  })
   return row
 }
 
-export function renderTasks(): void {
+function renderQueue(scoped: ProxyTask[]): void {
   const container = byId('task-list')
-  renderProjectChipInto('tasks-project-chip')
-  const scoped = snapshot.tasks.filter((task) => projectMatches(task.cwd))
   if (!scoped.length) {
     container.replaceChildren(currentProject
-      ? emptyState('No tasks in this project', 'Start one from Home, or clear the project filter above.')
-      : emptyState('The queue is clear', 'Create a task and Frontier will pick the best available agent.'))
-    renderSurface()
+      ? emptyState('No tasks in this project', 'Start one in the composer, or pick another project in the header.')
+      : emptyState('The queue is clear', 'Start a task and Frontier picks the best available agent.'))
     return
   }
-  const visible = scoped.filter(taskMatchesQuery)
-  if (!selectedTaskId || !scoped.some((task) => task.id === selectedTaskId)) setSelectedTaskId(visible[0]?.id ?? scoped[0].id)
-  if (!visible.length) {
-    container.replaceChildren(emptyState('No matching tasks', `Nothing matches “${taskQuery}”.`))
-    renderSurface()
-    return
-  }
-
-  const byGroup = new Map<TaskGroupId, ProxyTask[]>(GROUPS.map((group) => [group.id, []]))
-  for (const task of visible) byGroup.get(taskGroup(task))!.push(task)
+  const groups = queueGroups(scoped, taskQuery, providerName).filter((group) => group.tasks.length)
+  if (!groups.length) { container.replaceChildren(emptyState('No matching tasks', `Nothing matches “${taskQuery}”.`)); return }
 
   const fragment = document.createDocumentFragment()
-  for (const group of GROUPS) {
-    const tasksInGroup = byGroup.get(group.id)!
-    if (!tasksInGroup.length) continue
+  for (const group of groups) {
     const collapsed = collapsedGroups.has(group.id)
     const section = element('div', `task-group${collapsed ? ' collapsed' : ''}`)
     section.setAttribute('role', 'group')
@@ -132,8 +96,8 @@ export function renderTasks(): void {
     header.type = 'button'
     header.id = headerId
     header.setAttribute('aria-expanded', String(!collapsed))
-    const caret = element('span', 'task-group-caret'); caret.append(icon(collapsed ? 'chevron-right' : 'chevron-down', 14))
-    header.append(caret, element('span', 'task-group-label', group.label), element('span', 'task-group-count', String(tasksInGroup.length)))
+    const caret = element('span', 'task-group-caret'); caret.append(icon('chevron-down', 14))
+    header.append(caret, element('span', 'section-title task-group-label', group.label), element('span', 'task-group-count', String(group.tasks.length)))
     header.addEventListener('click', () => {
       if (collapsedGroups.has(group.id)) collapsedGroups.delete(group.id); else collapsedGroups.add(group.id)
       writeLS(GROUP_COLLAPSE_KEY, JSON.stringify([...collapsedGroups]))
@@ -148,32 +112,52 @@ export function renderTasks(): void {
       const rows = element('div', 'task-group-rows')
       rows.setAttribute('role', 'listbox')
       rows.setAttribute('aria-label', `${group.label} tasks`)
-      for (const task of tasksInGroup) rows.append(taskRow(task))
+      for (const task of group.tasks) rows.append(taskRow(task))
       section.append(rows)
     }
     fragment.append(section)
   }
   container.replaceChildren(fragment)
-  renderSurface()
+}
+
+let lastComposing: boolean | undefined
+
+export function renderTasks(): void {
+  const scoped = scopedTasks()
+  // A selection that left scope falls back to compose; compose never picks a task by itself.
+  applyTaskSurface({ kind: 'reconcile', taskIds: scoped.map((task) => task.id) })
+  renderQueue(scoped)
+  byId('compose-pane').hidden = !composing
+  byId('conversation-pane').hidden = composing
+  if (lastComposing !== composing) {
+    lastComposing = composing
+    byId('content-grid').classList.toggle('composing', composing)
+    if (currentView === 'tasks') { applyQueueWidth(); applyInspectorWidth(); applyInspectorState() }
+  }
+  if (composing) { renderCompose(); resetSurfaceCaches() } else renderSurface()
 }
 
 // --- Left/right pane collapse, widths ---
 
-// The conversation is the primary surface, so it gets a hard floor neither
-// drag gutter may squeeze past; the list and inspector default to fixed,
-// comfortable widths rather than a flex share of whatever is left.
+// The centre is the primary surface, so it gets a hard floor neither drag
+// gutter may squeeze past; the queue and inspector default to the
+// `--queue-w` / `--inspector-w` tokens (compact density narrows both).
 // GUTTER_WIDTH mirrors the stylesheet's own track size for `.content-grid`;
 // a width clamped against a different number would overflow the grid.
 const QUEUE_MIN_WIDTH = 220
-const QUEUE_DEFAULT_WIDTH = 280
 const SURFACE_MIN_WIDTH = 420
 const INSPECTOR_MIN_WIDTH = 240
-const INSPECTOR_DEFAULT_WIDTH = 320
 // Below this, the inspector auto-collapses rather than letting the centre
 // shrink further — softer than SURFACE_MIN_WIDTH, which is the absolute
 // floor a drag can never cross.
 const CENTRE_AUTO_COLLAPSE_WIDTH = 480
-const GUTTER_WIDTH = 7
+const GUTTER_WIDTH = 12
+function tokenPx(name: string, fallback: number): number {
+  const value = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+const queueDefaultWidth = (): number => tokenPx('--queue-w', 300)
+const inspectorDefaultWidth = (): number => tokenPx('--inspector-w', 320)
 let queueWidth: number | undefined
 let inspectorWidth: number | undefined
 export let applyQueueWidth: () => void = () => undefined
@@ -205,28 +189,36 @@ export function toggleTaskList(): void {
   applyInspectorState()
 }
 
+function syncToggle(button: HTMLButtonElement, visible: boolean, auto: boolean, noun: string, shown: IconName, hidden: IconName): void {
+  button.setAttribute('aria-pressed', String(visible))
+  button.setAttribute('aria-expanded', String(visible))
+  button.title = visible ? (auto ? `Hide ${noun}` : `Collapse ${noun}`) : (auto ? `Show ${noun}` : `Expand ${noun}`)
+  button.setAttribute('aria-label', button.title)
+  button.replaceChildren(icon(visible ? shown : hidden, 16))
+}
+
 // Drives both side panels' collapse/overlay state from the grid's real,
-// laid-out width — never a fixed viewport breakpoint. The inspector (softer,
-// secondary panel) gives way first, once the centre would drop under its
-// comfortable width; the list only auto-collapses once even a collapsed
-// inspector leaves no room for the centre's hard 420px floor (SURFACE_MIN_WIDTH
-// below). Named `applyInspectorState` for the existing
-// exported call sites (main.ts, resize handlers) — it now owns the list too
-// because the two decisions are coupled (each affects the room left for the
-// other).
+// laid-out width — never a fixed viewport breakpoint. The grid sits inside
+// `main`, which already pads itself clear of the dock, so the measurement
+// absorbs the dock wherever it is. The inspector (softer, secondary panel)
+// gives way first, once the centre would drop under its comfortable width;
+// the list only auto-collapses once even a collapsed inspector leaves no room
+// for the centre's hard 420px floor. In compose state there is no inspector.
+// Named `applyInspectorState` for the existing exported call sites (main.ts,
+// resize handlers) — it owns the list too because the two decisions are coupled.
 export function applyInspectorState(): void {
   const grid = byId('content-grid')
   const available = grid.getBoundingClientRect().width
-  const inspectorSpaceFull = (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH
-  const listSpaceFull = (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH
+  const inspectorSpaceFull = (inspectorWidth ?? inspectorDefaultWidth()) + GUTTER_WIDTH
+  const listSpaceFull = (queueWidth ?? queueDefaultWidth()) + GUTTER_WIDTH
 
   // Only a real, laid-out measurement counts — the grid reports 0 while the
   // Tasks view is hidden, which must never look like "too narrow to fit".
   const autoCollapse = available > 0 && (available - listSpaceFull - inspectorSpaceFull) < CENTRE_AUTO_COLLAPSE_WIDTH
   lastAutoCollapse = autoCollapse
   const collapsed = inspectorCollapsedManual || autoCollapse
-  const overlay = autoCollapse && !inspectorCollapsedManual && inspectorOverlayOpen
-  const inspectorGridSpace = collapsed ? 0 : inspectorSpaceFull
+  const overlay = autoCollapse && !inspectorCollapsedManual && inspectorOverlayOpen && !composing
+  const inspectorGridSpace = collapsed || composing ? 0 : inspectorSpaceFull
 
   const autoCollapseList = available > 0 && (available - inspectorGridSpace - listSpaceFull) < SURFACE_MIN_WIDTH
   lastListAutoCollapse = autoCollapseList
@@ -238,21 +230,8 @@ export function applyInspectorState(): void {
   grid.classList.toggle('list-collapsed', listCollapsedNow)
   grid.classList.toggle('list-overlay-open', listOverlay)
 
-  const visible = !collapsed || overlay
-  const toggle = byId<HTMLButtonElement>('inspector-toggle')
-  toggle.setAttribute('aria-pressed', String(visible))
-  toggle.setAttribute('aria-expanded', String(visible))
-  toggle.title = visible ? (autoCollapse ? 'Hide inspector' : 'Collapse inspector') : (autoCollapse ? 'Show inspector' : 'Expand inspector')
-  toggle.setAttribute('aria-label', toggle.title)
-  toggle.replaceChildren(icon(visible ? 'panel-right-close' : 'panel-right', 16))
-
-  const listVisible = !listCollapsedNow || listOverlay
-  const listToggle = byId<HTMLButtonElement>('list-toggle')
-  listToggle.setAttribute('aria-pressed', String(listVisible))
-  listToggle.setAttribute('aria-expanded', String(listVisible))
-  listToggle.title = listVisible ? (autoCollapseList ? 'Hide queue' : 'Collapse queue') : (autoCollapseList ? 'Show queue' : 'Expand queue')
-  listToggle.setAttribute('aria-label', listToggle.title)
-  listToggle.replaceChildren(icon(listVisible ? 'collapse' : 'expand', 16))
+  syncToggle(byId<HTMLButtonElement>('inspector-toggle'), !collapsed || overlay, autoCollapse, 'inspector', 'panel-right-close', 'panel-right')
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pane-toggle="list"]')) syncToggle(button, !listCollapsedNow || listOverlay, autoCollapseList, 'queue', 'panel-left', 'panel-left')
 }
 
 export function toggleInspector(): void {
@@ -268,54 +247,64 @@ export function toggleInspector(): void {
   applyInspectorState()
 }
 
-// --- Unified task surface ---
+// --- Conversation header: title, status and one mono meta line ---
 
 function renderSurfaceMeta(task: ProxyTask): void {
   const meta = byId('surface-meta')
   const tokens = taskTokens(task)
-  const chips = [
-    metaChip('Agent', providerName(task.selectedProviderId)),
-    metaChip('Model', task.model ?? '—', 'model'),
-    metaChip(tokens.estimated ? 'Tokens (est.)' : 'Tokens', `${formatNumber(tokens.input)} in · ${formatNumber(tokens.output)} out`),
-    metaChip('Elapsed', taskElapsed(task))
+  const parts = [
+    taskAgentLabel(task),
+    task.model,
+    `${formatNumber(tokens.input)} in · ${formatNumber(tokens.output)} out${tokens.estimated ? ' (est.)' : ''}`,
+    taskElapsed(task)
   ]
-  if (task.usageCostUsd) chips.push(metaChip('Cost', formatCost(task.usageCostUsd)))
-
   if (task.contextWindow && task.contextTokens !== undefined) {
     const percent = Math.min(100, Math.max(0, (task.contextTokens / task.contextWindow) * 100))
-    const chipEl = element('div', 'meta-chip context-meter')
-    chipEl.append(element('span', 'meta-label', task.contextSource === 'estimated' ? 'Context (estimate)' : 'Context'))
-    const row = element('div', 'context-row')
-    row.append(gaugeSeg(percent, percent >= 80 ? 'caution' : 'cyan', 'Context window occupancy'), element('strong', 'readout', `${Math.round(percent)}%`))
-    chipEl.title = `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens`
-    chipEl.append(row)
-    chips.push(chipEl)
+    parts.push(`${Math.round(percent)}% ctx${task.contextSource === 'estimated' ? ' (est.)' : ''}`)
   }
-  meta.replaceChildren(...chips)
+  if (task.usageCostUsd) parts.push(formatCost(task.usageCostUsd))
+  meta.textContent = parts.filter(Boolean).join(' · ')
+  meta.title = `${taskKindLabel(task)} · ${task.type} · ${task.cwd}`
+  byId('surface-status').replaceChildren(taskStatusIndicator(task.status, { needsReview: taskNeedsReview(task), withText: true }))
 }
 
 const ORCH_STAGES = ['planning', 'delegating', 'synthesizing', 'done'] as const
 
+// One line of plain text; the current stage reads in --fg.
 function renderSurfaceStages(task: ProxyTask): void {
   const container = byId('surface-stages')
   if (!task.orchestrated) { container.replaceChildren(); return }
-  const stage = task.orchestrationStage ?? 'planning'
-  const stageIndex = ORCH_STAGES.indexOf(stage)
-  const bar = element('div', 'stage-bar')
+  const stageIndex = ORCH_STAGES.indexOf(task.orchestrationStage ?? 'planning')
+  const line = element('p', 'stage-line')
+  line.setAttribute('aria-label', `Stage: ${ORCH_STAGES[stageIndex]}`)
   ORCH_STAGES.forEach((name, index) => {
-    if (index > 0) bar.append(element('span', 'stage-sep', '→'))
-    bar.append(element('span', `stage-step${index === stageIndex ? ' active' : ''}${index < stageIndex ? ' past' : ''}`, name))
+    if (index > 0) line.append(element('span', 'stage-sep', '→'))
+    const step = element('span', `stage-step${index === stageIndex ? ' active' : index < stageIndex ? ' past' : ''}`, name.charAt(0).toUpperCase() + name.slice(1))
+    if (index === stageIndex) step.setAttribute('aria-current', 'step')
+    line.append(step)
   })
-  container.replaceChildren(bar)
+  container.replaceChildren(line)
+}
+
+// --- Thread ---
+
+function branchButton(cwd: string, lane: SubTask): HTMLButtonElement {
+  const button = element('button', 'btn btn-ghost btn-sm lane-branch') as HTMLButtonElement
+  button.type = 'button'
+  button.append(icon('branch', 14), element('span', 'lane-branch-name', lane.committed ? lane.branch! : `${lane.branch} · no changes`))
+  button.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
+  button.disabled = !lane.committed
+  button.addEventListener('click', () => openBranchInReview(cwd, lane.branch!))
+  return button
 }
 
 function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement {
-  const card = element('article', `lane ${lane.status}${columns ? ' lane-column' : ''}`)
+  const card = element('article', `card lane ${lane.status}${columns ? ' lane-column' : ''}`)
   const head = element('div', 'lane-head')
-  const identity = element('div', 'lane-identity')
-  identity.append(taskStatusIndicator(lane.status), element('strong', undefined, lane.title))
-  head.append(identity, element('span', 'lane-meta', [lane.model, lane.status].filter(Boolean).join(' · ')))
+  head.append(taskStatusIndicator(lane.status), element('strong', 'lane-title', lane.title))
   card.append(head)
+  const who = [lane.providerId ? providerName(lane.providerId) : undefined, lane.model].filter(Boolean).join(' · ')
+  if (who) card.append(element('p', 'lane-meta', who))
 
   // Everything on this row is measured, never judged: how big the change was,
   // how long it took, what it spent, and whether the repo's own checks passed.
@@ -328,19 +317,11 @@ function laneCard(task: ProxyTask, lane: SubTask, columns: boolean): HTMLElement
   const verificationBadge = verificationChip(lane.verification)
   if (measures.length || verificationBadge) {
     const score = element('div', 'lane-score')
-    for (const measure of measures) score.append(element('span', 'lane-measure', measure))
+    if (measures.length) score.append(element('span', 'lane-measures', measures.join(' · ')))
     if (verificationBadge) score.append(verificationBadge)
     card.append(score)
   }
-
-  if (lane.branch) {
-    const branch = element('button', 'lane-branch') as HTMLButtonElement
-    branch.append(icon('branch', 14), document.createTextNode(lane.committed ? ` ${lane.branch}` : ` ${lane.branch} · no changes`))
-    branch.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
-    branch.disabled = !lane.committed
-    branch.addEventListener('click', () => openBranchInReview(task.cwd, lane.branch!))
-    card.append(branch)
-  }
+  if (lane.branch) card.append(branchButton(task.cwd, lane))
 
   const body = element('div', 'lane-body markdown')
   if (lane.output.trim()) body.appendChild(renderMarkdown(lane.output))
@@ -364,17 +345,18 @@ function renderThread(task: ProxyTask): void {
   lastBodyRender = signature
   const atBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 60
 
-  const fragment = document.createDocumentFragment()
+  const inner = element('div', 'thread-inner')
 
   // A comparison is read side by side, not as a transcript.
   if (task.bench) {
-    fragment.append(element('p', 'lane-note', 'The same prompt ran on each agent in its own isolated branch.'))
+    inner.classList.add('wide')
+    inner.append(element('p', 'lane-note', 'The same prompt ran on each agent, each on its own isolated branch.'))
     const columns = element('div', 'lane-columns')
     for (const lane of lanes) columns.append(laneCard(task, lane, true))
-    fragment.append(columns)
-    if (task.output.trim() && !streaming) fragment.append(renderMarkdown(task.output))
-    if (task.error) fragment.append(element('div', 'output-error', task.error))
-    thread.replaceChildren(fragment)
+    inner.append(columns)
+    if (task.output.trim() && !streaming) { const summary = element('div', 'turn-body markdown'); summary.append(renderMarkdown(task.output)); inner.append(summary) }
+    if (task.error) inner.append(element('div', 'output-error', task.error))
+    thread.replaceChildren(inner)
     if (streaming || atBottom) thread.scrollTop = thread.scrollHeight
     return
   }
@@ -385,31 +367,35 @@ function renderThread(task: ProxyTask): void {
   ]
   turns.forEach((turn, index) => {
     const live = streaming && turn.role === 'assistant' && index === turns.length - 1
-    const block = element('article', `detail-turn ${turn.role}`)
-    const head = element('div', 'detail-turn-head')
-    head.append(
-      element('strong', undefined, turn.role === 'user' ? 'You' : providerName(turn.providerId)),
-      element('span', undefined, [turn.model, turn.status, timeAgo(turn.at)].filter(Boolean).join(' · '))
-    )
-    const body = element('div', 'detail-turn-body markdown')
     const content = live ? task.output : turn.content
-    if (turn.role === 'user' || live) body.textContent = content || (live ? 'Working…' : '')
-    else if (content.trim()) body.appendChild(renderMarkdown(content))
-    else body.textContent = turn.status === 'failed' ? (task.error ?? 'Failed.') : '—'
-    if (turn.role === 'user') appendTurnAttachments(task.id, body, turn.attachments)
-    block.append(head, body)
-    fragment.append(block)
+    if (turn.role === 'user') {
+      const bubble = element('article', 'turn turn-user')
+      const body = element('div', 'turn-body', content)
+      appendTurnAttachments(task.id, body, turn.attachments)
+      bubble.append(body, element('span', 'turn-when', timeAgo(turn.at)))
+      inner.append(bubble)
+    } else {
+      const block = element('article', 'turn turn-assistant')
+      const who = element('div', 'turn-who')
+      who.append(element('span', 'turn-agent', providerName(turn.providerId)), element('span', 'turn-detail', [turn.model, live ? 'running' : turn.status, timeAgo(turn.at)].filter(Boolean).join(' · ')))
+      const body = element('div', 'turn-body markdown')
+      if (live) { body.textContent = content || 'Working…'; body.classList.add('live') }
+      else if (content.trim()) body.appendChild(renderMarkdown(content))
+      else body.textContent = turn.status === 'failed' ? (task.error ?? 'Failed.') : '—'
+      block.append(who, body)
+      inner.append(block)
+    }
 
     // Subtasks belong with the assistant turn that produced them.
     if (task.orchestrated && lanes.length && index === turns.length - 1) {
       const group = element('div', 'lane-stack')
-      group.append(element('p', 'lane-note', `${lanes.length} subtask${lanes.length === 1 ? '' : 's'}, each in its own isolated branch.`))
+      group.append(element('p', 'lane-note', `${lanes.length} subtask${lanes.length === 1 ? '' : 's'}, each on its own isolated branch.`))
       for (const lane of lanes) group.append(laneCard(task, lane, false))
-      fragment.append(group)
+      inner.append(group)
     }
   })
-  if (task.error && !streaming) fragment.append(element('div', 'output-error', task.error))
-  thread.replaceChildren(fragment)
+  if (task.error && !streaming) inner.append(element('div', 'output-error', task.error))
+  thread.replaceChildren(inner)
   if (streaming || atBottom) thread.scrollTop = thread.scrollHeight
 }
 
@@ -437,37 +423,28 @@ function appendTurnAttachments(taskId: string, body: HTMLElement, attachments: C
 
 // --- Inspector: Route section ---
 
-function candidateRow(candidate: RoutingCandidate, chosen: boolean): HTMLElement {
-  const row = element('div', `receipt-row ${candidate.eligible ? 'eligible' : 'skipped'}${chosen ? ' chosen' : ''}`)
-  const head = element('div', 'receipt-head')
-  const name = element('strong', undefined, candidate.providerName)
-  head.append(name)
-  if (chosen) head.append(element('span', 'receipt-chip', 'chosen'))
-  head.append(element('span', 'receipt-score readout', candidate.eligible ? String(Math.round(candidate.score ?? 0)) : '—'))
-  row.append(head)
+const sub = (text: string): HTMLElement => element('p', 'inspector-sub', text)
+const note = (text: string): HTMLElement => element('p', 'inspector-note', text)
+const percentText = (value: number): string => `${Math.round(value * 100)}%`
 
-  if (candidate.eligible && candidate.factors?.length) {
-    const factors = element('div', 'receipt-factors')
-    for (const factor of candidate.factors) {
-      const bar = probabilityBar(factor.label, factor.points)
-      // Jev's own factors (see CLAUDE.md's "Routing advisor" section) are
-      // labelled distinctly from the router's own scoring so it is always
-      // visible which rows the advisor actually influenced.
-      if (factor.label.startsWith('Jev')) bar.querySelector('.probability-bar-label')?.prepend(chip('cyan', 'JEV'))
-      factors.append(bar)
-    }
-    row.append(factors)
-  } else if (candidate.skippedReason) {
-    row.append(element('p', 'receipt-reason', candidate.skippedReason))
+// Routing factors are bounded (CLAUDE.md's routing sections), but a configured priority can
+// outscore the ±20 advisor factors, so each candidate's bars share that candidate's own scale.
+function factorRows(factors: RoutingFactor[]): HTMLElement {
+  const wrap = element('div', 'inspector-meters')
+  const scale = Math.max(20, ...factors.map((factor) => Math.abs(factor.points)))
+  for (const factor of factors) {
+    const tone: MeterTone = factor.points < 0 ? 'warn' : 'accent'
+    wrap.append(meterRow(factor.label, (Math.abs(factor.points) / scale) * 100, `${factor.points > 0 ? '+' : factor.points < 0 ? '−' : ''}${Math.abs(Math.round(factor.points))}`, tone))
   }
-  return row
+  return wrap
 }
 
-function signalLamp(label: string, value: number | undefined): HTMLElement {
-  const row = element('span', 'advice-signal')
-  const tone: Tone = value === undefined ? 'muted' : value >= 0.66 ? 'phosphor' : value >= 0.33 ? 'amber' : 'muted'
-  row.append(lamp(tone, label), element('span', undefined, `${label}${value !== undefined ? ` · ${Math.round(value * 100)}%` : ''}`))
-  return row
+// Probabilities (0..1) as meter rows, strongest first; only the leader is in the accent.
+function probabilityRows(entries: Array<{ label: string; value: number }>, limit = 3): HTMLElement {
+  const wrap = element('div', 'inspector-meters')
+  entries.sort((left, right) => right.value - left.value).slice(0, limit)
+    .forEach(({ label, value }, index) => wrap.append(meterRow(label, value * 100, percentText(value), index === 0 ? 'accent' : undefined)))
+  return wrap
 }
 
 // Jev's `target` choice keys options as `providerId::model` (see
@@ -475,163 +452,135 @@ function signalLamp(label: string, value: number | undefined): HTMLElement {
 function targetLabel(key: string): string {
   const separator = key.indexOf('::')
   if (separator < 0) return key
-  const providerId = key.slice(0, separator)
   const model = key.slice(separator + 2)
-  return `${providerName(providerId)}${model ? ` · ${model}` : ''}`
+  return `${providerName(key.slice(0, separator))}${model ? ` · ${model}` : ''}`
 }
 
-// Returns the full Jev advisor panel (task type, complexity, signals, best
-// fit) or nothing when this task never got an advisor read.
-function buildAdvicePanel(task: ProxyTask): HTMLElement | undefined {
+function signalStatus(label: string, value: number | undefined): HTMLElement {
+  const tone: StatusTone = value === undefined ? 'neutral' : value >= 0.5 ? 'info' : 'neutral'
+  return status(tone, `${label}${value !== undefined ? ` · ${percentText(value)}` : ' · not asked'}`)
+}
+
+// Jev's read (task type, complexity, signals, best fit), or the local rules' when Jev was off or
+// unreachable. Nothing when the task never got a read (continuations, comparisons).
+function buildAdviceBlock(task: ProxyTask): HTMLElement | undefined {
   const advice = task.advice
   if (!advice) return undefined
-  const panel = element('section', 'advice-card')
-  const nodes: HTMLElement[] = [element('p', 'eyebrow', 'ADVISOR')]
-
-  const badgeRow = element('div', 'advice-badge-row')
+  const block = element('div', 'route-advice')
+  const head = element('div', 'route-advice-head')
   if (advice.source === 'jev') {
-    badgeRow.append(chip('cyan', `JEV · ${advice.model ?? snapshot.settings.advisor.model}`))
-    const meta = [
-      advice.latencyMs !== undefined ? formatDuration(advice.latencyMs) : undefined,
-      advice.inputTokens !== undefined ? `${formatNumber(advice.inputTokens)} tokens in` : undefined
-    ].filter(Boolean).join(' · ')
-    if (meta) badgeRow.append(element('span', 'advice-badge-meta', meta))
+    head.append(tag(advice.model ?? snapshot.settings.advisor.model))
+    const meta = [advice.latencyMs !== undefined ? formatDuration(advice.latencyMs) : undefined, advice.inputTokens !== undefined ? `${formatNumber(advice.inputTokens)} tokens in` : undefined].filter(Boolean).join(' · ')
+    if (meta) head.append(element('span', 'route-advice-meta', meta))
   } else {
-    badgeRow.append(chip('muted', 'LOCAL RULES'))
-    if (advice.error) badgeRow.append(element('span', 'advice-badge-meta caution', `Jev unavailable: ${advice.error}`))
+    head.append(tag('Local rules'))
+    if (advice.error) head.append(status('warn', `Jev unavailable: ${advice.error}`))
   }
-  nodes.push(badgeRow)
+  block.append(head)
 
-  const typeSection = element('div', 'advice-section')
-  typeSection.append(element('p', 'advice-label', 'Task type'))
-  typeSection.append(element('p', 'advice-value', `${advice.taskType}${advice.taskTypeConfidence !== undefined ? ` · ${Math.round(advice.taskTypeConfidence * 100)}% confidence` : ''}`))
-  if (advice.taskTypeProbs) {
-    const entries = Object.entries(advice.taskTypeProbs).map(([label, value]) => ({ label, value })).sort((left, right) => right.value - left.value)
-    typeSection.append(probabilityBars(entries, 'cyan'))
-  }
-  if (advice.taskType !== advice.heuristicTaskType) typeSection.append(element('p', 'advice-note', `Local rules said ${advice.heuristicTaskType}.`))
-  nodes.push(typeSection)
+  block.append(sub('Task type'))
+  const type = element('p', 'route-advice-value')
+  type.append(element('strong', undefined, advice.taskType))
+  if (advice.taskTypeConfidence !== undefined) type.append(element('span', undefined, ` · ${percentText(advice.taskTypeConfidence)} confidence`))
+  block.append(type)
+  if (advice.taskTypeProbs) block.append(probabilityRows(Object.entries(advice.taskTypeProbs).map(([label, value]) => ({ label, value }))))
+  if (advice.taskType !== advice.heuristicTaskType) block.append(note(`Local rules said ${advice.heuristicTaskType}.`))
 
   if (advice.complexity !== undefined) {
-    const complexitySection = element('div', 'advice-section')
     const tier = desiredTier(advice.complexity, task.mode).tier
-    complexitySection.append(element('p', 'advice-label', 'Complexity'))
-    complexitySection.append(gaugeSeg((advice.complexity / 3) * 100, 'amber', 'Complexity', 4))
-    complexitySection.append(element('p', 'advice-value', `${advice.complexity.toFixed(1)} → ${tier} tier`))
-    nodes.push(complexitySection)
+    block.append(sub('Complexity'), meterRow(`${tier} tier`, (advice.complexity / 3) * 100, advice.complexity.toFixed(1), 'accent'))
   }
 
-  const signalsSection = element('div', 'advice-section')
-  signalsSection.append(element('p', 'advice-label', 'Signals'))
-  const signalsRow = element('div', 'advice-signals')
-  signalsRow.append(
-    signalLamp('Edits files', advice.editsFiles),
-    signalLamp('Needs broad context', advice.longContext),
-    signalLamp('Splits well', advice.splitWorthy)
-  )
-  signalsSection.append(signalsRow)
-  nodes.push(signalsSection)
+  block.append(sub('Signals'))
+  const signals = element('div', 'route-signals')
+  signals.append(signalStatus('Edits files', advice.editsFiles), signalStatus('Needs broad context', advice.longContext), signalStatus('Splits well', advice.splitWorthy))
+  block.append(signals)
 
   if (advice.target) {
-    const bestFitSection = element('div', 'advice-section')
-    bestFitSection.append(element('p', 'advice-label', 'Best fit'))
-    const entries = Object.entries(advice.target.probabilities)
-      .sort((left, right) => right[1] - left[1]).slice(0, 3)
-      .map(([key, value]) => ({ label: targetLabel(key), value }))
-    bestFitSection.append(probabilityBars(entries, 'cyan'))
-    nodes.push(bestFitSection)
+    block.append(sub('Best fit'), probabilityRows(Object.entries(advice.target.probabilities).map(([key, value]) => ({ label: targetLabel(key), value }))))
   }
 
-  if (task.routedModel) nodes.push(element('p', 'advice-note', `Model chosen: ${task.routedModel.model} — ${task.routedModel.reason}`))
-
+  if (task.routedModel) block.append(note(`Model chosen: ${task.routedModel.model}. ${task.routedModel.reason}`))
   const advisorDecision = task.routing?.advisor
-  if (advisorDecision?.note) nodes.push(element('p', 'advice-note', advisorDecision.note))
+  if (advisorDecision?.note) block.append(note(advisorDecision.note))
   if (advisorDecision?.mode === 'shadow' && advisorDecision.wouldChooseProviderId) {
-    const would = `${providerName(advisorDecision.wouldChooseProviderId)}${advisorDecision.wouldChooseModel ? ` · ${advisorDecision.wouldChooseModel}` : ''}`
-    nodes.push(element('p', 'advice-note cyan-text', `Shadow: Jev would have picked ${would}.`))
+    block.append(note(`Shadow mode: Jev would have picked ${providerName(advisorDecision.wouldChooseProviderId)}${advisorDecision.wouldChooseModel ? ` · ${advisorDecision.wouldChooseModel}` : ''}.`))
   }
-
-  panel.append(...nodes)
-  return panel
+  return block
 }
 
-// "WHY THIS AGENT" — the full candidate list with factor breakdowns.
-function buildReceipt(task: ProxyTask): HTMLElement {
-  const container = element('div', 'routing-receipt')
+function routeReason(task: ProxyTask): string {
+  if (task.bench) return 'One of the agents chosen for this comparison, so no routing decision was made.'
   const routing = task.routing
-  if (!routing) {
-    container.append(element('p', 'detail-empty', task.bench
-      ? 'Comparisons target the agents you chose, so no routing decision was made.'
-      : 'No routing decision has been recorded for this task yet.'))
-    return container
-  }
-  const summary = element('p', 'receipt-summary')
-  const chosenName = snapshot.providers.find((provider) => provider.id === routing.chosenProviderId)?.name ?? 'No agent'
-  summary.textContent = `${chosenName} scored highest for this ${routing.taskType} task under the ${routing.mode} policy.`
-  container.append(summary, ...routing.candidates.map((candidate) => candidateRow(candidate, candidate.providerId === routing.chosenProviderId)))
-  return container
+  if (!routing) return 'No routing decision has been recorded for this task yet.'
+  let reason = `Chosen for ${routing.taskType} under the ${routing.mode} policy`
+  if (task.advice?.source === 'jev' && task.advice.complexity !== undefined) reason += `; Jev rated it ${desiredTier(task.advice.complexity, task.mode).tier} complexity`
+  return `${reason}.`
 }
 
-function advisorBadge(task: ProxyTask): HTMLElement | undefined {
-  const advice = task.advice
-  if (!advice) return undefined
-  return advice.source === 'jev' ? chip('cyan', `JEV${advice.model ? ` · ${advice.model}` : ''}`) : chip('muted', 'LOCAL RULES')
+function candidateRow(candidate: RoutingCandidate): HTMLElement {
+  const row = element('div', `route-candidate${candidate.eligible ? '' : ' skipped'}`)
+  const head = element('div', 'route-candidate-head')
+  head.append(element('span', 'route-candidate-name', candidate.providerName), element('span', 'route-candidate-score', candidate.eligible ? String(Math.round(candidate.score ?? 0)) : '—'))
+  row.append(head)
+  if (candidate.eligible && candidate.factors?.length) row.append(factorRows(candidate.factors))
+  else if (candidate.skippedReason) row.append(note(candidate.skippedReason))
+  return row
 }
 
-function routeSummarySentence(task: ProxyTask): string {
-  const providerId = task.routing?.chosenProviderId ?? task.selectedProviderId
-  const name = providerName(providerId)
-  const base = task.model ? `${name} · ${task.model}` : name
-  if (task.bench) return `${base} — one of the agents chosen for this comparison.`
-  const routing = task.routing
-  if (!routing) return `${base} — no routing decision recorded yet.`
-  let reason = `chosen for ${routing.taskType}`
-  const advice = task.advice
-  if (advice?.complexity !== undefined) reason += `; Jev rated it ${desiredTier(advice.complexity, task.mode).tier} complexity`
-  return `${base} — ${reason}.`
-}
-
-// Whether "Details" is expanded — reset whenever the selected task changes.
+// Whether the other candidates are shown — reset whenever the selected task changes.
 let routeDetailsOpen = false
 
 function buildRouteSection(task: ProxyTask): HTMLElement {
   const body = element('div', 'inspector-route')
-  body.append(element('p', 'inspector-route-sentence', routeSummarySentence(task)))
-  const badge = advisorBadge(task)
-  if (badge) { const row = element('div', 'inspector-route-badge-row'); row.append(badge); body.append(row) }
+  const providerId = task.routing?.chosenProviderId ?? task.selectedProviderId
+  const provider = snapshot.providers.find((item) => item.id === providerId)
+  const model = task.model ?? provider?.model
+  const pick = element('div', 'route-pick')
+  pick.append(element('strong', undefined, providerName(providerId)))
+  if (model) pick.append(element('span', 'route-pick-model', model))
+  if (provider || model) pick.append(tag(tierFor(model, provider?.kind)))
+  body.append(pick, element('p', 'inspector-text', routeReason(task)))
 
-  const detailsToggle = element('button', 'text-button inspector-route-details-toggle', routeDetailsOpen ? 'Hide details' : 'Details') as HTMLButtonElement
-  detailsToggle.type = 'button'
-  const detailsBody = element('div', 'inspector-route-details')
-  detailsBody.hidden = !routeDetailsOpen
-  const advicePanel = buildAdvicePanel(task)
-  if (advicePanel) { const card = element('section', 'route-card screen'); card.append(advicePanel); detailsBody.append(card) }
-  const receiptCard = element('section', 'route-card screen')
-  receiptCard.append(element('p', 'eyebrow', 'WHY THIS AGENT'), buildReceipt(task))
-  detailsBody.append(receiptCard)
-  detailsToggle.addEventListener('click', () => {
-    routeDetailsOpen = !routeDetailsOpen
-    detailsBody.hidden = !routeDetailsOpen
-    detailsToggle.textContent = routeDetailsOpen ? 'Hide details' : 'Details'
-  })
-  body.append(detailsToggle, detailsBody)
+  const routing = task.routing
+  const chosen = routing?.candidates.find((candidate) => candidate.providerId === routing.chosenProviderId)
+  if (chosen?.factors?.length) body.append(sub('Factors'), factorRows(chosen.factors))
+
+  const advice = buildAdviceBlock(task)
+  if (advice) body.append(advice)
+
+  const others = routing?.candidates.filter((candidate) => candidate.providerId !== routing.chosenProviderId) ?? []
+  if (others.length) {
+    const toggle = element('button', 'btn btn-ghost btn-sm inspector-more', routeDetailsOpen ? 'Hide other agents' : `Other agents (${others.length})`) as HTMLButtonElement
+    toggle.type = 'button'
+    toggle.setAttribute('aria-expanded', String(routeDetailsOpen))
+    const list = element('div', 'route-candidates')
+    list.hidden = !routeDetailsOpen
+    list.append(...others.map(candidateRow))
+    toggle.addEventListener('click', () => {
+      routeDetailsOpen = !routeDetailsOpen
+      list.hidden = !routeDetailsOpen
+      toggle.textContent = routeDetailsOpen ? 'Hide other agents' : `Other agents (${others.length})`
+      toggle.setAttribute('aria-expanded', String(routeDetailsOpen))
+    })
+    body.append(toggle, list)
+  }
   return body
 }
 
 // --- Inspector: Files changed section ---
 
+const FILE_ACTION: Record<string, string> = { create: 'new', edit: 'edit', delete: 'deleted' }
+
 function buildFilesSection(task: ProxyTask): HTMLElement {
   const changes = task.filesChanged ?? []
-  if (!changes.length) return element('p', 'detail-empty', 'No files changed yet.')
+  if (!changes.length) return element('p', 'inspector-text', 'No files changed yet.')
   const list = element('div', 'inspector-file-list')
   for (const change of changes) {
     const row = element('button', 'inspector-file-row') as HTMLButtonElement
     row.type = 'button'
-    row.append(
-      element('span', `file-badge ${change.action}`, change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT'),
-      element('span', 'inspector-file-path', change.path)
-    )
-    row.title = change.path
+    row.append(tag(FILE_ACTION[change.action] ?? change.action), element('span', 'inspector-file-path', change.path))
+    row.title = `Open ${change.path}`
     row.addEventListener('click', () => openFileOverlay(task, change.path, row))
     list.append(row)
   }
@@ -644,14 +593,15 @@ const ACTIVITY_ICON: Record<string, IconName> = { tool: 'tool', thinking: 'think
 
 function buildActivitySection(task: ProxyTask): HTMLElement {
   const events = [...(task.activity ?? [])].reverse()
-  if (!events.length) return element('p', 'detail-empty', 'No activity recorded.')
-  const list = element('div', 'inspector-activity-list')
+  if (!events.length) return element('p', 'inspector-text', 'No activity recorded yet.')
+  const list = element('ol', 'activity-list')
   for (const event of events) {
-    const row = element('div', `detail-activity-row ${event.kind}`)
-    const body = element('div')
-    body.append(element('strong', undefined, event.label))
-    if (event.detail) body.append(element('small', undefined, event.detail))
-    row.append(icon(ACTIVITY_ICON[event.kind] ?? 'notice', 14), body)
+    const row = element('li', `activity-row ${event.kind}`)
+    const glyph = element('span', 'activity-icon'); glyph.append(icon(ACTIVITY_ICON[event.kind] ?? 'notice', 14))
+    const body = element('span', 'activity-body')
+    body.append(element('span', 'activity-label', event.label))
+    if (event.detail) { const detail = element('span', 'activity-detail', event.detail); detail.title = event.detail; body.append(detail) }
+    row.append(glyph, body, element('span', 'activity-time', timeAgo(event.at)))
     list.append(row)
   }
   return list
@@ -660,41 +610,38 @@ function buildActivitySection(task: ProxyTask): HTMLElement {
 // --- Inspector: Context section ---
 
 function buildContextSection(task: ProxyTask): HTMLElement {
-  if (task.contextWindow === undefined || task.contextTokens === undefined) return element('p', 'detail-empty', 'No context data reported for this task yet.')
+  if (task.contextWindow === undefined || task.contextTokens === undefined) return element('p', 'inspector-text', 'No context data reported for this task yet.')
   const percent = Math.min(100, Math.max(0, (task.contextTokens / task.contextWindow) * 100))
   const wrap = element('div', 'inspector-context')
-  const head = element('div', 'inspector-context-head')
-  head.append(element('span', undefined, task.contextSource === 'estimated' ? 'Context window (estimated)' : 'Context window'), element('strong', 'readout', `${Math.round(percent)}%`))
-  wrap.append(head, gaugeSeg(percent, percent >= 80 ? 'caution' : 'cyan', 'Context window occupancy'), element('p', 'inspector-context-detail', `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens`))
+  wrap.append(
+    meterRow(task.contextSource === 'estimated' ? 'Window (estimated)' : 'Window', percent, `${Math.round(percent)}%`, percent >= 80 ? 'warn' : 'accent'),
+    element('p', 'inspector-note', `${formatNumber(task.contextTokens)} of ${formatNumber(task.contextWindow)} tokens`)
+  )
   return wrap
 }
 
 // --- Inspector: Attempts / branch section ---
 
+const ATTEMPT_TONE: Record<string, StatusTone> = { running: 'running', completed: 'ok', failed: 'danger', cancelled: 'neutral' }
+
 function buildAttemptsSection(task: ProxyTask): HTMLElement {
   const wrap = element('div', 'inspector-attempts')
-  if (!task.attempts.length) wrap.append(element('p', 'detail-empty', 'No agent has been launched yet.'))
+  if (!task.attempts.length) wrap.append(element('p', 'inspector-text', 'No agent has been launched yet.'))
   else for (const attempt of task.attempts) {
-    const row = element('div', `detail-route-row ${attempt.status}`)
-    const body = element('div')
-    body.append(element('strong', undefined, providerName(attempt.providerId)), element('small', undefined, `${attempt.status} · ${timeAgo(attempt.startedAt)}`))
-    row.append(element('span', 'timeline-dot'), body)
+    const row = element('div', 'attempt-row')
+    const body = element('span', 'attempt-body')
+    body.append(element('span', 'attempt-name', providerName(attempt.providerId)), element('span', 'attempt-meta', `${attempt.status} · ${timeAgo(attempt.startedAt)}`))
+    row.append(status(ATTEMPT_TONE[attempt.status] ?? 'neutral', '', { ariaLabel: attempt.status }), body)
     if (attempt.error) row.title = attempt.error
     wrap.append(row)
   }
   const branches = (task.subtasks ?? []).filter((lane) => lane.branch)
   if (branches.length) {
-    wrap.append(element('p', 'eyebrow route-card-second', 'BRANCHES'))
+    wrap.append(sub('Branches'))
     const list = element('div', 'inspector-branch-list')
     for (const lane of branches) {
       const item = element('div', 'inspector-branch-item')
-      const row = element('button', 'lane-branch') as HTMLButtonElement
-      row.type = 'button'
-      row.append(icon('branch', 14), document.createTextNode(lane.committed ? ` ${lane.branch}` : ` ${lane.branch} · no changes`))
-      row.disabled = !lane.committed
-      row.title = lane.committed ? 'Open this branch in Review' : 'Isolated branch; nothing was changed'
-      row.addEventListener('click', () => openBranchInReview(task.cwd, lane.branch!))
-      item.append(row)
+      item.append(branchButton(task.cwd, lane))
       const verificationBadge = verificationChip(lane.verification)
       if (verificationBadge) item.append(verificationBadge)
       list.append(item)
@@ -720,28 +667,22 @@ function inspectorSignature(task: ProxyTask): string {
   ].join('|')
 }
 
-function renderInspector(task: ProxyTask | undefined): void {
-  const container = byId('inspector-body')
-  if (!task) {
-    lastInspectorSignature = ''
-    container.replaceChildren(emptyState('Nothing selected', 'Choose a task to see its route, files, and activity.'))
-    return
-  }
+function renderInspector(task: ProxyTask): void {
   const signature = inspectorSignature(task)
   if (signature === lastInspectorSignature) return
   lastInspectorSignature = signature
 
-  const filesChanged = task.filesChanged ?? []
-  container.replaceChildren(
-    inspectorSection('route', 'Route', buildRouteSection(task), { open: inspectorSectionsOpen.route, onToggle: (open) => { inspectorSectionsOpen.route = open } }),
-    inspectorSection('files', 'Files changed', buildFilesSection(task), {
-      open: inspectorSectionsOpen.files,
-      badge: filesChanged.length ? chip('cyan', String(filesChanged.length)) : undefined,
-      onToggle: (open) => { inspectorSectionsOpen.files = open }
-    }),
-    inspectorSection('activity', 'Activity', buildActivitySection(task), { open: inspectorSectionsOpen.activity, onToggle: (open) => { inspectorSectionsOpen.activity = open } }),
-    inspectorSection('context', 'Context', buildContextSection(task), { open: inspectorSectionsOpen.context, onToggle: (open) => { inspectorSectionsOpen.context = open } }),
-    inspectorSection('attempts', 'Attempts / branch', buildAttemptsSection(task), { open: inspectorSectionsOpen.attempts, onToggle: (open) => { inspectorSectionsOpen.attempts = open } })
+  const section = (id: string, title: string, body: HTMLElement, count?: number): HTMLElement => inspectorSection(id, title, body, {
+    open: inspectorSectionsOpen[id],
+    badge: count ? element('span', 'inspector-count', String(count)) : undefined,
+    onToggle: (open) => { inspectorSectionsOpen[id] = open }
+  })
+  byId('inspector-body').replaceChildren(
+    section('route', 'Route', buildRouteSection(task)),
+    section('files', 'Files changed', buildFilesSection(task), task.filesChanged?.length),
+    section('activity', 'Activity', buildActivitySection(task), task.activity?.length),
+    section('context', 'Context', buildContextSection(task)),
+    section('attempts', 'Attempts', buildAttemptsSection(task), task.attempts.length > 1 ? task.attempts.length : undefined)
   )
 }
 
@@ -777,13 +718,14 @@ function renderOverlayFileViewer(file?: TaskFileContent): void {
     const isDiff = button.dataset.fileMode === 'diff'
     button.disabled = isDiff && !file?.diff.trim()
     button.classList.toggle('active', button.dataset.fileMode === overlayFileMode)
+    button.setAttribute('aria-pressed', String(button.dataset.fileMode === overlayFileMode))
   })
   if (!file) {
-    title.textContent = 'Select a file'; language.textContent = 'SOURCE'
+    title.textContent = 'Select a file'; language.textContent = 'source'
     notice.hidden = false; notice.textContent = 'Choose any project file. Changed files are marked in the tree.'
     code.replaceChildren(); return
   }
-  title.textContent = file.relativePath; language.textContent = file.language.toUpperCase()
+  title.textContent = file.relativePath; language.textContent = file.language
   if (file.binary) { notice.hidden = false; notice.textContent = 'Binary files cannot be displayed.'; code.replaceChildren(); return }
   if (!file.exists && overlayFileMode === 'source') { notice.hidden = false; notice.textContent = 'This file no longer exists in the task workspace.'; code.replaceChildren(); return }
   if (file.truncated && overlayFileMode === 'source') { notice.hidden = false; notice.textContent = 'Large file: showing the first 1 MB.' } else notice.hidden = true
@@ -913,7 +855,7 @@ function renderOverlayFilesTab(task: ProxyTask): void {
       const button = element('button', `task-detail-file ${change ? 'changed' : ''} ${entry.path === overlayFilePath ? 'active' : ''}`)
       button.style.setProperty('--tree-depth', String(depth))
       const badge = change
-        ? element('span', `file-badge ${change.action}`, change.action === 'create' ? 'NEW' : change.action === 'delete' ? 'DEL' : 'EDIT')
+        ? tag(FILE_ACTION[change.action] ?? change.action)
         : element('span', 'file-tree-icon', '·')
       const body = element('span')
       body.append(element('strong', undefined, entry.name))
@@ -947,21 +889,34 @@ function openFileOverlay(task: ProxyTask, path: string, trigger?: HTMLElement): 
 function renderComposerState(task: ProxyTask, input: HTMLTextAreaElement, button: HTMLButtonElement): void {
   const busy = taskIsBusy(task)
   input.disabled = busy
-  input.placeholder = busy ? 'Working…' : 'Continue the conversation…  @ to add files'
+  input.placeholder = busy ? 'Working…' : 'Continue the conversation. @ to add files.'
   input.closest('.composer-draft')?.querySelectorAll<HTMLButtonElement>('.composer-attach').forEach((control) => { control.disabled = busy })
   button.disabled = false
   button.textContent = busy ? 'Stop' : 'Send'
-  button.classList.toggle('cancel-button', busy)
+  button.classList.toggle('btn-primary', !busy)
+  button.classList.toggle('btn-secondary', busy)
+  button.classList.toggle('stop-button', busy)
   button.setAttribute('aria-label', busy ? 'Stop this task' : 'Send message')
 }
 
 function renderSurfaceActions(task: ProxyTask): void {
   const target = byId('surface-actions')
   if (taskIsBusy(task)) { target.replaceChildren(); return }
-  const controls = element('div', 'output-actions-inner')
+  const retry = element('button', 'btn btn-secondary btn-sm') as HTMLButtonElement
+  retry.type = 'button'
+  retry.append(icon('refresh', 14), document.createTextNode('Run again'))
+  retry.addEventListener('click', async () => {
+    try {
+      await persistControlPlaneDraft()
+      const created = await window.frontier.retryTask(task.id)
+      applyTaskSurface({ kind: 'select', taskId: created.id })
+    } catch (error) { reportError('Could not re-run this task', error) }
+  })
+  const controls: HTMLElement[] = [retry]
 
   if (!task.bench) {
-    const select = document.createElement('select'); select.className = 'detail-provider-select'; select.title = 'Agent for the next message'
+    const select = document.createElement('select'); select.className = 'select surface-agent-select'
+    select.title = 'Agent for the next message'; select.setAttribute('aria-label', 'Change agent for the next message')
     const current = task.continuationProviderId ?? task.selectedProviderId ?? ''
     for (const provider of snapshot.providers) {
       const option = document.createElement('option'); option.value = provider.id
@@ -978,47 +933,22 @@ function renderSurfaceActions(task: ProxyTask): void {
       catch (error) { select.value = current; reportError('Could not change agent', error) }
       finally { select.disabled = false }
     })
-    controls.append(select)
+    controls.push(select)
   }
+  target.replaceChildren(...controls)
+}
 
-  const retry = element('button', 'secondary-button', 'Run again')
-  retry.addEventListener('click', async () => {
-    try {
-      await persistControlPlaneDraft()
-      const created = await window.frontier.retryTask(task.id)
-      setSelectedTaskId(created.id)
-    } catch (error) { reportError('Could not re-run this task', error) }
-  })
-  controls.append(retry)
-  target.replaceChildren(controls)
+function resetSurfaceCaches(): void {
+  lastBodyRender = { id: '', status: '', length: -1 }
+  lastInspectorSignature = ''
 }
 
 export function renderSurface(): void {
   const task = snapshot.tasks.find((item) => item.id === selectedTaskId)
-  const title = byId('surface-title')
-  const subtitle = byId('surface-subtitle')
-  const status = byId('surface-status')
-  const composer = byId('surface-composer')
+  // Unreachable while not composing (renderTasks reconciles first); kept as a guard.
+  if (!task) return
 
-  if (!task) {
-    title.textContent = 'Select a task'
-    subtitle.textContent = ''
-    status.textContent = 'Idle'; status.className = 'status-pill muted'
-    byId('surface-meta').replaceChildren()
-    byId('surface-actions').replaceChildren()
-    byId('surface-stages').replaceChildren()
-    byId('surface-thread').replaceChildren(emptyState('Nothing selected', 'Choose a task from the queue to see its conversation, files, and routing.'))
-    composer.hidden = true
-    lastBodyRender = { id: '', status: '', length: -1 }
-    renderInspector(undefined)
-    return
-  }
-
-  title.textContent = task.prompt
-  subtitle.textContent = `${taskKindLabel(task)} · ${task.type} · ${task.cwd}`
-  subtitle.title = task.cwd
-  status.textContent = task.status; status.className = `status-pill ${task.status}`
-
+  byId('surface-title').textContent = task.prompt
   renderSurfaceMeta(task)
   renderSurfaceActions(task)
   renderSurfaceStages(task)
@@ -1026,12 +956,13 @@ export function renderSurface(): void {
   renderInspector(task)
 
   // A comparison has no single conversation to continue.
+  const composer = byId('surface-composer')
   composer.hidden = Boolean(task.bench) && !taskIsBusy(task)
   if (!composer.hidden) renderComposerState(task, byId<HTMLTextAreaElement>('composer-input'), byId<HTMLButtonElement>('composer-send'))
 }
 
 export function openTask(taskId: string): void {
-  setSelectedTaskId(taskId)
+  applyTaskSurface({ kind: 'select', taskId })
   overlayFilePath = undefined
   overlayFileState = undefined
   overlayWorkspaceState = undefined
@@ -1044,7 +975,7 @@ export function openTask(taskId: string): void {
 
 async function handleComposerAction(): Promise<void> {
   const taskId = selectedTaskId
-  if (!taskId) return
+  if (!taskId || composing) return
   const task = snapshot.tasks.find((item) => item.id === taskId)
   if (!task) return
   const input = byId<HTMLTextAreaElement>('composer-input')
@@ -1108,30 +1039,27 @@ export function initTasksView(): void {
     const button = byId<HTMLButtonElement>('surface-focus')
     button.setAttribute('aria-pressed', String(focusMode))
     button.replaceChildren(icon(focusMode ? 'collapse' : 'expand', 16))
-    button.title = focusMode ? 'Show the queue' : 'Focus this task'
+    button.title = focusMode ? 'Show the queue and inspector' : 'Expand the conversation'
+    button.setAttribute('aria-label', button.title)
   })
 
   byId('inspector-toggle').addEventListener('click', () => toggleInspector())
+  for (const button of document.querySelectorAll<HTMLElement>('[data-pane-toggle="list"]')) button.addEventListener('click', () => toggleTaskList())
 
-  // Task list keyboard navigation: ↑/↓ move the selection, Enter opens it.
+  // Task list keyboard navigation: ↑/↓ move the selection (from compose, ↓ takes the first row).
   byId('task-list').addEventListener('keydown', (event) => {
-    const scoped = snapshot.tasks.filter((task) => projectMatches(task.cwd))
-    const order = orderedVisibleTasks(scoped)
+    const order = orderedVisibleTasks(scopedTasks())
     if (!order.length) return
-    const currentIndex = order.findIndex((task) => task.id === selectedTaskId)
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      const next = order[Math.min(order.length - 1, currentIndex + 1)] ?? order[0]
-      setSelectedTaskId(next.id); renderTasks()
-      byId('task-list').querySelector(`[data-task-id="${next.id}"]`)?.scrollIntoView({ block: 'nearest' })
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      const prev = order[Math.max(0, currentIndex - 1)] ?? order[0]
-      setSelectedTaskId(prev.id); renderTasks()
-      byId('task-list').querySelector(`[data-task-id="${prev.id}"]`)?.scrollIntoView({ block: 'nearest' })
-    } else if (event.key === 'Enter' && selectedTaskId) {
-      event.preventDefault(); openTask(selectedTaskId)
-    }
+    const currentIndex = composing ? -1 : order.findIndex((task) => task.id === selectedTaskId)
+    let next: ProxyTask | undefined
+    if (event.key === 'ArrowDown') next = order[Math.min(order.length - 1, currentIndex + 1)]
+    else if (event.key === 'ArrowUp') next = order[Math.max(0, currentIndex - 1)]
+    else if (event.key === 'Home') next = order[0]
+    else if (event.key === 'End') next = order[order.length - 1]
+    if (!next) return
+    event.preventDefault()
+    selectTask(next.id)
+    byId('task-list').querySelector(`[data-task-id="${next.id}"]`)?.scrollIntoView({ block: 'nearest' })
   })
 
   // `[`/`]` collapse and expand the list and the inspector — but never while
@@ -1160,7 +1088,6 @@ export function initTasksView(): void {
     if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleComposerAction() }
   })
 
-  byId('list-toggle').addEventListener('click', () => toggleTaskList())
   applyInspectorState()
 
   // How much column width the *other* side panel currently reserves
@@ -1168,8 +1095,8 @@ export function initTasksView(): void {
   // other rather than assuming a fixed constant for it. 0 while that panel
   // is collapsed or floating as an overlay — neither takes grid column space.
   const grid = byId('content-grid')
-  const listColumnSpace = (): number => (grid.classList.contains('list-collapsed') ? 0 : (queueWidth ?? QUEUE_DEFAULT_WIDTH) + GUTTER_WIDTH)
-  const inspectorColumnSpace = (): number => (grid.classList.contains('inspector-collapsed') ? 0 : (inspectorWidth ?? INSPECTOR_DEFAULT_WIDTH) + GUTTER_WIDTH)
+  const listColumnSpace = (): number => (grid.classList.contains('list-collapsed') ? 0 : (queueWidth ?? queueDefaultWidth()) + GUTTER_WIDTH)
+  const inspectorColumnSpace = (): number => (grid.classList.contains('inspector-collapsed') ? 0 : (inspectorWidth ?? inspectorDefaultWidth()) + GUTTER_WIDTH)
 
   // Draggable divider between the queue and the task surface.
   ;(function setupResizer(): void {

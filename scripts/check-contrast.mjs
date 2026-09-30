@@ -1,119 +1,85 @@
 #!/usr/bin/env node
-// Computes WCAG 2.1 contrast ratios for the Phosphor Console token pairs that
-// are actually used for text, in both themes, and fails (non-zero exit) if
-// any pair drops below its required ratio. Token values are duplicated here
-// deliberately — this is a standalone check, not a runtime module, and it
-// must keep working even if someone temporarily breaks the CSS import graph.
-// Keep these hexes in sync with src/renderer/src/styles/tokens.css §2.
+// Computes WCAG 2.1 contrast ratios for the token pairs the UI uses as text, in all six
+// family x scheme variants, straight from src/renderer/src/styles/tokens.css (no duplicated
+// table), and exits non-zero if any pair drops below 4.5:1. Translucent tokens
+// (`rgb(r g b / a)`, which Phosphor uses for its "soft" fills) are composited over the
+// variant's --surface before measuring. tests/contrast.test.ts runs the same check.
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { parseRules, resolveTokens } from './css-tokens.mjs'
 
-const THEMES = {
-  console: {
-    bg: '#0B0D0C',
-    'surface-1': '#101312',
-    // The sidebar/rail is `--surface-1` (see base.css `.sidebar`); listed again
-    // here under its own label so it always shows up as an explicitly-checked
-    // surface rather than relying on that being obvious.
-    sidebar: '#101312',
-    'surface-2': '#161B19',
-    fg: '#E6E3D8',
-    'fg-muted': '#8E978F',
-    'fg-faint': '#7C857F',
-    amber: '#FFB000',
-    'amber-fill': '#FFB000',
-    'on-amber': '#1A1300',
-    cyan: '#37E2D5',
-    phosphor: '#7CFF6B',
-    alarm: '#FF4D4D',
-    caution: '#FF8A3D'
-  },
-  daylight: {
-    bg: '#E9E4D8',
-    'surface-1': '#F3EFE5',
-    sidebar: '#F3EFE5',
-    'surface-2': '#FBF8F1',
-    fg: '#1C1F1D',
-    'fg-muted': '#4C5049',
-    'fg-faint': '#62665F',
-    amber: '#8F5A00',
-    'amber-fill': '#C98A00',
-    'on-amber': '#1A1300',
-    cyan: '#00706C',
-    phosphor: '#286D17',
-    alarm: '#B3261E',
-    caution: '#A5470A'
+export const TOKENS_CSS = fileURLToPath(new URL('../src/renderer/src/styles/tokens.css', import.meta.url))
+export const FAMILIES = ['neutral', 'mono', 'phosphor']
+export const SCHEMES = ['light', 'dark']
+export const MIN_RATIO = 4.5
+
+// [text token, background token]. axe-core holds small text to 4.5:1 however "faint" it reads, so fg-faint is included.
+export const PAIRS = [
+  ['fg', 'surface'], ['fg-muted', 'surface'], ['fg-faint', 'surface'], ['accent', 'surface'], ['accent-fg', 'accent-fill'], ['accent-fg', 'accent-hover'],
+  ['ok', 'surface'], ['warn', 'surface'], ['danger', 'surface'], ['info', 'surface'],
+  ['fg', 'bg'], ['fg-muted', 'bg'], ['fg-muted', 'surface-2'],
+  ['ok', 'ok-soft'], ['warn', 'warn-soft'], ['danger', 'danger-soft'], ['accent', 'accent-soft'],
+  ['diff-add-fg', 'diff-add'], ['diff-del-fg', 'diff-del']
+]
+
+/** '#rrggbb', '#rgb' or 'rgb(r g b [/ a])' -> [r, g, b, a] with channels 0-255. */
+export function parseColor(value) {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value)
+  if (hex) {
+    const digits = hex[1].length === 3 ? [...hex[1]].map((c) => c + c).join('') : hex[1]
+    return [0, 2, 4].map((i) => parseInt(digits.slice(i, i + 2), 16)).concat(1)
   }
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)\s*(?:[/,]\s*([\d.]+%?))?\s*\)$/i.exec(value)
+  if (!rgb) throw new Error(`cannot parse colour: ${value}`)
+  const alpha = rgb[4] === undefined ? 1 : rgb[4].endsWith('%') ? parseFloat(rgb[4]) / 100 : parseFloat(rgb[4])
+  return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha]
 }
 
-// The pairs the spec calls out: fg, fg-muted, fg-faint, amber, cyan,
-// phosphor, caution, alarm on surface-1/surface-2/bg/sidebar, plus on-amber
-// on amber-fill. axe-core's real-world verdict is 4.5:1 for small text
-// regardless of how "faint" the label reads visually, so every text token
-// here — fg-faint included — is held to the same 4.5:1 floor.
-const TEXT_TOKENS = ['fg', 'fg-muted', 'fg-faint', 'amber', 'cyan', 'phosphor', 'caution', 'alarm']
-const BACKGROUNDS = ['bg', 'surface-1', 'sidebar', 'surface-2']
+const over = ([r, g, b, a], [br, bg, bb]) => [r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a), 1]
 
-function srgbToLinear(channel) {
-  const c = channel / 255
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
-
-function relativeLuminance(hex) {
-  const value = hex.replace('#', '')
-  const r = parseInt(value.slice(0, 2), 16)
-  const g = parseInt(value.slice(2, 4), 16)
-  const b = parseInt(value.slice(4, 6), 16)
-  const [lr, lg, lb] = [r, g, b].map(srgbToLinear)
+function luminance([r, g, b]) {
+  const [lr, lg, lb] = [r, g, b].map((channel) => {
+    const c = channel / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  })
   return 0.2126 * lr + 0.7152 * lg + 0.0722 * lb
 }
 
-function contrastRatio(hexA, hexB) {
-  const la = relativeLuminance(hexA)
-  const lb = relativeLuminance(hexB)
-  const lighter = Math.max(la, lb)
-  const darker = Math.min(la, lb)
-  return (lighter + 0.05) / (darker + 0.05)
+export function contrastRatio(a, b) {
+  const [la, lb] = [luminance(a), luminance(b)]
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
 }
 
-function requiredRatio() {
-  return 4.5
-}
-
-let failed = false
-const rows = []
-
-for (const [themeName, tokens] of Object.entries(THEMES)) {
-  for (const bgToken of BACKGROUNDS) {
-    for (const textToken of TEXT_TOKENS) {
-      const ratio = contrastRatio(tokens[textToken], tokens[bgToken])
-      const required = requiredRatio(textToken)
-      const ok = ratio >= required
-      if (!ok) failed = true
-      rows.push({ theme: themeName, pair: `${textToken} on ${bgToken}`, ratio: ratio.toFixed(2), required, ok })
+/** Returns { rows, failures } for every pair in every variant of `css`. */
+export function checkContrast(css = readFileSync(TOKENS_CSS, 'utf8')) {
+  const rules = parseRules(css)
+  const rows = []
+  for (const family of FAMILIES) {
+    for (const scheme of SCHEMES) {
+      const tokens = resolveTokens(rules, { 'data-family': family, 'data-scheme': scheme })
+      const surface = parseColor(tokens['--surface'])
+      const color = (name, base) => {
+        if (!tokens[`--${name}`]) throw new Error(`${family}/${scheme}: token --${name} is not defined`)
+        return over(parseColor(tokens[`--${name}`]), base)
+      }
+      for (const [text, background] of PAIRS) {
+        const bg = color(background, surface)
+        const ratio = contrastRatio(color(text, bg), bg)
+        rows.push({ variant: `${family}/${scheme}`, pair: `${text} on ${background}`, ratio, ok: ratio >= MIN_RATIO })
+      }
     }
   }
-  // on-amber on amber-fill (button text) — always needs 4.5:1.
-  const ratio = contrastRatio(tokens['on-amber'], tokens['amber-fill'])
-  const ok = ratio >= 4.5
-  if (!ok) failed = true
-  rows.push({ theme: themeName, pair: 'on-amber on amber-fill', ratio: ratio.toFixed(2), required: 4.5, ok })
+  return { rows, failures: rows.filter((row) => !row.ok) }
 }
 
-const widest = Math.max(...rows.map((row) => row.pair.length))
-console.log('theme     pair'.padEnd(10 + widest + 2) + 'ratio   required  result')
-console.log('-'.repeat(10 + widest + 26))
-for (const row of rows) {
-  console.log(
-    row.theme.padEnd(10) +
-    row.pair.padEnd(widest + 2) +
-    `${row.ratio}:1`.padEnd(8) +
-    `${row.required}:1`.padEnd(10) +
-    (row.ok ? 'PASS' : 'FAIL')
-  )
-}
-
-if (failed) {
-  console.error('\nOne or more token pairs fail their WCAG contrast requirement.')
-  process.exit(1)
-} else {
-  console.log('\nAll token pairs meet their WCAG contrast requirement.')
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const { rows, failures } = checkContrast()
+  const width = Math.max(...rows.map((row) => row.pair.length))
+  console.log('variant           pair'.padEnd(18 + width + 2) + 'ratio    result')
+  for (const row of rows) console.log(row.variant.padEnd(18) + row.pair.padEnd(width + 2) + `${row.ratio.toFixed(2)}:1`.padEnd(9) + (row.ok ? 'PASS' : 'FAIL'))
+  if (failures.length) {
+    console.error(`\n${failures.length} of ${rows.length} token pairs are below ${MIN_RATIO}:1.`)
+    process.exit(1)
+  }
+  console.log(`\nAll ${rows.length} token pairs meet ${MIN_RATIO}:1.`)
 }

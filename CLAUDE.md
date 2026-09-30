@@ -596,7 +596,7 @@ The renderer is split by responsibility, not by screen alone — `src/renderer/s
   `icons.ts` (Lucide, tree-shaken, `currentColor`), `segmented.ts` (the radiogroup behind
   `.segmented`), `tooltip.ts`, `dirty.ts` (the unsaved-edit guard, below), and `components.ts` —
   the Calm kit factories `status`, `tag`, `meter`, `meterRow`, `avatar`, `sectionTitle`,
-  `fieldLabel`, plus `inspectorSection`, `dataTable` and `dialogHandle`, per
+  `fieldLabel`, plus `inspectorSection` and `dialogHandle`, per
   `docs/design-calm.md` §4.
 - **`views/*.ts`** — one file per screen or Settings tab: `tasks`, `compose` (Tasks' compose
   state), `agents`, `review`, `settings` (the tab list, General, Appearance, Verification),

@@ -75,12 +75,10 @@ function renderAppearance(): void {
   const scheme = document.documentElement.dataset.scheme ?? 'dark'
   document.querySelectorAll<HTMLElement>('.family-mock').forEach((mock) => { mock.dataset.scheme = scheme })
   const effects = byId<HTMLInputElement>('appearance-effects')
-  const phosphor = appearance.family === 'phosphor'
   if (document.activeElement !== effects) effects.checked = appearance.effects === 'off'
-  effects.disabled = !phosphor
-  byId('appearance-effects-help').textContent = phosphor
+  byId('appearance-effects-help').textContent = appearance.family === 'phosphor'
     ? 'Turns off glow on readouts, the running pulse and other motion. Always off under your system’s reduced-motion setting.'
-    : 'Only the Phosphor family has effects to reduce.'
+    : 'Turns off the running pulse, sheet and hover motion. Always off under your system’s reduced-motion setting.'
 }
 
 function initAppearance(): void {

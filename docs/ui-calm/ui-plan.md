@@ -423,7 +423,7 @@ SPEC section 4's components, mapped to what they replace. "Markup" says whether 
 | 8 | Attributes are family, scheme, dock, labels, density | SPEC 3.3 also lists a Font size control | Added as `data-font-size` / `fp-font-size`. |
 | 9 | Tokens are accessible | `--fg-faint` was 3.0-4.0:1 in the first draft of the Neutral and Mono variants; the repo's rule and script hold every text token to 4.5:1 | Resolved: `tokens.css` now uses Neutral light `#6d6e75`, Neutral dark `#888891`, Mono light `#6f6c65`, Mono dark `#8b8881`, all at or above 4.5:1 on `--surface-2`. |
 | 10 | Chrome can change freely | The palette clicks `#health-check` and `#clear-finished`; `goToNav` and `capture.js` query `.nav-item[data-view]`; `tasks.css` hard-codes `top: 104px` | Ids and classes kept, or replaced with functions (P3). |
-| 11 | The main process is untouched | `src/main/index.ts` sets `backgroundColor: '#0c0e0d'` and `titleBarStyle: 'hiddenInset'` | Optional one-line follow-up for the background (visible only while resizing). The inset is handled in CSS. |
+| 11 | The main process is untouched (decided: one `backgroundColor` literal may change) | `src/main/index.ts` sets `backgroundColor: '#0c0e0d'` and `titleBarStyle: 'hiddenInset'` | Optional one-line follow-up for the background (visible only while resizing). The inset is handled in CSS. |
 | 12 | Header shows the project switcher | The composer needs a concrete project; `Start task` is disabled without one | A project field stays inside the composer. |
 | 13 | Settings forms are safe under live snapshots | Only the advisor form has a dirty flag (section P5) | Guards added in P5. |
 | 14 | `.tabs` is part of the kit | Nothing in the app uses horizontal tabs | Not built until a consumer exists. |
@@ -461,5 +461,5 @@ The redesign is done when all of these hold.
 - [ ] Every capability in the current UI has a home in section 5. The old `switchView` ids still resolve.
 - [ ] The layout works at 720 x 560 in all three dock positions and both label modes, with no content under the dock, and at 1440 x 920.
 - [ ] The dock, header and every screen have been reviewed in all six variants, comfortable and compact.
-- [ ] `git diff` shows no change under `src/main`, `src/preload` or `src/shared/types.ts`.
+- [x] `git diff` shows no change under `src/preload` or `src/shared/types.ts`, and under `src/main` only the BrowserWindow `backgroundColor` literal (matches Neutral dark `--bg`).
 - [ ] `docs/design-calm.md`, README, CLAUDE.md, the site tokens, `screens.ts`, `capture.js` and the site screenshots are updated, and `pnpm --dir site build` passes.

@@ -176,4 +176,7 @@ dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 /* ---------- Toast: top-right, under the header row, clear of every dock position ---------- */
 #toast { visibility: hidden; position: fixed; top: calc(var(--header-h) + var(--s-2)); right: calc(var(--shell-pad-right) + var(--s-4)); z-index: 60; border: 1px solid var(--border); background: var(--surface); color: var(--fg); border-radius: var(--r-3); padding: var(--s-3) var(--s-4); font-size: var(--fs-13); box-shadow: var(--shadow-2); max-width: 420px; }
 #toast.show { visibility: visible; animation: toast 2.8s both; }
+/* With motion off the .01ms animation would end on its last frame (opacity 0) and hide every toast; the JS hides it after its timeout instead. */
+@media (prefers-reduced-motion: reduce) { #toast.show { animation: none; opacity: 1; transform: none; } }
+[data-effects='off'] #toast.show { animation: none; opacity: 1; transform: none; }
 @keyframes toast { 0% { opacity: 0; transform: translateY(-4px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }

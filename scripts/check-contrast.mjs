@@ -15,7 +15,7 @@ export const MIN_RATIO = 4.5
 
 // [text token, background token]. axe-core holds small text to 4.5:1 however "faint" it reads, so fg-faint is included.
 export const PAIRS = [
-  ['fg', 'surface'], ['fg-muted', 'surface'], ['fg-faint', 'surface'], ['accent', 'surface'], ['accent-fg', 'accent-fill'],
+  ['fg', 'surface'], ['fg-muted', 'surface'], ['fg-faint', 'surface'], ['accent', 'surface'], ['accent-fg', 'accent-fill'], ['accent-fg', 'accent-hover'],
   ['ok', 'surface'], ['warn', 'surface'], ['danger', 'surface'], ['info', 'surface'],
   ['fg', 'bg'], ['fg-muted', 'bg'], ['fg-muted', 'surface-2'],
   ['ok', 'ok-soft'], ['warn', 'warn-soft'], ['danger', 'danger-soft'], ['accent', 'accent-soft'],

@@ -7,9 +7,7 @@ const read = (path: string): string => readFileSync(join(root, path), 'utf8')
 const strip = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, '')
 
 const kit = strip(read('src/renderer/src/styles/kit.css'))
-// P1 lands the real tokens.css in parallel; either the design doc's or the app's may define a name.
-const defined = new Set([...strip(read('docs/ui-calm/tokens.css')).matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))
-for (const m of strip(read('src/renderer/src/styles/tokens.css')).matchAll(/(--[\w-]+)\s*:/g)) defined.add(m[1])
+const defined = new Set([...strip(read('src/renderer/src/styles/tokens.css')).matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))
 // Custom properties the kit defines itself (a component-local channel), so they need no token.
 // `--value` is written by the meter() factory through style.setProperty, and always read with a fallback.
 const local = new Set([...kit.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]).concat('--value'))

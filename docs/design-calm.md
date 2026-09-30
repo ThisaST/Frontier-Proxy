@@ -101,7 +101,7 @@ never markup.
   not reported. The fill width is `--value`, set through the CSSOM because the CSP blocks inline
   `style` attributes.
 - **`avatar(initials)`**, **`sectionTitle`** (13/600), **`fieldLabel`** (12/500, muted).
-- **`inspectorSection`**, **`dataTable`** (`.table`), **`dialogHandle`** and **`restoreFocusOnClose`**.
+- **`inspectorSection`**, **`dialogHandle`** and **`restoreFocusOnClose`**. Tables are plain `.table` markup built by their views.
 - **Classes only:** `.card` (theme tiles, agent sheet sections, the composer), `.row` (list rows;
   selected is `--accent-soft`), `.vtabs` (Settings), `.segmented` (a `radiogroup`, arrow keys via
   `ui/segmented.ts`), `.switch` (checkbox + `.slider`), `.badge`, `.kbd`, `.code` and `.diff`,

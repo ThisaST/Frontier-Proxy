@@ -1,5 +1,5 @@
 // The project switcher: which repo (cwd) the Tasks list, Review inbox, and
-// Workspaces list are scoped to, and the working directory Home's composer
+// Workspaces list are scoped to, and the working directory the Tasks composer
 // and the ⌘N dialog pre-fill. Unset ("All projects") behaves exactly as
 // before this module existed. Every localStorage access is wrapped in
 // try/catch (private mode, disabled storage).
@@ -67,7 +67,7 @@ export function knownProjects(): ProjectOption[] {
 }
 
 // Bring the header's project switcher forward — used by any other trigger
-// (Home's composer project field, the ⌘K command) that wants "clicking it
+// (the composer's project field, the ⌘K command) that wants "clicking it
 // opens the switcher" without a second, independent menu implementation.
 // Opens `openProjectMenu()` directly rather than a synthetic `.click()` on
 // the trigger: a synthetic click ran synchronously inside the *original*
@@ -95,7 +95,7 @@ export async function chooseProjectInteractively(): Promise<void> {
 // ---- Header switcher: trigger + menu, keyboard-accessible ----
 
 let menuIndex = 0
-// The element focused just before the menu opened (the Home chip, a palette
+// The element focused just before the menu opened (the composer's project chip, a palette
 // invocation, or the trigger itself for a direct click) — Esc and any other
 // close-with-focus-return restores focus there instead of always landing on
 // the trigger.

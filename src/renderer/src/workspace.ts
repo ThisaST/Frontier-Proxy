@@ -777,7 +777,7 @@ byId<HTMLInputElement>('ws-participant-name').addEventListener('input', (event) 
   byId<HTMLInputElement>('ws-participant-handle').value = handleFromName((event.target as HTMLInputElement).value)
 })
 
-// Model options are scoped to the chosen agent — the same rule `renderTaskModelOptions`
+// Model options are scoped to the chosen agent — the same rule `renderModelOptions` (task-form.ts)
 // applies for tasks (model ids are CLI-specific and never travel between agents).
 function renderParticipantModelOptions(): void {
   const select = byId<HTMLSelectElement>('ws-participant-model')

@@ -65,5 +65,4 @@ export function initTheme(): void {
 
 // Effects keep their v1 names; Settings → Appearance and the palette call these.
 export type EffectsPreference = Effects
-export const effectsPreference = (): EffectsPreference => currentAppearance().effects
 export const setEffectsPreference = (effects: EffectsPreference): void => setEffects(effects)

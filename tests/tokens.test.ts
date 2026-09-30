@@ -7,7 +7,7 @@ import { parseRules, resolveTokens } from '../scripts/css-tokens.mjs'
 const RENDERER = fileURLToPath(new URL('../src/renderer', import.meta.url))
 const TOKENS = join(RENDERER, 'src/styles/tokens.css')
 const files = (readdirSync(RENDERER, { recursive: true }) as string[])
-  .filter((file) => /\.(css|ts|html)$/.test(file) && !file.includes('node_modules'))
+  .filter((file) => /\.(css|ts|js|html)$/.test(file) && !file.includes('node_modules'))
   .map((file) => ({ file: file.replaceAll('\\', '/'), text: readFileSync(join(RENDERER, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '') })) // comments may mention var(--token) as prose
 const rules = parseRules(readFileSync(TOKENS, 'utf8'))
 

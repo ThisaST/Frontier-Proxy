@@ -53,7 +53,7 @@ function renderAdvisorStatus(): void {
   disclosure = sentence
   byId('advisor-status-lamp').className = `status ${tone}`
   byId('advisor-status-label').textContent = label
-  byId('advisor-status').setAttribute('aria-label', sentence)
+  byId('advisor-status').setAttribute('aria-label', `${label}. ${sentence}`)
 }
 
 function render(): void {

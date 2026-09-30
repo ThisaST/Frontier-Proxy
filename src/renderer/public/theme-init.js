@@ -33,7 +33,6 @@
     root.setAttribute('data-density', pick(localStorage.getItem('fp-density'), ['comfortable', 'compact'], 'comfortable'))
     root.setAttribute('data-font-size', pick(localStorage.getItem('fp-font-size'), ['default', 'large'], 'default'))
     root.setAttribute('data-effects', effectsOff ? 'off' : 'on')
-    root.setAttribute('data-kit', 'v2')
   } catch (error) {
     root.setAttribute('data-family', DEFAULT_FAMILY)
     root.setAttribute('data-scheme', 'dark')
@@ -42,6 +41,5 @@
     root.setAttribute('data-density', 'comfortable')
     root.setAttribute('data-font-size', 'default')
     root.setAttribute('data-effects', 'off')
-    root.setAttribute('data-kit', 'v2')
   }
 })()

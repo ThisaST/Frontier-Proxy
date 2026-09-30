@@ -11,7 +11,7 @@ describe('resolveAppearance: defaults', () => {
   it('lands on DEFAULT_FAMILY, the system scheme and calm chrome when nothing is stored', () => {
     expect(resolve({}, true).attributes).toEqual({
       'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-dock': 'bottom', 'data-dock-labels': 'hover',
-      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on', 'data-kit': 'v2'
+      'data-density': 'comfortable', 'data-font-size': 'default', 'data-effects': 'on'
     })
     expect(resolve({}, false).attributes['data-scheme']).toBe('light')
     expect(resolve({}).appearance.scheme).toBe('system')
@@ -141,6 +141,6 @@ describe('theme-init.js', () => {
   })
 
   it('falls back to the default family, dark, effects off when storage throws', () => {
-    expect(runThemeInit({}, false, false, true, { platform: 'MacIntel' }).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-effects': 'off', 'data-kit': 'v2', 'data-platform': 'mac' })
+    expect(runThemeInit({}, false, false, true, { platform: 'MacIntel' }).attributes).toMatchObject({ 'data-family': DEFAULT_FAMILY, 'data-scheme': 'dark', 'data-effects': 'off', 'data-platform': 'mac' })
   })
 })

@@ -7,8 +7,7 @@
    Uses only var(--token) colours; a scan test (tests/kit-css.test.ts) enforces it.
 
    Section 99 styles class names shipped markup has used since before the kit: .segmented,
-   .switch/.slider (+ .switch.small), .field-label and .readout. (`data-kit="v2"` is still set
-   on <html> by theme-init.js and theme.ts; nothing selects on it.)
+   .switch/.slider (+ .switch.small), .field-label and .readout.
    The dialog heading is .dialog-title, and .meter-readout carries its own mono
    (there is no bare .mono).
    ========================================================================== */

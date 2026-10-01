@@ -581,7 +581,7 @@ The renderer is split by responsibility, not by screen alone — `src/renderer/s
   header's action buttons it shows, whether the project switcher applies). Each snapshot runs the
   cross-cutting renders (`renderTasks`, `renderSettings`, `renderAdvisorStatus`,
   `renderReviewBadge`) and then repaints the current view.
-- **`nav.ts`** — pure, unit-tested: the five `VIEWS` (tasks, workspace, review, agents, settings),
+- **`nav.ts`** — pure, unit-tested: the six `VIEWS` (tasks, workspace, review, agents, office, settings),
   the `SETTINGS_TABS`, `resolveView()` — the old ids still resolve (`home` → Tasks in compose
   state, `routing`/`control`/`skills` → Settings plus that tab), so no `switchView` caller had to
   change — and `nextTaskSurface()`, the rule for Tasks' centre pane (the composer or one task,
@@ -604,10 +604,11 @@ The renderer is split by responsibility, not by screen alone — `src/renderer/s
   into their own panels. Each owns its render function and DOM wiring. `views/settings-parts.ts`
   holds the builders the TS-made tabs share (`settingsSection`, `settingsRow`, `settingsTable`,
   `saveBar`) so they match the static markup of General. Workspaces is `workspace.ts`, at the top
-  level.
+  level. `views/office.ts` is the Office screen's glue (below); its canvas, sprites and overlay
+  live in `office/`, and its pure model, grid and simulation in `src/shared/office-*.ts`.
 - **`task-form.ts`** — the task-creation form (prompt, run mode, agent override, model, skills) is
   a factory, `createTaskForm`, with injected element ids; `views/compose.ts` is its only caller.
-- **`project.ts`** — the project switcher: which cwd Tasks, Workspaces and Review are scoped to
+- **`project.ts`** — the project switcher: which cwd Tasks, Workspaces, Review and Office are scoped to
   (`currentProject`, `onProjectChange`, `projectMatches`), persisted to `localStorage` and
   defaulting to "All projects" so it changes nothing for code that predates it.
 - **`theme-model.ts` / `theme.ts`** — appearance. `theme-model.ts` is pure (`resolveAppearance`,
@@ -618,9 +619,9 @@ The renderer is split by responsibility, not by screen alone — `src/renderer/s
   preference — never sent to the main process.
 
 **Layout.** The chrome is a floating **dock** (`nav.dock` in `index.html`:
-five `.nav-item[data-view]` buttons, then New task and Search) at the bottom, left or right, where
+six `.nav-item[data-view]` buttons, then New task and Search) at the bottom, left or right, where
 `main` pads by `--dock-pad` on that side so nothing sits under it, and one 44px **header row**
-above every screen, which holds the project switcher (Tasks, Workspaces, Review only), the title, the
+above every screen, which holds the project switcher (Tasks, Workspaces, Review and Office only), the title, the
 screen's actions and the privacy chip. `styles/shell.css` owns both; `styles/kit.css` is the
 component kit (`.btn`, `.status`, `.tag`, `.meter`, `.row`, `.table`, `.vtabs`, `.sheet`,
 `.dialog`, …) that every screen's own CSS builds on.
@@ -672,6 +673,53 @@ are sent to TypeSafe" vs. "Prompt text and split-run subtask prompts are sent to
 ADR 0002. The sentence is the chip's accessible name and its tooltip (hover and keyboard focus),
 and a click opens Settings → Routing. It is computed from live settings, never hardcoded, so it
 cannot silently go stale as advisor state changes.
+
+## Office (the 2D map of where every agent is)
+
+The **Office** dock section is a Gather-style top-down pixel office. One avatar per configured
+agent; where it stands *is* its state, derived purely from the snapshot by
+`buildOfficeScene` (`src/shared/office-model.ts`, unit-tested, DOM-free — `now` is always passed
+in). Precedence, first match wins: disabled → CLI not detected (`!runtime.available`) → logged out
+(`auth.state === 'logged-out'` only; `unknown` is *not* away) → cooling down → usage limit
+(`provider-capacity.ts`, the same helpers the Agents table uses) → **meeting** (an in-scope
+running workspace turn) → **working** (a running task, orchestrated subtask, bench lane,
+planner/synthesis stage, or a running turn in another project) →
+**waiting** (a queued turn or subtask) → working when `runtime.running > 0` with nothing found (a
+claimed slot is never shown idle) → **idle**. Who is doing what is reconstructed, not read: the
+last `running` entry of `task.attempts`, `task.subtasks[].providerId`, `task.selectedProviderId`
+during `planning`/`synthesizing` (those stages push no attempt), and `workspaces[].turns[]`. An
+agent with `maxConcurrent > 1` is still one avatar — the most social state wins and the popover
+lists all of `work[]`. Out-of-project work keeps the agent *working* at its desk ("Busy in
+<repo>"); meeting rooms exist only for in-project workspaces. While in a meeting the avatar wears
+the participant's `@handle · role` name tag — that is the second identity layer.
+
+Zones come from `office-grid.ts` (procedural layout: three meeting rooms, a desk row that grows
+with the agent count, a lounge for idle agents, an away area, a review desk stacked with the Review
+inbox's branch count, and the entrance where "You" spawns) with BFS `findPath` and `assignStable`
+seating. `office-sim.ts` owns the actors: `reconcile(sim, scene, { snap, now })` re-paths an agent
+only when its value key (`state|zone|slot`) changes — snapshots are fresh clones every ~60 ms, so
+there is nothing to memoize by reference — and `advance(sim, dt, { motion, now })` walks them at
+`TILE_MS` per tile, wanders idle agents with a seeded RNG, and emits
+`arrived`/`entered-room`/`left-room`. `motion: false` (effects off, which already covers reduced
+motion) snaps instead. There are three rooms; a meeting agent whose workspace gets no room works
+from its desk rather than wandering the lounge. The view also rebuilds the scene once a second,
+because the engine sends no snapshot when a cooldown or plan window merely expires.
+
+Renderer rules: the canvas gets every colour from the `--office-*` tokens at the end of
+`tokens.css` through `getComputedStyle` (`office/palette.ts`) — `tests/tokens.test.ts` bans colour
+literals in `.ts` too — and sprites are procedural `fillRect` pixel art cached per palette
+(`office/sprites.ts`), so a theme change only invalidates the cache. Avatar looks are a hash of
+provider id + name (`agentAppearance`), never the CLI kind (`tests/renderer-scan.test.ts` scans the
+shared office modules too). Text
+(name tags, badges, speech bubbles, room labels, the popover) is a DOM overlay positioned with
+CSSOM, never drawn on the canvas, so it stays crisp, tokenised and accessible; the roster list
+under the stage is the map's accessible twin and opens the same popover. The rAF loop runs only
+while the view is active and the document visible. Clicking an avatar opens a popover (state,
+every current work item with "Open task"/"Open workspace", and "Open agent" for the Agents
+sheet); clicking a room opens its workspace and the review desk opens Review. Arrow keys walk
+"You" when the canvas has focus, Enter talks to the adjacent agent, and walking into a room opens
+its workspace. Project scope is the switcher's exact-match rule; "Open" on out-of-project work
+switches the project first, or Tasks would drop the selection and fall back to compose.
 
 ## Layout, context window & memory
 

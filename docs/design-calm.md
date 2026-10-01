@@ -113,19 +113,22 @@ never markup.
 ## 5. Layout
 
 - **Dock.** A floating bar (`nav.dock`): Tasks, Workspaces, Review (count badge while branches
-  wait), Agents, Settings, a divider, then New task and Search (⌘K). Bottom, left or right, 12px
+  wait), Agents, Office, Settings, a divider, then New task and Search (⌘K). Bottom, left or right, 12px
   from the edge; labels on hover and keyboard focus, or always. `main` pads by `--dock-pad` on the
   dock's side so nothing sits under it. The active item is `--accent-soft` with an `--accent`
   icon. There is no auto-hide.
-- **Header row.** One 44px row above every screen: the project switcher (Tasks, Workspaces and
-  Review only), the screen title, the screen's actions, and the **privacy chip** at the far right.
+- **Header row.** One 44px row above every screen: the project switcher (Tasks, Workspaces,
+  Review and Office only), the screen title, the screen's actions, and the **privacy chip** at the far right.
   On macOS it is the window's drag region and clears the traffic lights.
 - **Panes.** The shell is a fixed viewport and each pane scrolls itself. Tasks: queue ·
   conversation, or the composer in compose state · inspector (Route, Files changed, Activity,
   Context, Attempts; not shown while composing), side panes resizable and collapsible, the centre
   never under 420px. Workspaces: list · thread, participants in a dialog. Review: branches by
-  repo · checks, files and diff. Agents: one table, a sheet on row click. Settings: vertical tabs ·
-  content up to 760px.
+  repo · checks, files and diff. Agents: one table, a sheet on row click. Office: one pixel-art
+  canvas centred in the stage at an integer scale, a DOM overlay for every word on it (name tags,
+  badges, speech bubbles, room labels, popover — all semantic tokens), and the roster list under
+  it; the canvas palette is the `--office-*` block in `tokens.css`, the only colours the themes
+  do not re-tint. Settings: vertical tabs · content up to 760px.
 
 ## 6. Appearance settings
 

@@ -293,6 +293,12 @@ export function refreshAgentDrawer(): void {
   if (openProviderId && agentDrawer.el.open) renderDrawer()
 }
 
+// The Office opens an agent's sheet from its popover; the id is the only thing it knows.
+export function openAgentSheet(providerId: string, trigger?: HTMLElement): void {
+  const provider = snapshot.providers.find((candidate) => candidate.id === providerId)
+  if (provider) openAgentDrawer(provider, trigger)
+}
+
 function openAgentDrawer(provider: SnapshotProvider, trigger?: HTMLElement): void {
   openProviderId = provider.id
   drawerDirty = false

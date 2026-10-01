@@ -1,8 +1,11 @@
 // Provider quota/capacity/session helpers shared across views.
 import type { AppSnapshot, ProxyTask, SessionInfo } from '../../shared/types'
-import { activeSessions, sessionBlocked, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
+import { activeCooldown, providerLimitReached, trackedBudgetPercent, trackedTokens } from '../../shared/provider-capacity'
+import { activeSessions, sessionResetAt, sessionStatusNote, sessionWindowElapsedPercent, sessionWindowLabel, sessionWindowPercent } from '../../shared/sessions'
 import { snapshot } from './state'
 import { countdown } from './ui/format'
+
+export { activeCooldown, providerLimitReached, trackedBudgetPercent, trackedTokens }
 
 export type SnapshotProvider = AppSnapshot['providers'][number]
 
@@ -10,27 +13,8 @@ export function providerName(id?: string): string {
   return snapshot.providers.find((provider) => provider.id === id)?.name ?? 'Routing…'
 }
 
-export function activeCooldown(provider: SnapshotProvider): boolean {
-  return Boolean(provider.runtime.cooldownUntil && Date.parse(provider.runtime.cooldownUntil) > Date.now())
-}
-
-export function trackedTokens(provider: SnapshotProvider): number {
-  const usage = provider.runtime.usage
-  const actual = usage.inputTokens + usage.outputTokens
-  return actual || usage.estimatedInputTokens + usage.estimatedOutputTokens
-}
-
 export function providerSessions(provider: SnapshotProvider): SessionInfo[] {
   return activeSessions(provider.runtime)
-}
-
-export function trackedBudgetPercent(provider: SnapshotProvider): number | undefined {
-  return provider.dailyTokenBudget ? Math.min(100, (trackedTokens(provider) / provider.dailyTokenBudget) * 100) : undefined
-}
-
-export function providerLimitReached(provider: SnapshotProvider): boolean {
-  if (activeCooldown(provider) || (trackedBudgetPercent(provider) ?? 0) >= 100) return true
-  return providerSessions(provider).some((session) => sessionBlocked(session))
 }
 
 // What the app actually knows about a provider's plan window, in the order the

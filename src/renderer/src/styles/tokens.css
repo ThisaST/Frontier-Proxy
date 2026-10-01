@@ -202,3 +202,32 @@
 :root[data-effects='off'][data-family][data-scheme] {
   --glow: none;
 }
+
+/* ---------- 4. Office pixel palette ----------
+   The Office map is drawn on a canvas, so it needs literal colours that no family or scheme
+   re-themes: a flat, muted, Gather-like palette. Theme-independent on :root; the dark scheme
+   darkens only the large surfaces (floor, walls, carpet, furniture) so the map does not glare. */
+:root {
+  --office-floor: #d9c3a0; --office-floor-alt: #d1b995;
+  --office-wall: #efe6d2; --office-wall-top: #b8a98a;
+  --office-carpet: #aebccb;
+  --office-desk: #b98a58; --office-desk-edge: #8f6a40;
+  --office-monitor-off: #4a5059; --office-monitor-on: #8fe0ea;
+  --office-table: #c9a06a; --office-chair: #5d6b82;
+  --office-plant: #5f9a5a; --office-pot: #b4694a;
+  --office-couch: #7b8fb0; --office-coffee: #6b4a35; --office-paper: #f7f3ea;
+  --office-outline: #4a423b; --office-shade: rgb(0 0 0 / .18);
+  --office-skin-1: #f2c9a5; --office-skin-2: #d49a6f; --office-skin-3: #8d5a3b;
+  --office-hair-1: #2b2420; --office-hair-2: #6b4226; --office-hair-3: #c9a45c; --office-hair-4: #a8472e;
+  --office-shirt-1: #6f8fb8; --office-shirt-2: #c97b72; --office-shirt-3: #7fa87f;
+  --office-shirt-4: #d3a95a; --office-shirt-5: #9a86b8; --office-shirt-6: #6fa8a8;
+  --office-pants: #4d5566;
+}
+:root[data-scheme="dark"] {
+  --office-floor: #8a7556; --office-floor-alt: #826d50;
+  --office-wall: #a89d86; --office-wall-top: #6f6551;
+  --office-carpet: #5f6c7a;
+  --office-desk: #8a6540; --office-desk-edge: #65482d;
+  --office-table: #8f7048;
+  --office-outline: #1f1a17;
+}

@@ -1,0 +1,44 @@
+/* ---------- Office: the map stage, its DOM overlay, and the roster under it ---------- */
+.office-stage { flex: 1 1 auto; min-height: 0; position: relative; display: grid; place-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); overflow: hidden; }
+.office-canvas { display: block; image-rendering: pixelated; outline: none; }
+.office-canvas:focus-visible { box-shadow: 0 0 0 3px var(--focus); }
+.office-overlay { position: absolute; inset: 0; pointer-events: none; }
+
+/* Name tags, state badges, speech bubbles and room labels float over the canvas as DOM, so text stays crisp. */
+.office-tag { position: absolute; transform: translate(-50%, 0); padding: 1px var(--s-1); border-radius: var(--r-1); background: var(--surface); border: 1px solid var(--border); color: var(--fg); font: var(--fw-medium) var(--fs-11)/var(--lh-tight) var(--font-sans); white-space: nowrap; }
+.office-badge { position: absolute; transform: translate(-50%, 0); padding: 1px var(--s-1); border-radius: var(--r-1); background: var(--accent-soft); color: var(--accent); font: var(--fw-medium) var(--fs-11)/var(--lh-tight) var(--font-mono); white-space: nowrap; }
+.office-bubble { position: absolute; transform: translate(-50%, -100%); max-width: 200px; padding: var(--s-1) var(--s-2); border-radius: var(--r-2); background: var(--surface); border: 1px solid var(--border-strong); color: var(--fg); font-size: var(--fs-11); line-height: var(--lh-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-room-label { position: absolute; padding: 1px var(--s-1); border-radius: var(--r-1); background: var(--surface); border: 1px solid var(--border); color: var(--fg-muted); font: var(--fw-semibold) var(--fs-11)/var(--lh-tight) var(--font-display); letter-spacing: var(--tracking-label); text-transform: var(--label-transform); }
+
+.office-prompt { position: absolute; left: 50%; bottom: var(--s-3); transform: translateX(-50%); padding: var(--s-1) var(--s-3); border-radius: var(--r-pill); background: var(--surface); border: 1px solid var(--border-strong); box-shadow: var(--shadow-1); color: var(--fg); font-size: var(--fs-12); pointer-events: none; }
+.office-prompt[hidden], .office-popover[hidden] { display: none; }
+
+.office-popover { position: absolute; width: 280px; pointer-events: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-3); box-shadow: var(--shadow-2); padding: var(--s-3); color: var(--fg); font-size: var(--fs-13); line-height: var(--lh-ui); }
+.office-popover .office-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+
+/* The roster is the accessible twin of the map: every agent, its state and what it is doing. */
+/* One scrolling row, not a wrapped grid: every row it wraps into is height the map loses. */
+.office-roster { display: flex; flex-wrap: nowrap; gap: var(--s-2); margin: 0; padding: var(--s-3) 0 var(--s-1); list-style: none; overflow-x: auto; flex: none; }
+.office-roster li { flex: none; }
+.office-roster-item { display: flex; align-items: center; gap: var(--s-2); max-width: 320px; padding: calc(6px * var(--density)) var(--s-3); border: 1px solid var(--border); border-radius: var(--r-2); background: var(--surface); color: var(--fg); font-size: var(--fs-13); line-height: var(--lh-ui); text-align: left; cursor: pointer; transition: background var(--t-fast) var(--ease); }
+.office-roster-item:hover { background: var(--hover); }
+.office-roster-item:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus); }
+.office-roster-name { font-weight: var(--fw-medium); white-space: nowrap; }
+.office-roster-badge { flex: none; color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-12); }
+.office-roster-detail { min-width: 0; color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.office-hint { margin: 0; padding: var(--s-2) 0 0; color: var(--fg-muted); font-size: var(--fs-12); }
+
+.office-tag.is-away, .office-bubble.is-away { color: var(--fg-faint); }
+.office-tag.is-near { border-color: var(--accent); }
+.office-tag.is-you { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--accent-fg); }
+.office-room-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-canvas { touch-action: manipulation; }
+
+.office-popover h3 { margin: 0 0 var(--s-2); font: var(--fw-semibold) var(--fs-14)/var(--lh-tight) var(--font-display); }
+.office-popover-badge { margin: var(--s-2) 0 0; color: var(--accent); font-family: var(--font-mono); font-size: var(--fs-12); }
+.office-popover-reason { margin: var(--s-2) 0 0; color: var(--fg-muted); }
+.office-work { list-style: none; margin: var(--s-2) 0 0; padding: 0; display: grid; gap: var(--s-2); }
+.office-work li { display: grid; gap: 2px; justify-items: start; }
+.office-work-title { font-weight: var(--fw-medium); }
+.office-work .office-activity { color: var(--fg-muted); font-family: var(--font-mono); font-size: var(--fs-12); }

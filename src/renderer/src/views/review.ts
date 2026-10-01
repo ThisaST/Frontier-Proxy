@@ -19,6 +19,10 @@ let reviewDiffRequest = 0
 // cwd, branch and file of the diff on screen, so an unrelated re-render does not refetch and flash it.
 let renderedDiffKey: string | undefined
 
+// Listeners run after every inbox load (the Office view shows the pending count).
+const reviewListeners: Array<() => void> = []
+export function onReviewChange(listener: () => void): void { reviewListeners.push(listener) }
+
 export function setReviewSelection(selection: { cwd: string; branch: string } | undefined): void { reviewSelection = selection }
 export function setReviewFilePath(path: string | undefined): void { reviewFilePath = path }
 
@@ -37,6 +41,7 @@ export async function loadReview(showToastOnError = false): Promise<void> {
     reviewLoaded = true
     if (showToastOnError) reportError('Could not read task branches', error)
   }
+  reviewListeners.forEach((listener) => listener())
 }
 
 function selectedBranch(): TaskBranch | undefined {
@@ -263,8 +268,13 @@ export function renderReview(): void {
 
 // The dock's Review badge: unmerged branches in the current project, hidden at zero. Its own
 // writer (it used to be a side effect of renderHome), called from loadReview and every render.
+// Unmerged branches in the current project scope.
+export function reviewPendingCount(): number {
+  return reviewRepos.filter((repo) => projectMatches(repo.cwd)).reduce((sum, repo) => sum + repo.branches.filter((branch) => !branch.merged).length, 0)
+}
+
 export function renderReviewBadge(): void {
-  const count = reviewRepos.filter((repo) => projectMatches(repo.cwd)).reduce((sum, repo) => sum + repo.branches.filter((branch) => !branch.merged).length, 0)
+  const count = reviewPendingCount()
   const badge = byId('nav-review-count')
   badge.hidden = count === 0
   badge.textContent = String(count)

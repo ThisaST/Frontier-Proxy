@@ -8,7 +8,8 @@
 // never touch this file.
 import { renderMarkdown } from './markdown'
 import { openBranchInReview, switchView } from './main'
-import { onProjectChange, projectMatches } from './project'
+import { onProjectChange, projectMatches, setCurrentProject } from './project'
+import { snapshot as stateSnapshot } from './state'
 import { avatar, fieldLabel, restoreFocusOnClose, sectionTitle, status } from './ui/components'
 import { byId, element } from './ui/dom'
 import { icon, type IconName } from './ui/icons'
@@ -889,6 +890,17 @@ wsComposerInput.addEventListener('keydown', (event) => {
 wsComposerInput.addEventListener('blur', () => window.setTimeout(closeWsMentions, 120))
 
 // ---- Public surface main.ts wires up ----
+
+// The Office opens a workspace by id. One outside the project scope switches the project first, or
+// renderWorkspaceView would drop the selection as soon as it filters the list.
+export function openWorkspace(workspaceId: string): void {
+  const workspace = (latestSnapshot ?? stateSnapshot)?.workspaces.find((candidate) => candidate.id === workspaceId)
+  if (workspace && !projectMatches(workspace.cwd)) setCurrentProject(workspace.cwd)
+  selectedWorkspaceId = workspaceId
+  lastThreadRender = { id: '', length: -1 }
+  closeRosterMenu()
+  switchView('workspace')
+}
 
 // Called from `switchView`'s workspace case and from `render()`'s snapshot re-render
 // path — safe to call repeatedly; it no-ops wherever nothing changed.

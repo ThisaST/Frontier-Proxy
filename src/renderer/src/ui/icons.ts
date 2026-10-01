@@ -3,7 +3,7 @@
 // Only the icons actually used are imported by name so the bundle only carries
 // those.
 import {
-  AlertTriangle as TriangleAlert, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Clock,
+  AlertTriangle as TriangleAlert, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Clock,
   Command, Cpu, Eye, FileText, Folder, FolderOpen, GitBranch, House, ListChecks, LoaderCircle, Maximize2,
   Merge, Minimize2, MessagesSquare, MoreHorizontal, Palette, PanelBottom, PanelLeft, PanelRight, PanelRightClose, Paperclip, Plug, Plus, Radar, RefreshCw, Scale,
   Search, Settings, Sparkle, Terminal, Trash2, Users, UserPlus, Wrench, X
@@ -15,6 +15,7 @@ const ICONS = {
   workspace: MessagesSquare,
   review: GitBranch,
   agents: Cpu,
+  office: Building2,
   control: Plug,
   skills: Sparkle,
   routing: Radar,

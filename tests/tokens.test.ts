@@ -83,3 +83,25 @@ describe('token layer v2', () => {
     }
   })
 })
+
+const OFFICE_TOKENS = [
+  '--office-floor', '--office-floor-alt', '--office-wall', '--office-wall-top', '--office-carpet', '--office-desk', '--office-desk-edge',
+  '--office-monitor-off', '--office-monitor-on', '--office-table', '--office-chair', '--office-plant', '--office-pot', '--office-couch',
+  '--office-coffee', '--office-paper', '--office-outline', '--office-shade', '--office-skin-1', '--office-skin-2', '--office-skin-3',
+  '--office-hair-1', '--office-hair-2', '--office-hair-3', '--office-hair-4', '--office-shirt-1', '--office-shirt-2', '--office-shirt-3',
+  '--office-shirt-4', '--office-shirt-5', '--office-shirt-6', '--office-pants'
+]
+const OFFICE_DARK = ['--office-floor', '--office-floor-alt', '--office-wall', '--office-wall-top', '--office-carpet', '--office-desk', '--office-desk-edge', '--office-table', '--office-outline']
+
+describe('office pixel palette', () => {
+  it('defines every office token on :root and the dark overrides resolve', () => {
+    const base = rules.find((rule) => rule.selector === ':root' && '--office-floor' in rule.decls)?.decls ?? {}
+    expect(OFFICE_TOKENS.filter((name) => !base[name])).toEqual([])
+    for (const attrs of VARIANTS) {
+      const tokens = resolveTokens(rules, attrs)
+      expect(OFFICE_TOKENS.filter((name) => !tokens[name]), JSON.stringify(attrs)).toEqual([])
+      const dark = attrs['data-scheme'] === 'dark'
+      for (const name of OFFICE_DARK) expect(tokens[name] !== base[name], `${name} ${JSON.stringify(attrs)}`).toBe(dark)
+    }
+  })
+})

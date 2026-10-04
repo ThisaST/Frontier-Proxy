@@ -1,5 +1,11 @@
 # frontier-proxy
 
+## 0.11.0
+
+### Minor Changes
+
+- [#28](https://github.com/ThisaST/Frontier-Proxy/pull/28) [`afb893c`](https://github.com/ThisaST/Frontier-Proxy/commit/afb893c0dc80a95fc5c6c26f82722665b916a66f) Thanks [@ThisaST](https://github.com/ThisaST)! - New **Office** section: a Gather-style pixel-art map of where every agent is right now. Each configured agent is an avatar whose place is its state — at its desk while it runs a task (monitor lit, a speech bubble with its latest tool call), around a meeting-room table with the other participants of a workspace thread (wearing that participant's `@handle · role` tag), waiting by the door for a free slot, lounging when idle, or greyed out in the away area with the reason when it is cooling down, over a usage limit, logged out, not detected or disabled. A review desk stacks the branches waiting in Review. Agents walk between zones as their state changes (and snap when effects are off); you have an avatar too — arrow keys walk, Enter talks to the agent next to you, and stepping into a room opens that workspace. Clicking an avatar opens a card with what it is doing and buttons to open the task, workspace or agent sheet; clicking a room or the review desk opens that screen; and the roster under the map is its accessible twin.
+
 ## 0.10.0
 
 ### Minor Changes

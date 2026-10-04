@@ -46,6 +46,15 @@ describe('renderer source scan: provider kinds', () => {
     expect(source).not.toMatch(KIND_LITERAL)
   })
 
+  it('the Office model, grid and simulation never read a provider kind', () => {
+    for (const file of ['office-model.ts', 'office-grid.ts', 'office-sim.ts']) {
+      const source = readFileSync(fileURLToPath(new URL(`../src/shared/${file}`, import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+      expect(source, file).not.toMatch(PROVIDER_KIND_ACCESS)
+      expect(source, file).not.toMatch(/\bProviderKind\b/)
+      expect(source, file).not.toMatch(KIND_LITERAL)
+    }
+  })
+
   it('provider.kind is read only by the files that describe a provider', () => {
     const readers = files.filter((file) => PROVIDER_KIND_ACCESS.test(read(file)))
     expect(readers.filter((file) => !PROVIDER_KIND_ALLOWED.includes(file))).toEqual([])

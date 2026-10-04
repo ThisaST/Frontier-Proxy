@@ -1,8 +1,8 @@
-// Navigation ids (ui-plan §5). The dock carries five sections. Home was folded into Tasks in P4:
+// Navigation ids (ui-plan §5). The dock carries six sections. Home was folded into Tasks in P4:
 // its old id resolves to Tasks in compose state. Routing, Context & Tools and Skills moved into
 // Settings as tabs, but every old id still resolves, so `switchView('routing')` and friends keep
 // working for every caller. Pure: no DOM, unit-tested in tests/nav.test.ts.
-export const VIEWS = ['tasks', 'workspace', 'review', 'agents', 'settings'] as const
+export const VIEWS = ['tasks', 'workspace', 'review', 'agents', 'office', 'settings'] as const
 export type ViewId = typeof VIEWS[number]
 
 export const SETTINGS_TABS = ['general', 'appearance', 'routing', 'control', 'skills', 'verification'] as const

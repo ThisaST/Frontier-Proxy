@@ -18,6 +18,7 @@
         <button type="button" class="nav-item dock-item" data-view="workspace" data-label="Workspaces" aria-label="Workspaces"><span class="dock-icon" data-icon="workspace" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">Workspaces</span></button>
         <button type="button" class="nav-item dock-item" data-view="review" data-label="Review" aria-label="Review"><span class="dock-icon" data-icon="review" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">Review</span><span id="nav-review-count" class="badge" aria-hidden="true" hidden>0</span></button>
         <button type="button" class="nav-item dock-item" data-view="agents" data-label="Agents" aria-label="Agents"><span class="dock-icon" data-icon="agents" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">Agents</span></button>
+        <button type="button" class="nav-item dock-item" data-view="office" data-label="Office" aria-label="Office"><span class="dock-icon" data-icon="office" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">Office</span></button>
         <button type="button" class="nav-item dock-item" data-view="settings" data-label="Settings" aria-label="Settings"><span class="dock-icon" data-icon="settings" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">Settings</span></button>
         <span class="dock-divider" role="separator"></span>
         <button type="button" id="new-task-button" class="dock-item dock-new" data-label="New task" aria-label="New task" aria-keyshortcuts="Meta+N"><span class="dock-plus" data-icon="plus" data-icon-size="18" aria-hidden="true"></span><span class="dock-label">New</span></button>
@@ -355,6 +356,18 @@
           </header>
           <div id="agent-drawer-body" class="sheet-body agents-sheet-body"></div>
         </dialog>
+
+        <!-- Office: a top-down map of where every agent is right now (views/office.ts) -->
+        <section id="office-view" class="view">
+          <div id="office-stage" class="office-stage">
+            <canvas id="office-canvas" class="office-canvas" tabindex="0" role="application" aria-roledescription="office map" aria-describedby="office-roster"></canvas>
+            <div id="office-overlay" class="office-overlay" aria-hidden="true"></div>
+            <div id="office-prompt" class="office-prompt" hidden></div>
+            <div id="office-popover" class="office-popover" role="dialog" aria-labelledby="office-popover-title" hidden></div>
+          </div>
+          <ul id="office-roster" class="office-roster" aria-label="Agents in the office"></ul>
+          <p class="office-hint">Click an agent, or focus the office and walk with the arrow keys. Enter talks to the agent next to you.</p>
+        </section>
 
         <!-- Settings (ui-plan §6.3): a vertical tab list and one panel per tab. Routing, Context &
              Tools and Skills are the former screens, mounted here as panels (their ids kept) and

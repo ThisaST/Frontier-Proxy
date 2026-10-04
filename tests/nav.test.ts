@@ -8,6 +8,7 @@ describe('resolveView (ui-plan §5): every old id still lands somewhere', () => 
     ['workspace', { view: 'workspace' }],
     ['review', { view: 'review' }],
     ['agents', { view: 'agents' }],
+    ['office', { view: 'office' }],
     ['settings', { view: 'settings' }],
     ['routing', { view: 'settings', tab: 'routing' }],
     ['control', { view: 'settings', tab: 'control' }],
@@ -32,8 +33,8 @@ describe('resolveView (ui-plan §5): every old id still lands somewhere', () => 
     expect(resolveView(id)).toBeUndefined()
   })
 
-  it('the dock carries exactly the five sections; home is not one of them since P4', () => {
-    expect(VIEWS).toEqual(['tasks', 'workspace', 'review', 'agents', 'settings'])
+  it('the dock carries exactly the six sections; home is not one of them since P4', () => {
+    expect(VIEWS).toEqual(['tasks', 'workspace', 'review', 'agents', 'office', 'settings'])
     expect((VIEWS as readonly string[]).includes('home')).toBe(false)
   })
 

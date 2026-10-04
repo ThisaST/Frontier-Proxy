@@ -1,5 +1,5 @@
-// The project switcher: which repo (cwd) the Tasks list, Review inbox, and
-// Workspaces list are scoped to, and the working directory the Tasks composer
+// The project switcher: which repo (cwd) the Tasks list, Review inbox,
+// Workspaces list and Office are scoped to, and the working directory the Tasks composer
 // and the ⌘N dialog pre-fill. Unset ("All projects") behaves exactly as
 // before this module existed. Every localStorage access is wrapped in
 // try/catch (private mode, disabled storage).

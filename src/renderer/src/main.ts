@@ -14,6 +14,7 @@ import { renderTasks, applyQueueWidth, applyInspectorWidth, applyInspectorState,
 import { initComposeView } from './views/compose'
 import { renderReview, renderReviewBadge, loadReview, setReviewSelection, setReviewFilePath, initReviewView } from './views/review'
 import { renderAgentsView, refreshAgentDrawer, initAgentsView } from './views/agents'
+import { initOfficeView, renderOfficeView, startOfficeLoop, stopOfficeLoop } from './views/office'
 import { initControlView } from './views/control'
 import { initSkillsView } from './views/skills'
 import { renderRouting, initRoutingView } from './views/routing'
@@ -33,6 +34,7 @@ const HEADER: Record<ViewId, { title: string; actions?: string[]; project?: bool
   workspace: { title: 'Workspaces', actions: ['workspace-participants-button'], project: true },
   review: { title: 'Review', actions: ['review-refresh'], project: true },
   agents: { title: 'Agents', actions: ['health-check', 'add-provider'] },
+  office: { title: 'Office', project: true },
   settings: { title: 'Settings' }
 }
 
@@ -64,6 +66,7 @@ function render(): void {
   if (currentView === 'agents') renderAgentsView()
   if (currentView === 'review') renderReview()
   if (currentView === 'workspace') renderWorkspaceView(snapshot)
+  if (currentView === 'office') renderOfficeView()
   if (currentView === 'settings' && currentSettingsTab === 'routing') renderRouting()
 }
 
@@ -76,7 +79,7 @@ export function openBranchInReview(cwd: string, branch: string): void {
   switchView('review')
 }
 
-// Accepts every id nav.ts resolves: the five sections, legacy `home` (Tasks in compose state), and
+// Accepts every id nav.ts resolves: the six sections, legacy `home` (Tasks in compose state), and
 // a Settings tab id (the old `routing`, `control` and `skills` screens included). `tab` picks a
 // Settings tab explicitly.
 export function switchView(id: string, tab?: SettingsTab): void {
@@ -102,6 +105,7 @@ export function switchView(id: string, tab?: SettingsTab): void {
   if (view === 'tasks') { renderTasks(); applyQueueWidth(); applyInspectorWidth(); applyInspectorState() }
   if (view === 'review') { renderReview(); void loadReview(true) }
   if (view === 'workspace') renderWorkspaceView(snapshot)
+  if (view === 'office') { renderOfficeView(); startOfficeLoop() } else stopOfficeLoop()
 }
 
 initTheme()
@@ -117,6 +121,7 @@ initReviewView()
 initTasksView()
 initComposeView()
 initAgentsView()
+initOfficeView()
 initSkillsView()
 initCommandPalette()
 initComposerInputs()

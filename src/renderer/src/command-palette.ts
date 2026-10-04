@@ -35,6 +35,7 @@ function commandPaletteEntries(query: string): CommandPaletteEntry[] {
     { icon: 'workspace', label: 'Go to Workspaces', detail: 'Long-lived, per-repo conversations', keywords: 'navigate collaborate participants', run: () => switchView('workspace') },
     { icon: 'review', label: 'Go to Review', detail: 'Branches waiting to be merged', keywords: 'navigate merge branches', run: () => switchView('review') },
     { icon: 'agents', label: 'Go to Agents', detail: 'Installed CLIs and their usage', keywords: 'navigate providers models usage', run: () => switchView('agents') },
+    { icon: 'office', label: 'Go to Office', detail: 'Where every agent is right now', keywords: 'navigate office map avatars agents', run: () => switchView('office') },
     { icon: 'settings', label: 'Go to Settings', detail: 'Scheduling, notifications and memory', keywords: 'navigate preferences general', run: () => switchView('settings', 'general') },
     { icon: 'routing', label: 'Go to Routing', detail: 'Settings: routing policy, the Jev advisor, and insights', keywords: 'navigate advisor jev policy', run: () => switchView('routing') },
     { icon: 'control', label: 'Go to Context & Tools', detail: 'Settings: MCP, permissions, and shared context', keywords: 'navigate mcp control plane', run: () => switchView('control') },
